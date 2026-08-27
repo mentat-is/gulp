@@ -18,12 +18,15 @@ import {
 	EVENT_MAXIMUM_SOURCE_HANDLE,
 	EVENT_PAGE_SIZE,
 	EVENT_PENDING_DOCUMENT_LIMIT,
-	type EventSourceManifest,
+	type EventSourceHeadManifest,
+	type EventSourceQueryCacheActivation,
+	type EventSourceQueryCacheReconciliation,
 	type EventSourceSummary,
 	type EventStoreNamespace,
 } from "@/event-store/EventStore.types";
 import { IndexedDbEventStoreBackend } from "@/event-store/IndexedDbEventStore.backend";
 import type { Doc } from "@/entities/Doc";
+import { cloneQueryForCache } from "@/entities/QueryCache";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
 import type {
@@ -59,6 +62,10 @@ interface QueryPersistenceRepository {
 	cleanupObsoleteGenerations?: (sourceId: Source.Id) => Promise<void>;
 	cancelGeneration(sourceId: Source.Id, generation: number): Promise<void>;
 	clearSource(sourceId: Source.Id): Promise<void>;
+	/** Invalidates cached query generations while preserving source authority. */
+	resetQueryCachePool(
+		sourceId: Source.Id,
+	): Promise<EventSourceSummary | null>;
 	upsertDocuments?: (
 		input: UpsertDocumentsInput,
 	) => Promise<EventSourceSummary[]>;
@@ -66,6 +73,19 @@ interface QueryPersistenceRepository {
 		sourceId: Source.Id,
 		generation: number,
 	) => Promise<EventSourceSummary>;
+	/** Selects an exact startup cache or the latest reusable fallback. */
+	reconcileQueryCache(input: {
+		sourceId: Source.Id;
+		queryFingerprint: string;
+	}): Promise<EventSourceQueryCacheReconciliation | null>;
+	/** Activates the preceding source-local cache generation. */
+	undoQueryCache(
+		sourceId: Source.Id,
+	): Promise<EventSourceQueryCacheActivation | null>;
+	/** Activates the following source-local cache generation. */
+	redoQueryCache(
+		sourceId: Source.Id,
+	): Promise<EventSourceQueryCacheActivation | null>;
 	close(): void;
 }
 
@@ -124,8 +144,8 @@ interface OperationPersistenceContext {
 	manifests: Map<Source.Id, StoredEventSourceManifest>;
 }
 
-interface StoredEventSourceManifest extends EventSourceManifest {
-	rollback?: EventSourceManifest;
+interface StoredEventSourceManifest extends EventSourceHeadManifest {
+	rollback?: EventSourceHeadManifest;
 }
 
 interface ReplaceSourceContext {
@@ -481,6 +501,123 @@ export class QueryPersistenceCoordinator {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Selects one reusable startup cache while holding the source mutation lease.
+	 * @param input Operation, source, and desired semantic query fingerprint.
+	 * @returns Exact or latest cache activation, or null when no cache is reusable.
+	 */
+	public reconcileSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		queryFingerprint: string;
+	}): Promise<EventSourceQueryCacheReconciliation | null> {
+		return this.runSourceCacheMutation(
+			input.operationId,
+			input.sourceId,
+			(repository) =>
+				repository.reconcileQueryCache({
+					sourceId: input.sourceId,
+					queryFingerprint: input.queryFingerprint,
+				}),
+			(result) => result?.summary ?? null,
+		);
+	}
+
+	/**
+	 * Moves one source-local cache history cursor under the source mutation lease.
+	 * @param input Operation, source, and Undo or Redo direction.
+	 * @returns Activated cache, or null at the selected history boundary.
+	 */
+	public navigateSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		direction: "undo" | "redo";
+	}): Promise<EventSourceQueryCacheActivation | null> {
+		return this.runSourceCacheMutation(
+			input.operationId,
+			input.sourceId,
+			(repository) =>
+				input.direction === "undo"
+					? repository.undoQueryCache(input.sourceId)
+					: repository.redoQueryCache(input.sourceId),
+			(result) => result?.summary ?? null,
+		);
+	}
+
+	/**
+	 * Deletes one source's complete cache pool before an authoritative rebuild.
+	 * @param operationId Operation owning the persisted source.
+	 * @param sourceId Source whose cache generations must be removed.
+	 * @returns Promise resolved after bounded repository cleanup finishes.
+	 */
+	public async clearSourceQueryCache(
+		operationId: string,
+		sourceId: Source.Id,
+	): Promise<void> {
+		await this.runSourceCacheMutation(
+			operationId,
+			sourceId,
+			(repository) => repository.resetQueryCachePool(sourceId),
+			(summary) => summary,
+		);
+	}
+
+	/**
+	 * Deletes the complete EventStore state for a source removed from the backend.
+	 * @param operationId Operation owning the source-specific IndexedDB namespace.
+	 * @param sourceId Removed source whose head, caches, pages, and indexes are deleted.
+	 * @returns Promise resolved after bounded physical cleanup finishes.
+	 */
+	public async deleteSourceEventStore(
+		operationId: string,
+		sourceId: Source.Id,
+	): Promise<void> {
+		await this.runSourceCacheMutation(
+			operationId,
+			sourceId,
+			(repository) => repository.clearSource(sourceId),
+			() => null,
+		);
+	}
+
+	/**
+	 * Serializes one cache mutation with query persistence and publishes its revision.
+	 * @param operationId Operation owning the source-specific IndexedDB namespace.
+	 * @param sourceId Source whose mutation lease must be held.
+	 * @param mutation Repository mutation to run beneath the lease and commit permit.
+	 * @param getSummary Extracts a committed summary for cross-realm publication.
+	 * @returns Repository mutation result after the in-memory manifest is refreshed.
+	 */
+	private async runSourceCacheMutation<TResult>(
+		operationId: string,
+		sourceId: Source.Id,
+		mutation: (
+			repository: QueryPersistenceRepository,
+		) => Promise<TResult>,
+		getSummary: (result: TResult) => EventSourceSummary | null,
+	): Promise<TResult> {
+		if (this.destroyed) throw new Error("Query persistence is destroyed.");
+		const pendingRelease = this.operationReleasePromises.get(operationId);
+		if (pendingRelease) await pendingRelease;
+		this.beginOperationRegistration(operationId);
+		let releases: Array<() => void> = [];
+		try {
+			releases = await this.acquireSourceLeases(operationId, [sourceId]);
+			const operation = await this.getOperation(operationId);
+			await this.refreshDeclaredSourceManifests(operation, [sourceId]);
+			const result = await this.withCommitSlot(() =>
+				mutation(operation.repository),
+			);
+			await this.refreshDeclaredSourceManifests(operation, [sourceId]);
+			const summary = getSummary(result);
+			if (summary) operation.revisionBus.publish(summary);
+			return result;
+		} finally {
+			for (const release of releases.reverse()) release();
+			this.endOperationRegistration(operationId);
+		}
 	}
 
 	/**
@@ -1262,6 +1399,20 @@ export class QueryPersistenceCoordinator {
 						),
 					)
 				: undefined,
+			queryCache: descriptor.queryCache
+				? {
+						...descriptor.queryCache,
+						query: cloneQueryForCache(descriptor.queryCache.query),
+						requestedFrame: { ...descriptor.queryCache.requestedFrame },
+						normalization: {
+							...descriptor.queryCache.normalization,
+							requestedFields: [
+								...descriptor.queryCache.normalization.requestedFields,
+							],
+						},
+						serverSnapshot: { ...descriptor.queryCache.serverSnapshot },
+					}
+				: undefined,
 		};
 	}
 
@@ -1388,17 +1539,13 @@ export class QueryPersistenceCoordinator {
 	): Promise<void> {
 		await this.waitForAll(
 			context.sourceIds.map(async (sourceId) => {
-				const current = context.operation.manifests.get(sourceId);
-				const generation = Math.max(
-					(current?.generation ?? 0) + 1,
-					this.now(),
-				);
 				const summary = await this.withCommitSlot(() =>
 					context.operation.repository.beginGeneration({
 						sourceId,
-						generation,
+						queryCache: context.descriptor.queryCache,
 					}),
 				);
+				const generation = summary.generation;
 				context.replaceSources.set(sourceId, {
 					sourceId,
 					generation,
@@ -1928,12 +2075,17 @@ export class QueryPersistenceCoordinator {
 			sourceId: manifest.sourceId,
 			generation: manifest.generation,
 			revision: manifest.revision,
+			authorityRevision: manifest.authorityRevision,
 			status: manifest.status,
 			eventCount: manifest.eventCount,
 			minTimestamp: manifest.minTimestamp,
 			maxTimestamp: manifest.maxTimestamp,
 			hashMin: manifest.hashMin,
 			hashMax: manifest.hashMax,
+			activeCacheGeneration: manifest.activeCacheGeneration,
+			cacheHistory: [...manifest.cacheHistory],
+			cacheHistoryCursor: manifest.cacheHistoryCursor,
+			nextGeneration: manifest.nextGeneration,
 		};
 		context.operation.revisionBus.publish(summary);
 		this.publishSourceSummary(context, summary);

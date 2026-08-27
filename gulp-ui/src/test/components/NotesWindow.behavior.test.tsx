@@ -7,6 +7,7 @@ import type { Glyph } from "@/entities/Glyph";
 import type { Note } from "@/entities/Note";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import type { User } from "@/entities/User";
 import { DataStore } from "@/store/DataStore";
 import { NotesWindow } from "@/components/NotesWindow";
@@ -313,6 +314,8 @@ function createSource(
 		selected,
 		operation_id: OPERATION_ID,
 		context_id: CONTEXT_ID,
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 	} as Source.Type;
 }
 

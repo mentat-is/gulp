@@ -53,6 +53,11 @@ import { toast } from "sonner";
 import { Locale } from "@/locales";
 import { requestStore } from "@/store/request.store";
 import { DataStore } from "@/store/DataStore";
+import type { Query } from "./Query";
+import {
+	createEmptyQueryCacheState,
+	type QueryCacheState,
+} from "./QueryCache";
 
 export namespace Source {
 	export const name = "Source";
@@ -98,6 +103,10 @@ export namespace Source {
 		timestamp: MinMax;
 		nanotimestamp: MinMax<bigint>;
 		total: number;
+		/** Query that produced the EventStore generation currently shown for this source. */
+		appliedQuery: Query.Type | null;
+		/** Browser-local IndexedDB query-cache navigation and freshness state. */
+		queryCache: QueryCacheState;
 		_sampleDataCached: {
 			frequency_sample: number;
 			min_timestamp: number;
@@ -161,6 +170,23 @@ export namespace Source {
 				app.target.files.filter((source) => source.selected),
 			);
 		};
+
+		/**
+		 * Serializes the applied queries owned by source objects into persisted maps.
+		 * @param sources Sources whose active query snapshots should be exported.
+		 * @returns Query snapshots keyed by source id.
+		 */
+		public static appliedQueries = (
+			sources: readonly Source.Type[],
+		): Record<Source.Id, Query.Type> =>
+			Object.fromEntries(
+				sources
+					.filter(
+						(source): source is Source.Type & { appliedQuery: Query.Type } =>
+							Boolean(source.appliedQuery),
+					)
+					.map((source) => [source.id, source.appliedQuery]),
+			) as Record<Source.Id, Query.Type>;
 
 		/**
 		 * Returns the source rows rendered on the Canvas timeline.
@@ -381,6 +407,8 @@ export namespace Source {
 			plugin: "",
 			owner_user_id: app.general.user?.id!,
 			pinned: false,
+			appliedQuery: null,
+			queryCache: createEmptyQueryCacheState(),
 			_sampleDataCached: {
 				frequency_sample: Internal.Settings.default.frequency_sample,
 				min_timestamp: 0,
@@ -399,6 +427,13 @@ export namespace Source {
 				.map((id) => Source.Entity.id(app, id as Source.Id))
 				.filter((f) => f);
 
+		/**
+		 * Normalizes backend source metadata while preserving client-owned state.
+		 * @param app Application containing any existing source instance.
+		 * @param file Backend source object to normalize.
+		 * @param details Optional aggregate count and nanosecond range metadata.
+		 * @returns Canonical runtime source with query provenance and cache state intact.
+		 */
 		public static normalize = (
 			app: App.Type,
 			file: Source.Type,
@@ -441,6 +476,9 @@ export namespace Source {
 				pinned: file.pinned ?? exist.pinned ?? false,
 				settings,
 				total: file.total ?? details?.doc_count ?? 0,
+				appliedQuery: file.appliedQuery ?? exist.appliedQuery ?? null,
+				queryCache:
+					file.queryCache ?? exist.queryCache ?? createEmptyQueryCacheState(),
 				// @ts-ignore
 				nanotimestamp,
 				timestamp,

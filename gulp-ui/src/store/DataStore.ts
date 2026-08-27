@@ -415,14 +415,17 @@ export class DataStore {
 		const currentSummary = DataStore.eventSourceSummaries.get(summary.sourceId);
 		if (
 			currentSummary &&
-			(summary.generation < currentSummary.generation ||
-				(summary.generation === currentSummary.generation &&
-					summary.revision < currentRevision))
+			(summary.authorityRevision < currentSummary.authorityRevision ||
+				(summary.authorityRevision === currentSummary.authorityRevision &&
+					(summary.generation < currentSummary.generation ||
+						(summary.generation === currentSummary.generation &&
+							summary.revision < currentRevision))))
 		) {
 			return currentSummary ?? summary;
 		}
 		if (
 			currentSummary &&
+			currentSummary.authorityRevision === summary.authorityRevision &&
 			currentSummary.generation === summary.generation &&
 			currentSummary.revision === summary.revision &&
 			currentSummary.status === summary.status &&
@@ -430,7 +433,15 @@ export class DataStore {
 			currentSummary.minTimestamp === summary.minTimestamp &&
 			currentSummary.maxTimestamp === summary.maxTimestamp &&
 			currentSummary.hashMin === summary.hashMin &&
-			currentSummary.hashMax === summary.hashMax
+			currentSummary.hashMax === summary.hashMax &&
+			currentSummary.activeCacheGeneration ===
+				summary.activeCacheGeneration &&
+			currentSummary.cacheHistoryCursor === summary.cacheHistoryCursor &&
+			currentSummary.nextGeneration === summary.nextGeneration &&
+			currentSummary.cacheHistory.length === summary.cacheHistory.length &&
+			currentSummary.cacheHistory.every(
+				(generation, index) => generation === summary.cacheHistory[index],
+			)
 		) {
 			return currentSummary;
 		}

@@ -6,6 +6,7 @@ import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import { FilterFileBanner } from "@/banners/FilterFile.banner";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -27,6 +28,8 @@ const mockSource = {
 	time_updated: 10,
 	settings: { offset: 0 },
 	nanotimestamp: { min: BigInt(1), max: BigInt(100) },
+	appliedQuery: null,
+	queryCache: createEmptyQueryCacheState(),
 } as Source.Type;
 
 const mockApp = {
@@ -34,7 +37,6 @@ const mockApp = {
 		files: [mockSource],
 		operations: [{ id: OPERATION_ID, selected: true }],
 		contexts: [],
-		filters: {},
 	},
 	timeline: {
 		frame: { min: 1, max: 100 },

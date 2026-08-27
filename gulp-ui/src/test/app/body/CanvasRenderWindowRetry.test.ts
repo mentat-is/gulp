@@ -47,6 +47,7 @@ describe("Canvas render-window retry policy", () => {
 
 	it("rejects count mismatches only for the exact committed revision", () => {
 		const summary = {
+			authorityRevision: 2,
 			generation: 2,
 			revision: 12,
 			status: "complete" as const,
@@ -68,12 +69,14 @@ describe("Canvas render-window retry policy", () => {
 
 	it("accepts a coherent building snapshot that advances within the current generation", () => {
 		const summary = {
+			authorityRevision: 7,
 			generation: 3,
 			revision: 12,
 			status: "building" as const,
 			eventCount: 120_000,
 		};
 		const projection = {
+			sourceAuthorityRevision: 7,
 			sourceGeneration: 3,
 			sourceRevision: 11,
 			sourceStatus: "building" as const,
@@ -81,12 +84,14 @@ describe("Canvas render-window retry policy", () => {
 		};
 		expect(
 			isCanvasRenderWindowSourceAcceptable(projection, summary, {
+				authorityRevision: 7,
 				generation: 3,
 				revision: 10,
 			}),
 		).toBe(true);
 		expect(
 			isCanvasRenderWindowSourceAcceptable(projection, summary, {
+				authorityRevision: 7,
 				generation: 3,
 				revision: 11,
 			}),
@@ -95,6 +100,7 @@ describe("Canvas render-window retry policy", () => {
 
 	it("rejects obsolete generations and requires exact terminal authority", () => {
 		const summary = {
+			authorityRevision: 8,
 			generation: 4,
 			revision: 20,
 			status: "complete" as const,
@@ -103,6 +109,7 @@ describe("Canvas render-window retry policy", () => {
 		expect(
 			isCanvasRenderWindowSourceAcceptable(
 				{
+					sourceAuthorityRevision: 8,
 					sourceGeneration: 3,
 					sourceRevision: 20,
 					sourceStatus: "building",
@@ -115,6 +122,7 @@ describe("Canvas render-window retry policy", () => {
 		expect(
 			isCanvasRenderWindowSourceAcceptable(
 				{
+					sourceAuthorityRevision: 8,
 					sourceGeneration: 4,
 					sourceRevision: 20,
 					sourceStatus: "complete",
@@ -124,5 +132,43 @@ describe("Canvas render-window retry policy", () => {
 				undefined,
 			),
 		).toBe(true);
+	});
+
+	it("accepts Undo to an older physical generation when logical authority advances", () => {
+		const summary = {
+			authorityRevision: 11,
+			generation: 1,
+			revision: 12,
+			status: "complete" as const,
+			eventCount: 10,
+		};
+		const projection = {
+			sourceAuthorityRevision: 11,
+			sourceGeneration: 1,
+			sourceRevision: 12,
+			sourceStatus: "complete" as const,
+			loadedCount: 10,
+		};
+
+		expect(
+			isCanvasRenderWindowSourceAcceptable(projection, summary, {
+				authorityRevision: 10,
+				generation: 5,
+				revision: 30,
+			}),
+		).toBe(true);
+		expect(
+			isCanvasRenderWindowSourceAcceptable(
+				{
+					...projection,
+					sourceAuthorityRevision: 10,
+					sourceGeneration: 9,
+					sourceRevision: 99,
+					sourceStatus: "building",
+				},
+				summary,
+				undefined,
+			),
+		).toBe(false);
 	});
 });

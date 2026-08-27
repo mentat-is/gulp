@@ -19,6 +19,7 @@ import {
 	type EncodedEventPageHeight,
 	type EncodedEventPageLod,
 	type EventPageCatalogEntry,
+	type EventSourceHeadManifest,
 	type EventSourceManifest,
 } from "./EventStore.types";
 
@@ -232,7 +233,7 @@ export class EventStoreViewportProjector {
 		) {
 			throw new RangeError("Override preparation descriptor is malformed.");
 		}
-		const manifest = await this.backend.get<EventSourceManifest>(
+		const manifest = await this.backend.get<EventSourceHeadManifest>(
 			"sources",
 			descriptor.sourceId,
 		);
@@ -316,7 +317,7 @@ export class EventStoreViewportProjector {
 		isCurrent: EventStoreProjectionGuard,
 	): Promise<RenderWindowSourceProjection> {
 		this.assertProjectionCurrent(isCurrent);
-		const manifest = await this.backend.get<EventSourceManifest>(
+		const manifest = await this.backend.get<EventSourceHeadManifest>(
 			"sources",
 			source.sourceId,
 		);
@@ -383,6 +384,7 @@ export class EventStoreViewportProjector {
 
 		return {
 			sourceId: source.sourceId,
+			sourceAuthorityRevision: manifest.authorityRevision,
 			sourceGeneration: manifest.generation,
 			sourceRevision: manifest.revision,
 			sourceStatus: manifest.status,
@@ -1312,7 +1314,7 @@ export class EventStoreViewportProjector {
 	): Promise<void> {
 		for (const projection of projections) {
 			this.assertProjectionCurrent(isCurrent);
-			const current = await this.backend.get<EventSourceManifest>(
+			const current = await this.backend.get<EventSourceHeadManifest>(
 				"sources",
 				projection.sourceId,
 			);
@@ -1327,6 +1329,9 @@ export class EventStoreViewportProjector {
 			}
 			const generationChanged =
 				(current?.generation ?? 0) !== projection.sourceGeneration;
+			const authorityChanged =
+				(current?.authorityRevision ?? 0) !==
+				projection.sourceAuthorityRevision;
 			const revisionMovedBackwards =
 				(current?.revision ?? 0) < projection.sourceRevision;
 			const terminalChanged =
@@ -1334,7 +1339,12 @@ export class EventStoreViewportProjector {
 				((current?.revision ?? 0) !== projection.sourceRevision ||
 					current?.status !== projection.sourceStatus ||
 					(current?.eventCount ?? 0) !== projection.loadedCount);
-			if (generationChanged || revisionMovedBackwards || terminalChanged) {
+			if (
+				authorityChanged ||
+				generationChanged ||
+				revisionMovedBackwards ||
+				terminalChanged
+			) {
 				throw new StaleEventStoreProjectionError(
 					`Source ${projection.sourceId} changed while its viewport was projected.`,
 				);
@@ -1482,6 +1492,7 @@ export class EventStoreViewportProjector {
 	): RenderWindowSourceProjection {
 		return {
 			sourceId,
+			sourceAuthorityRevision: 0,
 			sourceGeneration: 0,
 			sourceRevision: 0,
 			sourceStatus: "incomplete",

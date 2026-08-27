@@ -153,6 +153,7 @@ function createRenderSource(id: string, rowOrder: number): RenderSource {
 		timestamp: { min: 0, max: 1_000 },
 		total: 0,
 		loadingKind: "none",
+		cacheFreshness: "fresh",
 		offset: 0,
 		engine: "default",
 		frequency: 100,
@@ -323,6 +324,31 @@ describe("WorkerRenderCore", () => {
 		expect(recordedText.includes(source.name)).toBe(true);
 	});
 
+	it("leaves cache warning icons to the shared accessible DOM overlay", async () => {
+		const source = {
+			...createRenderSource("cache", 0),
+			cacheFreshness: "unknown" as const,
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+		});
+		repository.setFrameState(createFrameState([source.id]));
+		const warningContext = createRecordingContext(1_000, 96);
+		const warningFillColors: string[] = [];
+		warningContext.fill = jest.fn(() => {
+			warningFillColors.push(String(warningContext.fillStyle));
+		});
+		const warningCore = new WorkerRenderCore(warningContext, repository, {
+			requestAsset: jest.fn(),
+		});
+
+		warningCore.render(100, DirtyCanvas.Sources);
+
+		expect(warningContext.moveTo).not.toHaveBeenCalledWith(45, 28);
+		expect(warningFillColors.includes("#facc15")).toBe(false);
+	});
+
 	it("labels the exact loaded count instead of the LOD representative count", async () => {
 		const source = {
 			...createRenderSource("source-frame-count", 0),
@@ -340,6 +366,7 @@ describe("WorkerRenderCore", () => {
 				sources: [
 					{
 						sourceId: source.id,
+						sourceAuthorityRevision: 1,
 						sourceGeneration: 1,
 						sourceRevision: 1,
 						sourceStatus: "complete",
@@ -409,10 +436,11 @@ describe("WorkerRenderCore", () => {
 					operationEpoch: 1,
 					viewportRevision: 1,
 					projectionRevision: 2,
-					sources: [
-						{
-							sourceId: source.id,
-							sourceGeneration: 5,
+				sources: [
+					{
+						sourceId: source.id,
+						sourceAuthorityRevision: 12,
+						sourceGeneration: 5,
 							sourceRevision: 12,
 							sourceStatus: "complete",
 							coveredRange: { min: 0, max: 1_000 },
@@ -519,6 +547,7 @@ describe("WorkerRenderCore", () => {
 				sources: [
 					{
 						sourceId: source.id,
+						sourceAuthorityRevision: 4,
 						sourceGeneration: 2,
 						sourceRevision: 4,
 						sourceStatus: "complete",

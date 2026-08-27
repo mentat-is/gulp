@@ -1,4 +1,5 @@
 import type { Doc } from "@/entities/Doc";
+import type { QueryCacheProvenance } from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
 import {
 	buildEventPageHeight,
@@ -26,14 +27,22 @@ import {
 	EVENT_PAGE_LOD_RECORD_KIND,
 	EVENT_PAGE_SIZE,
 	EVENT_PIXEL_PAGE_SIZE,
+	EVENT_SOURCE_QUERY_CACHE_LIMIT,
 	type EncodedEventPage,
 	type EncodedEventPageHeight,
 	type EncodedEventPageLod,
 	type EventObsoleteGenerationMarker,
+	type EventDocumentIndexSegmentCatalogEntry,
 	type EventPageCatalogEntry,
 	type EventPageCursor,
 	type EventPixelPage,
 	type EventSourceManifest,
+	type EventSourceCacheHeadState,
+	type EventSourceQueryCacheActivation,
+	type EventSourceQueryCacheManifest,
+	type EventSourceQueryCacheMetadata,
+	type EventSourceQueryCacheRecord,
+	type EventSourceQueryCacheReconciliation,
 	type EventSourceSummary,
 } from "./EventStore.types";
 
@@ -48,20 +57,22 @@ const EVENT_INDEX_CLEANUP_OPERATION_LIMIT = 256;
 const EVENT_INDEX_STAGE_OPERATION_LIMIT = 64;
 const EVENT_INDEX_STAGE_BYTE_LIMIT = 16 * 1024 ** 2;
 
-interface DocumentIndexSegmentCatalogEntry {
-	shard: number;
-	segmentId: number;
-	level: number;
-	encodedByteLength: number;
-}
+type DocumentIndexSegmentCatalogEntry = EventDocumentIndexSegmentCatalogEntry;
 
-interface StoredEventGenerationManifest extends EventSourceManifest {
-	documentIndexSegments: DocumentIndexSegmentCatalogEntry[];
-}
+type StoredEventGenerationManifest = EventSourceQueryCacheManifest;
 
-interface StoredEventSourceManifest extends StoredEventGenerationManifest {
-	rollback?: StoredEventGenerationManifest;
+type StoredEventSourceHeadState = EventSourceCacheHeadState;
+
+interface StoredEventSourceRollback
+	extends StoredEventGenerationManifest,
+		StoredEventSourceHeadState {}
+
+interface StoredEventSourceManifest
+	extends StoredEventGenerationManifest,
+		StoredEventSourceHeadState {
+	rollback?: StoredEventSourceRollback;
 	inPlaceReplacement?: true;
+	pendingQueryCache?: QueryCacheProvenance;
 }
 
 /** Bounded binary ID locator segment addressable by a 12-bit hash-prefix shard. */
@@ -118,8 +129,20 @@ interface DeduplicatedAppendPreparation {
 
 export interface BeginEventStoreGenerationInput {
 	sourceId: Source.Id;
-	generation: number;
+	generation?: number;
 	sourceOrdinal?: number;
+	/** Query provenance that opts this replacement into the retained cache pool. */
+	queryCache?: QueryCacheProvenance;
+}
+
+export interface ActivateEventSourceQueryCacheInput {
+	sourceId: Source.Id;
+	generation: number;
+}
+
+export interface ReconcileEventSourceQueryCacheInput {
+	sourceId: Source.Id;
+	queryFingerprint: string;
 }
 
 export interface AppendEventStorePagesInput {
@@ -159,8 +182,37 @@ export interface EventStoreWriter {
 	clearSource(sourceId: Source.Id): Promise<void>;
 }
 
+/** Source-local query-cache pool controls implemented by the persistent repository. */
+export interface EventSourceQueryCacheStore {
+	/** Lists compact cache metadata without reading event pages. */
+	listQueryCaches(sourceId: Source.Id): Promise<EventSourceQueryCacheMetadata[]>;
+	/** Makes one retained generation authoritative without copying its pages. */
+	activateQueryCache(
+		input: ActivateEventSourceQueryCacheInput,
+	): Promise<EventSourceQueryCacheActivation>;
+	/** Activates the preceding source-local history entry. */
+	undoQueryCache(sourceId: Source.Id): Promise<EventSourceQueryCacheActivation | null>;
+	/** Activates the following source-local history entry. */
+	redoQueryCache(sourceId: Source.Id): Promise<EventSourceQueryCacheActivation | null>;
+	/** Selects the reusable startup cache and prunes alternative generations. */
+	reconcileQueryCache(
+		input: ReconcileEventSourceQueryCacheInput,
+	): Promise<EventSourceQueryCacheReconciliation | null>;
+	/** Retains selected generations and schedules bounded cleanup for the rest. */
+	pruneQueryCaches(
+		sourceId: Source.Id,
+		retainedGenerations: readonly number[],
+	): Promise<void>;
+	/** Invalidates a pool while preserving a monotonic empty source head. */
+	resetQueryCachePool(sourceId: Source.Id): Promise<EventSourceSummary | null>;
+}
+
 export interface EventStoreRepositoryOptions {
 	hashDocumentId?: (documentId: Doc.Id) => DocumentHash64;
+	/** Maximum retained completed query generations per source. */
+	queryCacheLimit?: number;
+	/** Clock used for deterministic cache creation and activation metadata. */
+	now?: () => number;
 }
 
 interface EventLocation {
@@ -225,9 +277,13 @@ export class EventStoreSourceAuthorityError extends Error {
  * document collections. Callers serialize source-scoped writers and may pass their
  * held source authority to prevent unlocked cross-source mutations.
  */
-export class EventStoreRepository implements EventStoreReader, EventStoreWriter {
+export class EventStoreRepository
+	implements EventStoreReader, EventStoreWriter, EventSourceQueryCacheStore
+{
 	private readonly backend: EventStoreBackend;
 	private readonly hashDocumentId: (documentId: Doc.Id) => DocumentHash64;
+	private readonly queryCacheLimit: number;
+	private readonly now: () => number;
 	private readonly textDecoder = new TextDecoder();
 	private sourceOrdinalAllocation: Promise<void> = Promise.resolve();
 	private nextSourceOrdinal: number | null = null;
@@ -243,6 +299,10 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	) {
 		this.backend = backend;
 		this.hashDocumentId = options.hashDocumentId ?? hashEventDocumentId;
+		this.queryCacheLimit = this.normalizeQueryCacheLimit(
+			options.queryCacheLimit ?? EVENT_SOURCE_QUERY_CACHE_LIMIT,
+		);
+		this.now = options.now ?? Date.now;
 	}
 
 	/** Releases the underlying persistence connection. */
@@ -252,29 +312,35 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 
 	/**
 	 * Opens a new visible source generation and retains the previous complete generation
-	 * only as a rollback target until finalize or cancel.
-	 * @param input Source, generation, and optional compact source ordinal.
+	 * as rollback authority. Query-backed replacements first free one bounded history slot.
+	 * @param input Source, optional generation/ordinal, and optional query provenance.
 	 * @returns Empty building-generation summary.
 	 */
 	public async beginGeneration(
 		input: BeginEventStoreGenerationInput,
 	): Promise<EventSourceSummary> {
-		this.assertGeneration(input.generation);
 		await this.cleanupObsoleteGenerations(input.sourceId);
+		if (input.queryCache) {
+			await this.prepareQueryCacheSlot(input.sourceId);
+		}
 		const current = await this.getStoredManifest(input.sourceId);
-		if (current && input.generation <= current.generation) {
+		const currentHead = this.getHeadState(current);
+		const generation = input.generation ?? currentHead.nextGeneration;
+		this.assertGeneration(generation);
+		if (generation < currentHead.nextGeneration) {
 			throw new StaleEventStoreGenerationError(
-				`Generation ${input.generation} does not supersede ${current.generation}.`,
+				`Generation ${generation} precedes next generation ${currentHead.nextGeneration}.`,
 			);
 		}
 
-		let rollback: StoredEventGenerationManifest | undefined;
+		let rollback: StoredEventSourceRollback | undefined;
 		if (current?.status === "building" || current?.status === "incomplete") {
 			await this.commitGenerationDeletesBounded(current);
 			rollback = current.rollback;
 		} else if (current) {
-			rollback = this.toGenerationManifest(current);
+			rollback = this.toRollbackManifest(current);
 		}
+		const retainedHead = this.getHeadState(rollback ?? current);
 
 		const sourceOrdinal =
 			input.sourceOrdinal ??
@@ -285,8 +351,13 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 		const manifest: StoredEventSourceManifest = {
 			sourceId: input.sourceId,
 			sourceOrdinal,
-			generation: input.generation,
+			generation,
 			revision: (current?.revision ?? rollback?.revision ?? 0) + 1,
+			authorityRevision:
+				Math.max(
+					current?.authorityRevision ?? 0,
+					rollback?.authorityRevision ?? 0,
+				) + 1,
 			status: "building",
 			eventCount: 0,
 			// Handles are revision-scoped: a replacement generation starts a compact
@@ -299,7 +370,15 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 			encodedBytes: 0,
 			pages: [],
 			documentIndexSegments: [],
+			activeCacheGeneration: retainedHead.activeCacheGeneration,
+			cacheHistory: retainedHead.cacheHistory,
+			cacheHistoryCursor: retainedHead.cacheHistoryCursor,
+			nextGeneration: Math.max(retainedHead.nextGeneration, generation + 1),
+			...(retainedHead.pendingCacheCleanup?.length
+				? { pendingCacheCleanup: retainedHead.pendingCacheCleanup }
+				: {}),
 			...(rollback ? { rollback } : {}),
+			...(input.queryCache ? { pendingQueryCache: input.queryCache } : {}),
 		};
 		await this.backend.commit([
 			{
@@ -427,7 +506,8 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 
 	/**
 	 * Applies deduplicated enrichment/realtime mutations to complete source manifests.
-	 * Same-source timestamp moves retain handles; cross-source moves allocate a new handle.
+	 * Same-source timestamp moves retain handles, cross-source moves allocate a new handle,
+	 * and every affected active query cache is atomically marked as mutated.
 	 * @param input Canonical documents whose final duplicate wins by ID.
 	 * @returns Updated summaries for every touched source.
 	 */
@@ -733,6 +813,27 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 					key: sourceId,
 					value: nextManifest,
 				});
+				if (manifest.activeCacheGeneration === manifest.generation) {
+					const cacheRecord = await this.getQueryCacheRecord(
+						sourceId,
+						manifest.generation,
+					);
+					if (!cacheRecord) {
+						throw new EventStoreCorruptionError(
+							`Active query cache ${sourceId}/${manifest.generation} is missing.`,
+						);
+					}
+					operations.push({
+						type: "put",
+						store: "source_query_caches",
+						key: this.createQueryCacheKey(sourceId, manifest.generation),
+						value: {
+							...cacheRecord,
+							manifest: this.toGenerationManifest(nextManifest),
+							state: "mutated",
+						} satisfies EventSourceQueryCacheRecord,
+					});
+				}
 				nextManifests.push(nextManifest);
 			}
 		} catch (error) {
@@ -822,9 +923,8 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	}
 
 	/**
-	 * Atomically detaches a retained rollback generation before deleting its records
-	 * in bounded, idempotent commits. The marker keeps later cancellation in the
-	 * incomplete in-place-replacement state instead of restoring partial old data.
+	 * Atomically detaches a legacy retained rollback before bounded deletion. Pooled
+	 * query replacements reject this destructive fallback so Undo and cancel stay safe.
 	 * @param sourceId Source whose replacement must continue without dual storage.
 	 * @param generation Expected active building generation.
 	 * @returns Revision-fenced building summary after rollback authority is removed.
@@ -834,6 +934,11 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 		generation: number,
 	): Promise<EventSourceSummary> {
 		const manifest = await this.requireBuildingManifest(sourceId, generation);
+		if (manifest.pendingQueryCache || manifest.cacheHistory.length > 0) {
+			throw new Error(
+				"A pooled query replacement cannot discard its rollback cache.",
+			);
+		}
 		if (!manifest.rollback) return this.toSummary(manifest);
 		const rollback = manifest.rollback;
 		const { rollback: _rollback, ...building } = manifest;
@@ -859,8 +964,8 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	}
 
 	/**
-	 * Makes a building generation authoritative and records retained rollback pages
-	 * for bounded cleanup without coupling summary publication to physical deletion.
+	 * Makes a building generation authoritative. Query-backed generations atomically
+	 * append a cache record and history entry; legacy replacements retain old cleanup.
 	 * @param sourceId Source being finalized.
 	 * @param generation Expected active generation.
 	 * @returns Complete source summary.
@@ -870,53 +975,132 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 		generation: number,
 	): Promise<EventSourceSummary> {
 		const manifest = await this.requireBuildingManifest(sourceId, generation);
-		const complete: StoredEventSourceManifest = {
+		const completeGeneration: StoredEventGenerationManifest = {
 			...this.toGenerationManifest(manifest),
 			revision: manifest.revision + 1,
 			status: "complete",
-			...(manifest.rollback || manifest.obsoleteGenerations?.length
-				? {
-						obsoleteGenerations: this.mergeObsoleteGenerationMarkers(
-							manifest.obsoleteGenerations,
-							manifest.rollback
-								? [this.createObsoleteGenerationMarker(manifest.rollback)]
-								: [],
-						),
-					}
-				: {}),
 		};
-		await this.backend.commit([
-			{
+		let complete: StoredEventSourceManifest;
+		const operations: EventStoreWriteOperation[] = [];
+		if (manifest.pendingQueryCache) {
+			const retainedHistory = manifest.cacheHistory.slice(
+				0,
+				manifest.cacheHistoryCursor + 1,
+			);
+			retainedHistory.push(generation);
+			const evictedGenerations: number[] = [];
+			while (retainedHistory.length > this.queryCacheLimit) {
+				const evicted = retainedHistory.shift();
+				if (evicted !== undefined) evictedGenerations.push(evicted);
+			}
+			const pendingCacheCleanup = this.mergeObsoleteGenerationMarkers(
+				manifest.pendingCacheCleanup,
+				evictedGenerations.map((value) => ({ generation: value })),
+			);
+			complete = {
+				...completeGeneration,
+				authorityRevision: manifest.authorityRevision,
+				activeCacheGeneration: generation,
+				cacheHistory: retainedHistory,
+				cacheHistoryCursor: retainedHistory.length - 1,
+				nextGeneration: Math.max(manifest.nextGeneration, generation + 1),
+				...(pendingCacheCleanup.length > 0 ? { pendingCacheCleanup } : {}),
+			};
+			const activatedAt = this.now();
+			const cacheRecord: EventSourceQueryCacheRecord = {
+				sourceId,
+				generation,
+				manifest: completeGeneration,
+				provenance: manifest.pendingQueryCache,
+				state: "exact",
+				createdAt: activatedAt,
+				lastActivatedAt: activatedAt,
+			};
+			operations.push({
 				type: "put",
-				store: "sources",
-				key: sourceId,
-				value: complete,
-			},
-		]);
+				store: "source_query_caches",
+				key: this.createQueryCacheKey(sourceId, generation),
+				value: cacheRecord,
+			});
+		} else {
+			const staleCacheGenerations = manifest.cacheHistory.filter(
+				(candidate) => candidate !== generation,
+			);
+			complete = {
+				...completeGeneration,
+				authorityRevision: manifest.authorityRevision,
+				activeCacheGeneration: null,
+				cacheHistory: [],
+				cacheHistoryCursor: -1,
+				nextGeneration: Math.max(manifest.nextGeneration, generation + 1),
+				...(manifest.rollback ||
+				manifest.obsoleteGenerations?.length ||
+				staleCacheGenerations.length > 0
+					? {
+							obsoleteGenerations: this.mergeObsoleteGenerationMarkers(
+								manifest.obsoleteGenerations,
+								[
+									...(manifest.rollback
+										? [this.createObsoleteGenerationMarker(manifest.rollback)]
+										: []),
+									...staleCacheGenerations.map((value) => ({
+										generation: value,
+									})),
+								],
+							),
+						}
+					: {}),
+			};
+		}
+		operations.push({
+			type: "put",
+			store: "sources",
+			key: sourceId,
+			value: complete,
+		});
+		await this.backend.commit(operations);
 		return this.toSummary(complete);
 	}
 
 	/**
-	 * Reclaims obsolete generations in idempotent batches and removes each marker
-	 * only after every corresponding physical record has been deleted.
+	 * Reclaims obsolete generations in idempotent batches and removes each marker and
+	 * query-cache record only after every corresponding physical record is deleted.
 	 * @param sourceId Source whose pending cleanup should be resumed.
 	 * @returns Promise settled when no obsolete-generation marker remains.
 	 */
 	public async cleanupObsoleteGenerations(sourceId: Source.Id): Promise<void> {
 		while (true) {
 			const manifest = await this.getStoredManifest(sourceId);
-			const marker = manifest?.obsoleteGenerations?.[0];
+			const marker =
+				manifest?.pendingCacheCleanup?.[0] ??
+				manifest?.obsoleteGenerations?.[0];
 			if (!manifest || !marker) return;
+			if (manifest.activeCacheGeneration === marker.generation) {
+				throw new EventStoreCorruptionError(
+					`Active cache generation ${marker.generation} cannot be reclaimed.`,
+				);
+			}
 			await this.commitObsoleteGenerationDeletesBounded(sourceId, marker);
 			const current = await this.getStoredManifest(sourceId);
 			if (!current) return;
-			const remaining = (current.obsoleteGenerations ?? []).filter(
+			const remainingCaches = (current.pendingCacheCleanup ?? []).filter(
+				(candidate) => candidate.generation !== marker.generation,
+			);
+			const remainingLegacy = (current.obsoleteGenerations ?? []).filter(
 				(candidate) => candidate.generation !== marker.generation,
 			);
 			const next: StoredEventSourceManifest = { ...current };
-			if (remaining.length > 0) next.obsoleteGenerations = remaining;
+			if (remainingCaches.length > 0) {
+				next.pendingCacheCleanup = remainingCaches;
+			} else delete next.pendingCacheCleanup;
+			if (remainingLegacy.length > 0) next.obsoleteGenerations = remainingLegacy;
 			else delete next.obsoleteGenerations;
 			await this.backend.commit([
+				{
+					type: "delete",
+					store: "source_query_caches",
+					key: this.createQueryCacheKey(sourceId, marker.generation),
+				},
 				{
 					type: "put",
 					store: "sources",
@@ -928,8 +1112,8 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	}
 
 	/**
-	 * Cancels a building generation. A retained rollback is restored; an in-place
-	 * replacement is preserved as incomplete so it can be authoritatively refetched.
+	 * Cancels a building generation. A retained rollback and its cache history are
+	 * restored; a legacy in-place replacement remains incomplete for a later refetch.
 	 * @param sourceId Source whose query was canceled.
 	 * @param generation Expected building generation.
 	 * @returns Nothing.
@@ -956,15 +1140,27 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 			return;
 		}
 		if (manifest.rollback) {
-			const restored: StoredEventSourceManifest = {
-				...manifest.rollback,
-				revision: manifest.revision + 1,
-				status: "complete",
-				obsoleteGenerations: this.mergeObsoleteGenerationMarkers(
-					manifest.obsoleteGenerations,
-					[this.createObsoleteGenerationMarker(manifest)],
-				),
-			};
+			const restored: StoredEventSourceManifest = manifest.pendingQueryCache
+				? {
+						...manifest.rollback,
+						revision: manifest.revision + 1,
+						authorityRevision: manifest.authorityRevision + 1,
+						status: "complete",
+						pendingCacheCleanup: this.mergeObsoleteGenerationMarkers(
+							manifest.pendingCacheCleanup,
+							[this.createObsoleteGenerationMarker(manifest)],
+						),
+					}
+				: {
+						...manifest.rollback,
+						revision: manifest.revision + 1,
+						authorityRevision: manifest.authorityRevision + 1,
+						status: "complete",
+						obsoleteGenerations: this.mergeObsoleteGenerationMarkers(
+							manifest.obsoleteGenerations,
+							[this.createObsoleteGenerationMarker(manifest)],
+						),
+					};
 			await this.backend.commit([
 				{
 					type: "put",
@@ -983,8 +1179,8 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	}
 
 	/**
-	 * Retains committed partial pages after an interrupted replace and marks them unsafe
-	 * for final use until a later generation refetches the source.
+	 * Handles an interrupted replace. Pooled replacements restore their complete
+	 * rollback; legacy streams retain partial pages as incomplete for a later refetch.
 	 * @param sourceId Source whose stream disconnected.
 	 * @param generation Expected building generation.
 	 * @returns Incomplete source summary.
@@ -994,6 +1190,11 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 		generation: number,
 	): Promise<EventSourceSummary> {
 		const manifest = await this.requireBuildingManifest(sourceId, generation);
+		if (manifest.pendingQueryCache && manifest.rollback) {
+			await this.cancelGeneration(sourceId, generation);
+			const restored = await this.requireCompleteSourceManifest(sourceId);
+			return this.toSummary(restored);
+		}
 		const incomplete: StoredEventSourceManifest = {
 			...manifest,
 			revision: manifest.revision + 1,
@@ -1011,21 +1212,100 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	}
 
 	/**
-	 * Removes the active and retained rollback generations for one source.
+	 * Removes every active, rollback, retained-cache, and pending-cleanup generation.
 	 * @param sourceId Source whose local cache must be released.
 	 * @returns Nothing.
 	 */
 	public async clearSource(sourceId: Source.Id): Promise<void> {
-		await this.cleanupObsoleteGenerations(sourceId);
 		const manifest = await this.getStoredManifest(sourceId);
-		if (!manifest) return;
-		await this.commitGenerationDeletesBounded(manifest);
-		if (manifest.rollback) {
-			await this.commitGenerationDeletesBounded(manifest.rollback);
+		const cacheRecords = await this.getQueryCacheRecords(sourceId);
+		const generations = new Set<number>(
+			cacheRecords.map((record) => record.generation),
+		);
+		if (manifest) {
+			generations.add(manifest.generation);
+			if (manifest.rollback) generations.add(manifest.rollback.generation);
+			for (const marker of [
+				...(manifest.pendingCacheCleanup ?? []),
+				...(manifest.obsoleteGenerations ?? []),
+			]) {
+				generations.add(marker.generation);
+			}
 		}
+		for (const generation of generations) {
+			await this.commitObsoleteGenerationDeletesBounded(sourceId, { generation });
+		}
+		await this.commitDeleteOperationsBounded(
+			cacheRecords.map((record) => ({
+				type: "delete" as const,
+				store: "source_query_caches" as const,
+				key: this.createQueryCacheKey(sourceId, record.generation),
+			})),
+		);
+		if (!manifest && cacheRecords.length === 0) return;
 		await this.backend.commit([
 			{ type: "delete", store: "sources", key: sourceId },
 		]);
+	}
+
+	/**
+	 * Resets a source's query-cache pool while preserving monotonic logical authority.
+	 * The empty incomplete head becomes visible before bounded physical reclamation, so
+	 * a following rebase generation cannot move backwards relative to Canvas state.
+	 * @param sourceId Source whose query caches and physical pages must be invalidated.
+	 * @returns Empty authority summary, or null when no source head exists.
+	 */
+	public async resetQueryCachePool(
+		sourceId: Source.Id,
+	): Promise<EventSourceSummary | null> {
+		const current = await this.getStoredManifest(sourceId);
+		if (!current) {
+			await this.clearSource(sourceId);
+			return null;
+		}
+		const cacheRecords = await this.getQueryCacheRecords(sourceId);
+		const cleanupMarkers = this.mergeObsoleteGenerationMarkers(
+			[
+				...(current.pendingCacheCleanup ?? []),
+				...(current.obsoleteGenerations ?? []),
+			],
+			[
+				{ generation: current.generation },
+				...(current.rollback
+					? [{ generation: current.rollback.generation }]
+					: []),
+				...cacheRecords.map((record) => ({ generation: record.generation })),
+			],
+		);
+		const reset: StoredEventSourceManifest = {
+			sourceId,
+			sourceOrdinal: current.sourceOrdinal,
+			generation: current.generation,
+			revision: current.revision + 1,
+			authorityRevision: current.authorityRevision + 1,
+			status: "incomplete",
+			eventCount: 0,
+			nextHandle: 1,
+			minTimestamp: 0,
+			maxTimestamp: 0,
+			hashMin: 0,
+			hashMax: 0,
+			encodedBytes: 0,
+			pages: [],
+			documentIndexSegments: [],
+			activeCacheGeneration: null,
+			cacheHistory: [],
+			cacheHistoryCursor: -1,
+			nextGeneration: current.nextGeneration,
+			...(cleanupMarkers.length > 0
+				? { pendingCacheCleanup: cleanupMarkers }
+				: {}),
+		};
+		await this.backend.commit([
+			{ type: "put", store: "sources", key: sourceId, value: reset },
+		]);
+		await this.cleanupObsoleteGenerations(sourceId);
+		return this.toSummary(reset);
 	}
 
 	/**
@@ -1038,6 +1318,224 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	): Promise<EventSourceSummary | null> {
 		const manifest = await this.getStoredManifest(sourceId);
 		return manifest ? this.toSummary(manifest) : null;
+	}
+
+	/**
+	 * Lists compact query-cache metadata without loading any exact event page.
+	 * @param sourceId Source whose retained query results are requested.
+	 * @returns Cache entries ordered from oldest to newest creation.
+	 */
+	public async listQueryCaches(
+		sourceId: Source.Id,
+	): Promise<EventSourceQueryCacheMetadata[]> {
+		const records = await this.getQueryCacheRecords(sourceId);
+		return records
+			.sort(
+				(left, right) =>
+					left.createdAt - right.createdAt || left.generation - right.generation,
+			)
+			.map((record) => this.toQueryCacheMetadata(record));
+	}
+
+	/**
+	 * Makes one retained cache authoritative without copying its physical pages.
+	 * The target must still belong to the source's navigable history.
+	 * @param input Source and physical cache generation to activate.
+	 * @returns Activated cache metadata and monotonic source summary.
+	 */
+	public async activateQueryCache(
+		input: ActivateEventSourceQueryCacheInput,
+	): Promise<EventSourceQueryCacheActivation> {
+		const current = await this.requireCompleteSourceManifest(input.sourceId);
+		const cursor = current.cacheHistory.indexOf(input.generation);
+		if (cursor < 0) {
+			throw new StaleEventStoreGenerationError(
+				`Query cache ${input.sourceId}/${input.generation} is not in active history.`,
+			);
+		}
+		return this.activateQueryCacheRecord(
+			current,
+			input.generation,
+			current.cacheHistory,
+			cursor,
+		);
+	}
+
+	/**
+	 * Activates the preceding cache in one source's history without backend I/O.
+	 * @param sourceId Source whose history cursor moves backward.
+	 * @returns Activation result, or null when Undo is unavailable.
+	 */
+	public async undoQueryCache(
+		sourceId: Source.Id,
+	): Promise<EventSourceQueryCacheActivation | null> {
+		const current = await this.requireCompleteSourceManifest(sourceId);
+		if (current.cacheHistoryCursor <= 0) return null;
+		const cursor = current.cacheHistoryCursor - 1;
+		return this.activateQueryCacheRecord(
+			current,
+			current.cacheHistory[cursor],
+			current.cacheHistory,
+			cursor,
+		);
+	}
+
+	/**
+	 * Activates the following cache in one source's history without backend I/O.
+	 * @param sourceId Source whose history cursor moves forward.
+	 * @returns Activation result, or null when Redo is unavailable.
+	 */
+	public async redoQueryCache(
+		sourceId: Source.Id,
+	): Promise<EventSourceQueryCacheActivation | null> {
+		const current = await this.requireCompleteSourceManifest(sourceId);
+		if (current.cacheHistoryCursor >= current.cacheHistory.length - 1) return null;
+		const cursor = current.cacheHistoryCursor + 1;
+		return this.activateQueryCacheRecord(
+			current,
+			current.cacheHistory[cursor],
+			current.cacheHistory,
+			cursor,
+		);
+	}
+
+	/**
+	 * Selects an exact reusable startup cache or the most recently activated fallback.
+	 * The chosen cache becomes the sole history entry before all alternatives are pruned.
+	 * @param input Source and desired semantic query fingerprint.
+	 * @returns Activated cache and match classification, or null when none is retained.
+	 */
+	public async reconcileQueryCache(
+		input: ReconcileEventSourceQueryCacheInput,
+	): Promise<EventSourceQueryCacheReconciliation | null> {
+		let current = await this.getStoredManifest(input.sourceId);
+		if (current?.status === "building") {
+			await this.cancelGeneration(input.sourceId, current.generation);
+			current = await this.getStoredManifest(input.sourceId);
+		} else if (current?.status === "incomplete") {
+			if (!current.rollback) {
+				current =
+					(await this.resetQueryCachePool(input.sourceId)) === null
+						? undefined
+						: await this.getStoredManifest(input.sourceId);
+			} else {
+				await this.commitGenerationDeletesBounded(current);
+				const restored: StoredEventSourceManifest = {
+					...current.rollback,
+					revision: current.revision + 1,
+					authorityRevision: current.authorityRevision + 1,
+					status: "complete",
+				};
+				await this.backend.commit([
+					{
+						type: "put",
+						store: "sources",
+						key: input.sourceId,
+						value: restored,
+					},
+				]);
+				current = restored;
+			}
+		}
+		if (current) {
+			await this.cleanupObsoleteGenerations(input.sourceId);
+			current = await this.getStoredManifest(input.sourceId);
+		}
+		const records = await this.getQueryCacheRecords(input.sourceId);
+		if (records.length === 0) return null;
+		const reusableByRecency = records
+			.filter(
+				(record) =>
+					record.state === "exact" && record.manifest.status === "complete",
+			)
+			.sort(
+				(left, right) =>
+					right.lastActivatedAt - left.lastActivatedAt ||
+					right.createdAt - left.createdAt ||
+					right.generation - left.generation,
+			);
+		if (reusableByRecency.length === 0) {
+			await this.resetQueryCachePool(input.sourceId);
+			return null;
+		}
+		const exact = reusableByRecency.find(
+			(record) =>
+				record.provenance.fingerprint === input.queryFingerprint,
+		);
+		const chosen = exact ?? reusableByRecency[0];
+		const reconstructed = this.createSourceHeadFromCache(chosen);
+		const base = current ?? {
+			...reconstructed,
+			nextGeneration: Math.max(
+				reconstructed.nextGeneration,
+				...records.map((record) => record.generation + 1),
+			),
+		};
+		const pendingCacheCleanup = records
+			.filter((record) => record.generation !== chosen.generation)
+			.map((record) => ({ generation: record.generation }));
+		const activation = await this.activateQueryCacheRecord(
+			base,
+			chosen.generation,
+			[chosen.generation],
+			0,
+			pendingCacheCleanup,
+		);
+		await this.cleanupObsoleteGenerations(input.sourceId);
+		return { ...activation, match: exact ? "exact" : "latest" };
+	}
+
+	/**
+	 * Retains an explicit history subset and reclaims every other complete cache.
+	 * The active cache cannot be removed by pruning.
+	 * @param sourceId Source whose cache pool is bounded.
+	 * @param retainedGenerations Ordered generations to keep navigable.
+	 * @returns Promise settled after bounded physical cleanup completes.
+	 */
+	public async pruneQueryCaches(
+		sourceId: Source.Id,
+		retainedGenerations: readonly number[],
+	): Promise<void> {
+		const current = await this.requireCompleteSourceManifest(sourceId);
+		const retained = [...new Set(retainedGenerations)];
+		if (retained.length > this.queryCacheLimit) {
+			throw new RangeError(
+				`At most ${this.queryCacheLimit} query caches can be retained per source.`,
+			);
+		}
+		if (
+			current.activeCacheGeneration !== null &&
+			!retained.includes(current.activeCacheGeneration)
+		) {
+			throw new Error("The active query cache cannot be pruned.");
+		}
+		const records = await this.getQueryCacheRecords(sourceId);
+		const available = new Set(records.map((record) => record.generation));
+		if (retained.some((generation) => !available.has(generation))) {
+			throw new StaleEventStoreGenerationError(
+				"A retained query-cache generation is unavailable.",
+			);
+		}
+		const activeCursor =
+			current.activeCacheGeneration === null
+				? -1
+				: retained.indexOf(current.activeCacheGeneration);
+		const pendingCacheCleanup = this.mergeObsoleteGenerationMarkers(
+			current.pendingCacheCleanup,
+			records
+				.filter((record) => !retained.includes(record.generation))
+				.map((record) => ({ generation: record.generation })),
+		);
+		const next: StoredEventSourceManifest = {
+			...current,
+			cacheHistory: retained,
+			cacheHistoryCursor: activeCursor,
+			...(pendingCacheCleanup.length > 0 ? { pendingCacheCleanup } : {}),
+		};
+		await this.backend.commit([
+			{ type: "put", store: "sources", key: sourceId, value: next },
+		]);
+		await this.cleanupObsoleteGenerations(sourceId);
 	}
 
 	/**
@@ -2638,10 +3136,263 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	 * @param sourceId Source identifier.
 	 * @returns Stored active manifest, or undefined.
 	 */
-	private getStoredManifest(
+	private async getStoredManifest(
 		sourceId: Source.Id,
 	): Promise<StoredEventSourceManifest | undefined> {
-		return this.backend.get<StoredEventSourceManifest>("sources", sourceId);
+		const manifest = await this.backend.get<StoredEventSourceManifest>(
+			"sources",
+			sourceId,
+		);
+		return manifest
+			? { ...manifest, ...this.getHeadState(manifest) }
+			: undefined;
+	}
+
+	/**
+	 * Requires complete source authority before history navigation or pruning.
+	 * @param sourceId Source expected to expose a completed generation.
+	 * @returns Complete persisted source head.
+	 */
+	private async requireCompleteSourceManifest(
+		sourceId: Source.Id,
+	): Promise<StoredEventSourceManifest> {
+		const manifest = await this.getStoredManifest(sourceId);
+		if (!manifest || manifest.status !== "complete") {
+			throw new StaleEventStoreGenerationError(
+				`Source ${sourceId} does not have complete cache authority.`,
+			);
+		}
+		return manifest;
+	}
+
+	/**
+	 * Normalizes source-head fields so memory fixtures and new databases share defaults.
+	 * @param manifest Optional persisted source or rollback state.
+	 * @returns Complete logical cache-head state.
+	 */
+	private getHeadState(
+		manifest:
+			| (Partial<StoredEventSourceHeadState> & Partial<EventSourceManifest>)
+			| undefined,
+	): StoredEventSourceHeadState {
+		const cacheHistory = [...(manifest?.cacheHistory ?? [])];
+		const requestedCursor = manifest?.cacheHistoryCursor ?? cacheHistory.length - 1;
+		const cacheHistoryCursor =
+			cacheHistory.length === 0
+				? -1
+				: Math.max(0, Math.min(cacheHistory.length - 1, requestedCursor));
+		return {
+			authorityRevision:
+				manifest?.authorityRevision ?? manifest?.revision ?? 0,
+			activeCacheGeneration: manifest?.activeCacheGeneration ?? null,
+			cacheHistory,
+			cacheHistoryCursor,
+			nextGeneration: Math.max(
+				1,
+				manifest?.nextGeneration ?? 0,
+				(manifest?.generation ?? 0) + 1,
+			),
+			...(manifest?.pendingCacheCleanup?.length
+				? { pendingCacheCleanup: [...manifest.pendingCacheCleanup] }
+				: {}),
+		};
+	}
+
+	/**
+	 * Frees redo entries and one oldest non-active slot before a pooled replacement.
+	 * @param sourceId Source about to receive a new query cache.
+	 * @returns Promise settled after bounded reclamation of detached generations.
+	 */
+	private async prepareQueryCacheSlot(sourceId: Source.Id): Promise<void> {
+		const current = await this.getStoredManifest(sourceId);
+		if (!current || current.status !== "complete") return;
+		const retained = current.cacheHistory.slice(
+			0,
+			current.cacheHistoryCursor + 1,
+		);
+		const detached = current.cacheHistory.slice(current.cacheHistoryCursor + 1);
+		while (retained.length >= this.queryCacheLimit) {
+			const removableIndex = retained.findIndex(
+				(generation) => generation !== current.activeCacheGeneration,
+			);
+			if (removableIndex < 0) break;
+			const [generation] = retained.splice(removableIndex, 1);
+			detached.push(generation);
+		}
+		if (detached.length === 0) return;
+		const activeCursor =
+			current.activeCacheGeneration === null
+				? -1
+				: retained.indexOf(current.activeCacheGeneration);
+		const pendingCacheCleanup = this.mergeObsoleteGenerationMarkers(
+			current.pendingCacheCleanup,
+			detached.map((generation) => ({ generation })),
+		);
+		await this.backend.commit([
+			{
+				type: "put",
+				store: "sources",
+				key: sourceId,
+				value: {
+					...current,
+					cacheHistory: retained,
+					cacheHistoryCursor: activeCursor,
+					pendingCacheCleanup,
+				} satisfies StoredEventSourceManifest,
+			},
+		]);
+		await this.cleanupObsoleteGenerations(sourceId);
+	}
+
+	/**
+	 * Activates one stored record and advances logical authority in one transaction.
+	 * @param current Current complete source head or a reconstructed orphan head.
+	 * @param generation Physical cache generation to activate.
+	 * @param history Ordered history to persist with the activation.
+	 * @param cursor Cursor selecting the target generation in history.
+	 * @param cleanup Additional generations detached by startup reconciliation.
+	 * @returns Activated cache and compact source summary.
+	 */
+	private async activateQueryCacheRecord(
+		current: StoredEventSourceManifest,
+		generation: number,
+		history: readonly number[],
+		cursor: number,
+		cleanup: readonly EventObsoleteGenerationMarker[] = [],
+	): Promise<EventSourceQueryCacheActivation> {
+		const cacheRecord = await this.getQueryCacheRecord(
+			current.sourceId,
+			generation,
+		);
+		if (!cacheRecord) {
+			throw new StaleEventStoreGenerationError(
+				`Query cache ${current.sourceId}/${generation} is unavailable.`,
+			);
+		}
+		if (cacheRecord.manifest.status !== "complete") {
+			throw new EventStoreCorruptionError(
+				`Query cache ${current.sourceId}/${generation} is not complete.`,
+			);
+		}
+		if (
+			(current.pendingCacheCleanup ?? []).some(
+				(marker) => marker.generation === generation,
+			)
+		) {
+			throw new StaleEventStoreGenerationError(
+				`Query cache ${current.sourceId}/${generation} is pending cleanup.`,
+			);
+		}
+		if (history[cursor] !== generation) {
+			throw new Error("The query-cache history cursor does not select its target.");
+		}
+		const lastActivatedAt = this.now();
+		const activatedRecord: EventSourceQueryCacheRecord = {
+			...cacheRecord,
+			lastActivatedAt,
+		};
+		const pendingCacheCleanup = this.mergeObsoleteGenerationMarkers(
+			current.pendingCacheCleanup,
+			cleanup,
+		).filter((marker) => marker.generation !== generation);
+		const activated: StoredEventSourceManifest = {
+			...cacheRecord.manifest,
+			revision: Math.max(current.revision, cacheRecord.manifest.revision) + 1,
+			authorityRevision: current.authorityRevision + 1,
+			status: "complete",
+			activeCacheGeneration: generation,
+			cacheHistory: [...history],
+			cacheHistoryCursor: cursor,
+			nextGeneration: Math.max(current.nextGeneration, generation + 1),
+			...(pendingCacheCleanup.length > 0 ? { pendingCacheCleanup } : {}),
+		};
+		await this.backend.commit([
+			{
+				type: "put",
+				store: "source_query_caches",
+				key: this.createQueryCacheKey(current.sourceId, generation),
+				value: activatedRecord,
+			},
+			{
+				type: "put",
+				store: "sources",
+				key: current.sourceId,
+				value: activated,
+			},
+		]);
+		return {
+			summary: this.toSummary(activated),
+			cache: this.toQueryCacheMetadata(activatedRecord),
+		};
+	}
+
+	/**
+	 * Reconstructs minimal source authority when cache records outlive a missing head.
+	 * @param cacheRecord Cache used to recreate the source head.
+	 * @returns Complete source manifest suitable for one activation transaction.
+	 */
+	private createSourceHeadFromCache(
+		cacheRecord: EventSourceQueryCacheRecord,
+	): StoredEventSourceManifest {
+		return {
+			...cacheRecord.manifest,
+			authorityRevision: cacheRecord.manifest.revision,
+			activeCacheGeneration: cacheRecord.generation,
+			cacheHistory: [cacheRecord.generation],
+			cacheHistoryCursor: 0,
+			nextGeneration: cacheRecord.generation + 1,
+		};
+	}
+
+	/**
+	 * Reads every compact cache record for one source by compound-key prefix.
+	 * @param sourceId Source whose records are requested.
+	 * @returns Structured-cloned records without reading exact page stores.
+	 */
+	private getQueryCacheRecords(
+		sourceId: Source.Id,
+	): Promise<EventSourceQueryCacheRecord[]> {
+		return this.backend.getAllByPrefix<EventSourceQueryCacheRecord>(
+			"source_query_caches",
+			[sourceId],
+		);
+	}
+
+	/**
+	 * Reads one query-cache record by its physical generation.
+	 * @param sourceId Source owning the cache.
+	 * @param generation Physical generation key.
+	 * @returns Matching cache record, or undefined.
+	 */
+	private getQueryCacheRecord(
+		sourceId: Source.Id,
+		generation: number,
+	): Promise<EventSourceQueryCacheRecord | undefined> {
+		return this.backend.get<EventSourceQueryCacheRecord>(
+			"source_query_caches",
+			this.createQueryCacheKey(sourceId, generation),
+		);
+	}
+
+	/**
+	 * Projects a persisted record into the page-free public cache metadata contract.
+	 * @param record Complete compact cache record.
+	 * @returns Metadata suitable for main-thread cache selection and query restoration.
+	 */
+	private toQueryCacheMetadata(
+		record: EventSourceQueryCacheRecord,
+	): EventSourceQueryCacheMetadata {
+		return {
+			sourceId: record.sourceId,
+			generation: record.generation,
+			provenance: record.provenance,
+			state: record.state,
+			createdAt: record.createdAt,
+			lastActivatedAt: record.lastActivatedAt,
+			eventCount: record.manifest.eventCount,
+			minTimestamp: record.manifest.minTimestamp,
+			maxTimestamp: record.manifest.maxTimestamp,
+		};
 	}
 
 	/**
@@ -2702,6 +3453,18 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 		if (!Number.isSafeInteger(generation) || generation < 0) {
 			throw new RangeError("EventStore generation must be a non-negative integer.");
 		}
+	}
+
+	/**
+	 * Normalizes an injectable history cap while preserving at least one active cache.
+	 * @param limit Requested per-source completed-cache limit.
+	 * @returns Positive safe-integer cache limit.
+	 */
+	private normalizeQueryCacheLimit(limit: number): number {
+		if (!Number.isSafeInteger(limit) || limit <= 0) {
+			throw new RangeError("EventStore query-cache limit must be a positive integer.");
+		}
+		return limit;
 	}
 
 	/**
@@ -2900,9 +3663,34 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 			rollback: _rollback,
 			inPlaceReplacement: _inPlaceReplacement,
 			obsoleteGenerations: _obsoleteGenerations,
+			authorityRevision: _authorityRevision,
+			activeCacheGeneration: _activeCacheGeneration,
+			cacheHistory: _cacheHistory,
+			cacheHistoryCursor: _cacheHistoryCursor,
+			nextGeneration: _nextGeneration,
+			pendingCacheCleanup: _pendingCacheCleanup,
+			pendingQueryCache: _pendingQueryCache,
 			...generationManifest
 		} = manifest;
 		return generationManifest;
+	}
+
+	/**
+	 * Captures physical generation and cache-head navigation state for cancellation.
+	 * @param manifest Complete source authority about to be replaced.
+	 * @returns Rollback snapshot without transient building metadata.
+	 */
+	private toRollbackManifest(
+		manifest: StoredEventSourceManifest,
+	): StoredEventSourceRollback {
+		const {
+			rollback: _rollback,
+			inPlaceReplacement: _inPlaceReplacement,
+			pendingQueryCache: _pendingQueryCache,
+			obsoleteGenerations: _obsoleteGenerations,
+			...rollbackManifest
+		} = manifest;
+		return rollbackManifest;
 	}
 
 	/**
@@ -2910,18 +3698,36 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	 * @param manifest Source manifest to summarize.
 	 * @returns Serializable compact source summary.
 	 */
-	private toSummary(manifest: EventSourceManifest): EventSourceSummary {
+	private toSummary(manifest: StoredEventSourceManifest): EventSourceSummary {
 		return {
 			sourceId: manifest.sourceId,
 			generation: manifest.generation,
 			revision: manifest.revision,
+			authorityRevision: manifest.authorityRevision,
 			status: manifest.status,
 			eventCount: manifest.eventCount,
 			minTimestamp: manifest.minTimestamp,
 			maxTimestamp: manifest.maxTimestamp,
 			hashMin: manifest.hashMin,
 			hashMax: manifest.hashMax,
+			activeCacheGeneration: manifest.activeCacheGeneration,
+			cacheHistory: [...manifest.cacheHistory],
+			cacheHistoryCursor: manifest.cacheHistoryCursor,
+			nextGeneration: manifest.nextGeneration,
 		};
+	}
+
+	/**
+	 * Creates the compound key for one immutable source query cache.
+	 * @param sourceId Source owning the query result.
+	 * @param generation Physical result generation.
+	 * @returns Compound IndexedDB primary key.
+	 */
+	private createQueryCacheKey(
+		sourceId: Source.Id,
+		generation: number,
+	): IDBValidKey {
+		return [sourceId, generation];
 	}
 
 	/**

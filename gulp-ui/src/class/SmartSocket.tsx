@@ -12,12 +12,17 @@ import type {
 } from "@/event-stream";
 import type { QueryTransport } from "@/event-store-worker/QueryTransport.types";
 import { createQueryTransport } from "@/event-store-worker/QueryWorker.factory";
+import type {
+	EventSourceQueryCacheActivation,
+	EventSourceQueryCacheReconciliation,
+} from "@/event-store/EventStore.types";
 import { renderWindowProjectionBus } from "@/render-worker/RenderWindowProjection.bus";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 import { Internal } from "@/entities/addon/Internal";
 import type { Doc } from "@/entities/Doc";
 import type { Operation } from "@/entities/Operation";
 import type { Request } from "@/entities/Request";
+import type { Source } from "@/entities/Source";
 import type { User } from "@/entities/User";
 import { WindowBridge } from "@/lib/WindowBridge";
 import { isEventStoreLodEnabled } from "@/event-store/EventStore.rollout";
@@ -447,6 +452,58 @@ export namespace SmartSocket {
 		/** Clears cumulative QueryWorker diagnostics without changing active work. */
 		public resetQueryDiagnostics(): Promise<void> {
 			return this.transport.resetQueryDiagnostics();
+		}
+
+		/**
+		 * Selects one exact startup cache or latest reusable fallback for a source.
+		 * @param input Operation, source, and desired semantic query fingerprint.
+		 * @returns Reconciled activation, or null when no cache is reusable.
+		 */
+		public reconcileSourceQueryCache(input: {
+			operationId: string;
+			sourceId: Source.Id;
+			queryFingerprint: string;
+		}): Promise<EventSourceQueryCacheReconciliation | null> {
+			return this.transport.reconcileSourceQueryCache(input);
+		}
+
+		/**
+		 * Moves one source-local cache history cursor without backend I/O.
+		 * @param input Operation, source, and Undo or Redo direction.
+		 * @returns Activated cache, or null at the corresponding history boundary.
+		 */
+		public navigateSourceQueryCache(input: {
+			operationId: string;
+			sourceId: Source.Id;
+			direction: "undo" | "redo";
+		}): Promise<EventSourceQueryCacheActivation | null> {
+			return this.transport.navigateSourceQueryCache(input);
+		}
+
+		/**
+		 * Clears every persisted query cache for one source before a rebuild.
+		 * @param operationId Operation owning the persisted source.
+		 * @param sourceId Source whose cache pool must be removed.
+		 * @returns Promise resolved after bounded cleanup completes.
+		 */
+		public clearSourceQueryCache(
+			operationId: string,
+			sourceId: Source.Id,
+		): Promise<void> {
+			return this.transport.clearSourceQueryCache(operationId, sourceId);
+		}
+
+		/**
+		 * Deletes every EventStore record for a source removed from the backend.
+		 * @param operationId Operation owning the source database.
+		 * @param sourceId Removed source whose complete local state must be deleted.
+		 * @returns Promise resolved after bounded cleanup finishes.
+		 */
+		public deleteSourceEventStore(
+			operationId: string,
+			sourceId: Source.Id,
+		): Promise<void> {
+			return this.transport.deleteSourceEventStore(operationId, sourceId);
 		}
 
 		/**

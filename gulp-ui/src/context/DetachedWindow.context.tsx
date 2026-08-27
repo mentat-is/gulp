@@ -1761,7 +1761,7 @@ function _({ children }: { children: ReactNode }) {
 	useEffect(() => {
 		scheduleDetachedState(["query"]);
 	}, [
-		app.target.filters,
+		app.target.files,
 		app.timeline.frame.min,
 		app.timeline.frame.max,
 		scheduleDetachedState,

@@ -1,4 +1,5 @@
 import type { Doc } from "@/entities/Doc";
+import type { QueryCacheProvenance } from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
 import { encodeEventPage } from "@/event-store/EventPage.codec";
 import type {
@@ -20,6 +21,7 @@ import {
 	type EncodedEventPageHeight,
 	type EncodedEventPageLod,
 	type EventSourceManifest,
+	type EventSourceQueryCacheRecord,
 } from "@/event-store/EventStore.types";
 import { TextDecoder, TextEncoder } from "util";
 
@@ -63,6 +65,68 @@ function createPage(
 		documents,
 		handles: new Uint32Array(handles),
 	});
+}
+
+/** Creates serializable source-query provenance for cache-pool tests. */
+function createQueryCacheProvenance(
+	fingerprint: string,
+	range: { min: number; max: number } = { min: 0, max: 100 },
+): QueryCacheProvenance {
+	return {
+		query: {
+			string: `Query ${fingerprint}`,
+			filters: [],
+			source_config: {
+				operation_id: "operation",
+				source_ids: [SOURCE_ID],
+				range,
+			},
+		},
+		fingerprint,
+		requestedFrame: range,
+		normalization: {
+			field: "number_hash",
+			hashFunction: "fnv1a",
+			requestedFields: ["gulp_timestamp", "number_hash"],
+		},
+		serverSnapshot: {
+			total: 1,
+			minNanoseconds: String(range.min),
+			maxNanoseconds: String(range.max),
+			timeUpdated: 1,
+			millisecondPrecision: false,
+		},
+	};
+}
+
+/** Builds and finalizes one single-page query cache. */
+async function appendQueryCache(
+	repository: EventStoreRepository,
+	generation: number | undefined,
+	fingerprint: string,
+	documentId: string,
+	timestamp: number,
+): Promise<number> {
+	const building = await repository.beginGeneration({
+		sourceId: SOURCE_ID,
+		...(generation === undefined ? {} : { generation }),
+		queryCache: createQueryCacheProvenance(fingerprint),
+	});
+	await repository.appendPages({
+		sourceId: SOURCE_ID,
+		generation: building.generation,
+		pages: [
+			createPage(
+				0,
+				building.generation,
+				building.revision,
+				[createDocument(documentId, timestamp)],
+				[1],
+			),
+		],
+	});
+	await repository.finalizeGeneration(SOURCE_ID, building.generation);
+	return building.generation;
 }
 
 /** Memory backend that exposes bounded index/page read counts. */
@@ -1123,6 +1187,376 @@ describe("EventStoreRepository", () => {
 		);
 		expect(neighbors.currentIndex).toBe(5);
 		expect(backend.pageReads <= 10).toBe(true);
+	});
+
+	it("atomically retains completed query provenance and cache-head history", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend, { now: () => 1234 });
+		const generation = await appendQueryCache(
+			repository,
+			undefined,
+			"fingerprint-one",
+			"cached-one",
+			10,
+		);
+
+		expect(generation).toBe(1);
+		expect(await repository.getSourceSummary(SOURCE_ID)).toMatchObject({
+			generation: 1,
+			authorityRevision: 1,
+			activeCacheGeneration: 1,
+			cacheHistory: [1],
+			cacheHistoryCursor: 0,
+			nextGeneration: 2,
+		});
+		const records = await backend.getAllByPrefix<EventSourceQueryCacheRecord>(
+			"source_query_caches",
+			[SOURCE_ID],
+		);
+		expect(records).toHaveLength(1);
+		expect(records[0]).toMatchObject({
+			sourceId: SOURCE_ID,
+			generation: 1,
+			state: "exact",
+			createdAt: 1234,
+			lastActivatedAt: 1234,
+			provenance: { fingerprint: "fingerprint-one" },
+			manifest: { status: "complete", eventCount: 1 },
+		});
+		expect("cacheHistory" in records[0].manifest).toBe(false);
+		expect((await repository.listQueryCaches(SOURCE_ID))[0]).toMatchObject({
+			generation: 1,
+			state: "exact",
+			eventCount: 1,
+		});
+	});
+
+	it("undoes and redoes older physical generations through monotonic authority", async () => {
+		let now = 100;
+		const repository = new EventStoreRepository(new MemoryEventStoreBackend(), {
+			now: () => ++now,
+		});
+		await appendQueryCache(repository, undefined, "first", "old-event", 10);
+		await appendQueryCache(repository, undefined, "second", "new-event", 20);
+		const latest = await repository.getSourceSummary(SOURCE_ID);
+
+		const undone = await repository.undoQueryCache(SOURCE_ID);
+		expect(undone?.summary).toMatchObject({
+			generation: 1,
+			activeCacheGeneration: 1,
+			cacheHistory: [1, 2],
+			cacheHistoryCursor: 0,
+		});
+		expect(
+			undone!.summary.authorityRevision > latest!.authorityRevision,
+		).toBe(true);
+		expect((await repository.getById("old-event" as Doc.Id))?._id).toBe(
+			"old-event",
+		);
+		expect(await repository.getById("new-event" as Doc.Id)).toBeNull();
+
+		const redone = await repository.redoQueryCache(SOURCE_ID);
+		expect(redone?.summary).toMatchObject({
+			generation: 2,
+			activeCacheGeneration: 2,
+			cacheHistoryCursor: 1,
+			nextGeneration: 3,
+		});
+		expect(
+			redone!.summary.authorityRevision > undone!.summary.authorityRevision,
+		).toBe(true);
+		expect(await repository.undoQueryCache(SOURCE_ID)).not.toBeNull();
+		expect(await repository.undoQueryCache(SOURCE_ID)).toBeNull();
+	});
+
+	it("truncates redo and enforces an injectable cache-history limit", async () => {
+		const repository = new EventStoreRepository(new MemoryEventStoreBackend(), {
+			queryCacheLimit: 3,
+		});
+		await appendQueryCache(repository, undefined, "one", "one", 10);
+		await appendQueryCache(repository, undefined, "two", "two", 20);
+		await appendQueryCache(repository, undefined, "three", "three", 30);
+		await repository.undoQueryCache(SOURCE_ID);
+		await repository.undoQueryCache(SOURCE_ID);
+
+		await appendQueryCache(repository, undefined, "four", "four", 40);
+		expect(await repository.getSourceSummary(SOURCE_ID)).toMatchObject({
+			cacheHistory: [1, 4],
+			cacheHistoryCursor: 1,
+			nextGeneration: 5,
+		});
+		expect(
+			(await repository.listQueryCaches(SOURCE_ID)).map(
+				(cache) => cache.generation,
+			),
+		).toEqual([1, 4]);
+
+		await appendQueryCache(repository, undefined, "five", "five", 50);
+		await appendQueryCache(repository, undefined, "six", "six", 60);
+		expect(await repository.getSourceSummary(SOURCE_ID)).toMatchObject({
+			cacheHistory: [4, 5, 6],
+			cacheHistoryCursor: 2,
+			nextGeneration: 7,
+		});
+		expect(
+			(await repository.listQueryCaches(SOURCE_ID)).map(
+				(cache) => cache.generation,
+			),
+		).toEqual([4, 5, 6]);
+	});
+
+	it("reconciles an exact cache or latest reusable fallback and prunes alternatives", async () => {
+		let now = 0;
+		const repository = new EventStoreRepository(new MemoryEventStoreBackend(), {
+			now: () => ++now,
+		});
+		await appendQueryCache(repository, undefined, "one", "one", 10);
+		await appendQueryCache(repository, undefined, "two", "two", 20);
+		await appendQueryCache(repository, undefined, "three", "three", 30);
+
+		const exact = await repository.reconcileQueryCache({
+			sourceId: SOURCE_ID,
+			queryFingerprint: "two",
+		});
+		expect(exact).toMatchObject({
+			match: "exact",
+			cache: { generation: 2, provenance: { fingerprint: "two" } },
+			summary: { generation: 2, cacheHistory: [2], cacheHistoryCursor: 0 },
+		});
+		expect(
+			(await repository.listQueryCaches(SOURCE_ID)).map(
+				(cache) => cache.generation,
+			),
+		).toEqual([2]);
+
+		await appendQueryCache(repository, undefined, "latest", "latest", 40);
+		const fallback = await repository.reconcileQueryCache({
+			sourceId: SOURCE_ID,
+			queryFingerprint: "missing",
+		});
+		expect(fallback).toMatchObject({
+			match: "latest",
+			cache: { generation: 4, provenance: { fingerprint: "latest" } },
+			summary: { cacheHistory: [4] },
+		});
+		expect(await repository.getById("latest" as Doc.Id)).not.toBeNull();
+		expect(await repository.getById("two" as Doc.Id)).toBeNull();
+	});
+
+	it("marks an upserted active cache mutated and refuses it at startup", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		await appendQueryCache(repository, undefined, "original", "mutable", 10);
+		const authorityBeforeMutation = (
+			await repository.getSourceSummary(SOURCE_ID)
+		)?.authorityRevision;
+		await repository.upsertDocuments({
+			documents: [{ ...createDocument("mutable", 10), number_hash: 999 }],
+		});
+		expect(await repository.listQueryCaches(SOURCE_ID)).toMatchObject([
+			{ generation: 1, state: "mutated", eventCount: 1 },
+		]);
+
+		expect(
+			await repository.reconcileQueryCache({
+				sourceId: SOURCE_ID,
+				queryFingerprint: "original",
+			}),
+		).toBeNull();
+		expect(await repository.getSourceSummary(SOURCE_ID)).toMatchObject({
+			status: "incomplete",
+			activeCacheGeneration: null,
+			cacheHistory: [],
+			cacheHistoryCursor: -1,
+			authorityRevision: (authorityBeforeMutation ?? 0) + 1,
+		});
+		expect(backend.getStoreSize("source_query_caches")).toBe(0);
+		expect(backend.getStoreSize("pages")).toBe(0);
+	});
+
+	it("preserves pooled rollback on interruption and rejects destructive fallback", async () => {
+		const repository = new EventStoreRepository(new MemoryEventStoreBackend());
+		await appendQueryCache(repository, undefined, "stable", "stable", 10);
+		const building = await repository.beginGeneration({
+			sourceId: SOURCE_ID,
+			queryCache: createQueryCacheProvenance("replacement"),
+		});
+		await repository.appendPages({
+			sourceId: SOURCE_ID,
+			generation: building.generation,
+			pages: [
+				createPage(
+					0,
+					building.generation,
+					building.revision,
+					[createDocument("partial", 20)],
+					[1],
+				),
+			],
+		});
+
+		await expect(
+			repository.discardGenerationRollback(SOURCE_ID, building.generation),
+		).rejects.toThrow("cannot discard its rollback cache");
+		const restored = await repository.markGenerationIncomplete(
+			SOURCE_ID,
+			building.generation,
+		);
+		expect(restored).toMatchObject({
+			generation: 1,
+			status: "complete",
+			activeCacheGeneration: 1,
+			cacheHistory: [1],
+		});
+		expect((await repository.getById("stable" as Doc.Id))?._id).toBe("stable");
+		expect(await repository.getById("partial" as Doc.Id)).toBeNull();
+		expect(await repository.listQueryCaches(SOURCE_ID)).toHaveLength(1);
+	});
+
+	it("recovers an interrupted building cache before startup reconciliation", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		await appendQueryCache(repository, undefined, "stable", "stable", 10);
+		const interrupted = await repository.beginGeneration({
+			sourceId: SOURCE_ID,
+			queryCache: createQueryCacheProvenance("interrupted"),
+		});
+		await repository.appendPages({
+			sourceId: SOURCE_ID,
+			generation: interrupted.generation,
+			pages: [
+				createPage(
+					0,
+					interrupted.generation,
+					interrupted.revision,
+					[createDocument("uncommitted", 20)],
+					[1],
+				),
+			],
+		});
+
+		const reopened = new EventStoreRepository(backend);
+		const reconciled = await reopened.reconcileQueryCache({
+			sourceId: SOURCE_ID,
+			queryFingerprint: "stable",
+		});
+		expect(reconciled).toMatchObject({
+			match: "exact",
+			cache: { generation: 1 },
+			summary: { status: "complete", cacheHistory: [1] },
+		});
+		expect((await reopened.getById("stable" as Doc.Id))?._id).toBe("stable");
+		expect(await reopened.getById("uncommitted" as Doc.Id)).toBeNull();
+	});
+
+	it("prunes pooled generations through delete batches capped at 256 operations", async () => {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const building = await repository.beginGeneration({
+			sourceId: SOURCE_ID,
+			queryCache: createQueryCacheProvenance("large"),
+		});
+		for (let pageId = 0; pageId < 90; pageId++) {
+			await repository.appendPages({
+				sourceId: SOURCE_ID,
+				generation: building.generation,
+				pages: [
+					createPage(
+						pageId,
+						building.generation,
+						building.revision,
+						[createDocument(`large-${pageId}`, 1_000 - pageId)],
+						[pageId + 1],
+					),
+				],
+			});
+		}
+		await repository.finalizeGeneration(SOURCE_ID, building.generation);
+		await appendQueryCache(repository, undefined, "small", "small", 2_000);
+		backend.resetWriteMetrics();
+
+		await repository.pruneQueryCaches(SOURCE_ID, [2]);
+		expect(backend.maximumDeletesPerCommit <= 256).toBe(true);
+		expect(
+			await backend.getAllByPrefix("pages", [SOURCE_ID, 1]),
+		).toHaveLength(0);
+		expect(
+			(await repository.listQueryCaches(SOURCE_ID)).map(
+				(cache) => cache.generation,
+			),
+		).toEqual([2]);
+	});
+
+	it("resumes an interrupted pooled cleanup from its persisted marker", async () => {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		await appendQueryCache(repository, undefined, "old", "old", 10);
+		await appendQueryCache(repository, undefined, "active", "active", 20);
+		backend.failNextDeleteCommit = true;
+
+		await expect(repository.pruneQueryCaches(SOURCE_ID, [2])).rejects.toThrow(
+			"Injected generation cleanup failure",
+		);
+		const interrupted = await backend.get<{
+			pendingCacheCleanup?: Array<{ generation: number }>;
+		}>("sources", SOURCE_ID);
+		expect(interrupted?.pendingCacheCleanup).toEqual([{ generation: 1 }]);
+		expect(backend.getStoreSize("source_query_caches")).toBe(2);
+
+		await repository.cleanupObsoleteGenerations(SOURCE_ID);
+		expect(
+			(await backend.get<{ pendingCacheCleanup?: unknown }>("sources", SOURCE_ID))
+				?.pendingCacheCleanup,
+		).toBeUndefined();
+		expect(
+			(await repository.listQueryCaches(SOURCE_ID)).map(
+				(cache) => cache.generation,
+			),
+		).toEqual([2]);
+	});
+
+	it("resets a cache pool without moving authority or generation allocation backwards", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		await appendQueryCache(repository, undefined, "first", "first", 10);
+		await appendQueryCache(repository, undefined, "second", "second", 20);
+		const undone = await repository.undoQueryCache(SOURCE_ID);
+		if (!undone) throw new Error("Expected cache history before reset.");
+
+		const reset = await repository.resetQueryCachePool(SOURCE_ID);
+		expect(reset).toMatchObject({
+			generation: 1,
+			status: "incomplete",
+			eventCount: 0,
+			activeCacheGeneration: null,
+			cacheHistory: [],
+			cacheHistoryCursor: -1,
+			nextGeneration: 3,
+		});
+		expect(reset!.authorityRevision > undone.summary.authorityRevision).toBe(true);
+		expect(backend.getStoreSize("source_query_caches")).toBe(0);
+		expect(backend.getStoreSize("pages")).toBe(0);
+		expect(await repository.getSourceSummary(SOURCE_ID)).toMatchObject(reset!);
+
+		const rebuiltGeneration = await appendQueryCache(
+			repository,
+			undefined,
+			"rebuilt",
+			"rebuilt",
+			30,
+		);
+		expect(rebuiltGeneration).toBe(3);
+		expect(await repository.getSourceSummary(SOURCE_ID)).toMatchObject({
+			generation: 3,
+			status: "complete",
+			cacheHistory: [3],
+			nextGeneration: 4,
+		});
+		expect((await repository.getById("rebuilt" as Doc.Id))?._id).toBe(
+			"rebuilt",
+		);
+		expect(await repository.getById("first" as Doc.Id)).toBeNull();
+		expect(await repository.getById("second" as Doc.Id)).toBeNull();
 	});
 
 	it("uses typed errors for stale generation operations", async () => {

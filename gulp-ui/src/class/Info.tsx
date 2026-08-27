@@ -39,6 +39,16 @@ import { Link } from "@/entities/Link";
 import { CacheKey } from "./Engine.dto";
 import { Filter } from "@/entities/Filter";
 import { Query } from "@/entities/Query";
+import {
+	cloneQueryForCache,
+	createEmptyQueryCacheState,
+	fingerprintSourceQuery,
+	sourceSnapshotsMatch,
+	type QueryCacheNormalization,
+	type QueryCacheProvenance,
+	type QueryCacheServerSnapshot,
+	type QueryCacheState,
+} from "@/entities/QueryCache";
 import { Highlight } from "@/entities/Highlight";
 import { Mapping } from "@/entities/Mapping";
 import { Internal } from "@/entities/addon/Internal";
@@ -86,6 +96,9 @@ import type {
 import {
 	getEventStoreLodDecision,
 	isEventStoreLodEnabled,
+	type EventSourceQueryCacheActivation,
+	type EventSourceQueryCacheMetadata,
+	type EventSourceQueryCacheReconciliation,
 	type EventSourceSummary,
 } from "@/event-store";
 import { publishEventStoreFallbackRequest } from "@/event-store/EventStoreFallback.request";
@@ -339,6 +352,16 @@ interface RefetchOptions {
 	notes_glyph_id?: Glyph.Id;
 	name?: string;
 	frame?: MinMax;
+	cachePolicy?: "initial" | "force";
+	/** Optional query applied atomically with the new source generation. */
+	query?: Query.Type;
+	/** Previous normalization restored if a settings-driven replacement fails. */
+	normalizationRollback?: Partial<
+		Record<
+			Source.Id,
+			Pick<Source.Type["settings"], "field" | "hash_function">
+		>
+	>;
 }
 
 const EVENT_STREAM_FAILURE_MESSAGE_KEYS: Record<
@@ -359,6 +382,8 @@ type QueryFileOptions = GulpDataset.QueryGulp.Options & {
 	queuePriority?: ViewportQueryPriority;
 	eventStoreMode?: "replace" | "upsert";
 	eventStreamKind?: "query" | "realtime";
+	queryCache?: QueryCacheProvenance;
+	queryRollback?: SourceQueryRollback;
 };
 
 interface QueryStreamState {
@@ -387,6 +412,8 @@ export interface EventDocumentStreamOptions {
 	defaultSourceSettings?: DocumentStreamSourceSettings;
 	sourceSettingsById?: Record<string, DocumentStreamSourceSettings>;
 	expectedEvents?: number;
+	queryCache?: QueryCacheProvenance;
+	queryRollback?: SourceQueryRollback;
 }
 
 interface QueryGulpRequestBody {
@@ -411,6 +438,15 @@ interface RefetchQueueItem {
 	query: Query.Type;
 	options: QueryFileOptions;
 	sequence: number;
+}
+
+interface SourceQueryRollback {
+	query: Query.Type | null;
+	cacheState: QueryCacheState;
+	normalization: Pick<
+		Source.Type["settings"],
+		"field" | "hash_function"
+	>;
 }
 
 interface InfoProps {
@@ -658,6 +694,11 @@ export class Info implements InfoProps {
 
 			return {
 				...file,
+				appliedQuery: this.shiftSourceQueryRangeByOffset(
+					file.appliedQuery,
+					offsetNsec,
+				),
+				queryCache: createEmptyQueryCacheState(),
 				timestamp: {
 					min: file.timestamp.min + offsetMsec,
 					max: file.timestamp.max + offsetMsec,
@@ -676,15 +717,6 @@ export class Info implements InfoProps {
 				},
 			};
 		});
-		const filters = this.shiftSourceFilterRangeByOffset(
-			this.app.target.filters,
-			sourceId,
-			offsetNsec,
-		);
-		const cachedFilterData = new Map(this.app.timeline.cache.data);
-		cachedFilterData.delete(sourceId);
-		const cachedFilters = { ...this.app.timeline.cache.filters };
-		delete cachedFilters[sourceId];
 
 		RenderEngine.resetSource(sourceId);
 		const nextApp = {
@@ -692,15 +724,6 @@ export class Info implements InfoProps {
 			target: {
 				...this.app.target,
 				files,
-				filters,
-			},
-			timeline: {
-				...this.app.timeline,
-				cache: {
-					...this.app.timeline.cache,
-					data: cachedFilterData,
-					filters: cachedFilters,
-				},
 			},
 		};
 		this.app = nextApp;
@@ -820,28 +843,22 @@ export class Info implements InfoProps {
 	});
 
 	/**
-	 * Shifts the active stored filter range for a rebased source.
-	 * @param filters Current source filters.
-	 * @param sourceId Source whose documents were rebased.
+	 * Shifts the active query range for a rebased source.
+	 * @param query Current source query.
 	 * @param offsetNsec Rebase offset in nanoseconds.
-	 * @returns Updated filter map.
+	 * @returns Updated query, or null when the source has no applied query.
 	 */
-	private shiftSourceFilterRangeByOffset = (
-		filters: App.Type["target"]["filters"],
-		sourceId: Source.Id,
+	private shiftSourceQueryRangeByOffset = (
+		query: Query.Type | null,
 		offsetNsec: bigint,
-	): App.Type["target"]["filters"] => {
-		const filter = filters[sourceId];
-		if (!filter?.source_config?.range) return filters;
+	): Query.Type | null => {
+		if (!query?.source_config?.range) return query;
 
 		return {
-			...filters,
-			[sourceId]: {
-				...filter,
-				source_config: {
-					...filter.source_config,
-					range: this.shiftNanosRange(filter.source_config.range, offsetNsec),
-				},
+			...query,
+			source_config: {
+				...query.source_config,
+				range: this.shiftNanosRange(query.source_config.range, offsetNsec),
 			},
 		};
 	};
@@ -1213,6 +1230,7 @@ export class Info implements InfoProps {
 							0,
 						)
 					: undefined),
+			queryCache: options.queryCache,
 		};
 
 		try {
@@ -1328,6 +1346,40 @@ export class Info implements InfoProps {
 	};
 
 	/**
+	 * Restores source query metadata after a replace generation is canceled or fails.
+	 * The EventStore independently restores the matching persisted manifest.
+	 * @param options Stream metadata carrying the pre-query source snapshot.
+	 * @returns Nothing.
+	 */
+	private restoreSourceQueryRollback = (
+		options: EventDocumentStreamOptions | undefined,
+	): void => {
+		if (!options?.queryRollback || options.sourceIds.length !== 1) return;
+		const rollback = options.queryRollback;
+		const sourceId = options.sourceIds[0];
+		let restored = false;
+		const files = this.app.target.files.map((source) => {
+			if (source.id !== sourceId) return source;
+			restored = true;
+			return {
+				...source,
+				appliedQuery: rollback.query
+					? cloneQueryForCache(rollback.query)
+					: null,
+				queryCache: { ...rollback.cacheState },
+				settings: {
+					...source.settings,
+					...rollback.normalization,
+				},
+			};
+		});
+		if (!restored) return;
+		this.app.target.files = files;
+		this.setInfoByKey(files, "target", "files");
+		RenderEngine.resetSource(sourceId);
+	};
+
+	/**
 	 * Reconciles application-owned query state after QueryWorker changes stream state.
 	 * Document payloads remain worker-owned; this method only releases metadata and UI
 	 * request state after the durable IndexedDB terminal transition.
@@ -1348,6 +1400,35 @@ export class Info implements InfoProps {
 			return;
 		}
 
+		const options = this.eventDocumentStreamOptions.get(requestId);
+		if (change.state === "canceled") {
+			this.restoreSourceQueryRollback(options);
+		}
+		if (change.state === "completed" && !isEventStoreLodEnabled()) {
+			this.completeLegacyQueryCacheState(options);
+		}
+		if (
+			change.state === "completed" &&
+			isEventStoreLodEnabled() &&
+			options?.mode === "replace"
+		) {
+			let changed = false;
+			const sourceIds = new Set(options.sourceIds);
+			const files = this.app.target.files.map((source) => {
+				if (!sourceIds.has(source.id) || !source.queryCache.isActivating) {
+					return source;
+				}
+				changed = true;
+				return {
+					...source,
+					queryCache: { ...source.queryCache, isActivating: false },
+				};
+			});
+			if (changed) {
+				this.app.target.files = files;
+				this.setInfoByKey(files, "target", "files");
+			}
+		}
 		this.activeEventDocumentStreams.delete(requestId);
 		this.eventDocumentStreamOptions.delete(requestId);
 		this.releaseEventDocumentStream(requestId);
@@ -1385,6 +1466,7 @@ export class Info implements InfoProps {
 		const backendDispatched =
 			this.backendDispatchedEventDocumentStreams.has(requestId);
 		const options = this.eventDocumentStreamOptions.get(requestId);
+		this.restoreSourceQueryRollback(options);
 		const recoverableSourceIds = Array.from(
 			new Set(options?.sourceIds ?? []),
 		).filter((sourceId) => Boolean(Source.Entity.id(this.app, sourceId)));
@@ -1482,6 +1564,7 @@ export class Info implements InfoProps {
 				});
 			}
 			DataStore.publishEventSourceSummary(event.summary);
+			this.applyStreamQueryCacheSummary(event.summary, options);
 		}
 	};
 
@@ -1712,6 +1795,337 @@ export class Info implements InfoProps {
 	};
 
 	/**
+	 * Captures the normalization inputs that affect one persisted source result.
+	 * @param source Source whose query documents will be normalized.
+	 * @param requestedFields Optional explicit backend field projection.
+	 * @returns Stable normalization descriptor used by cache identity.
+	 */
+	private getQueryCacheNormalization = (
+		source: Source.Type,
+		requestedFields?: Array<keyof Doc.Type>,
+	): QueryCacheNormalization => ({
+		field: String(source.settings.field),
+		hashFunction: source.settings.hash_function,
+		requestedFields: (requestedFields ?? [source.settings.field]).map(String),
+	});
+
+	/**
+	 * Captures complete-source server metadata separately from filtered cache counts.
+	 * @param source Source enriched by `/query_operations`.
+	 * @returns Serializable full-source metadata snapshot.
+	 */
+	private getQueryCacheServerSnapshot = (
+		source: Source.Type,
+	): QueryCacheServerSnapshot => {
+		const hasNanosecondRange =
+			source.nanotimestamp?.min !== undefined &&
+			source.nanotimestamp?.max !== undefined;
+		return {
+			total: source.total,
+			minNanoseconds: hasNanosecondRange
+				? this.toExactNanos(source.nanotimestamp.min).toString()
+				: this.toExactNanos(source.timestamp.min).toString(),
+			maxNanoseconds: hasNanosecondRange
+				? this.toExactNanos(source.nanotimestamp.max).toString()
+				: this.toExactNanos(source.timestamp.max).toString(),
+			timeUpdated: source.time_updated,
+			millisecondPrecision: !hasNanosecondRange,
+		};
+	};
+
+	/**
+	 * Builds immutable query provenance for a new replace generation.
+	 * @param source Source whose cache will be created.
+	 * @param query Final source-scoped query sent to the backend.
+	 * @param frame User-selected timeline frame retained for cache presentation.
+	 * @param requestedFields Optional explicit backend field projection.
+	 * @returns Query provenance safe for worker and IndexedDB structured cloning.
+	 */
+	private createQueryCacheProvenance = (
+		source: Source.Type,
+		query: Query.Type,
+		frame: MinMax,
+		requestedFields?: Array<keyof Doc.Type>,
+	): QueryCacheProvenance => {
+		const normalization = this.getQueryCacheNormalization(
+			source,
+			requestedFields,
+		);
+		const cachedQuery = cloneQueryForCache(query);
+		return {
+			query: cachedQuery,
+			fingerprint: fingerprintSourceQuery({
+				query: cachedQuery,
+				operationId: source.operation_id,
+				sourceId: source.id,
+				normalization,
+				backendFilter: Filter.Entity.query(cachedQuery),
+			}),
+			requestedFrame: { min: frame.min, max: frame.max },
+			normalization,
+			serverSnapshot: this.getQueryCacheServerSnapshot(source),
+		};
+	};
+
+	/**
+	 * Classifies one complete cache against the source metadata most recently loaded
+	 * from the server. Filtered result counts are deliberately excluded.
+	 * @param source Source carrying current full-dataset metadata.
+	 * @param cache Complete cache metadata returned by QueryWorker.
+	 * @param match Optional startup selection reason.
+	 * @returns Freshness state exposed to the source menu and renderers.
+	 */
+	private getQueryCacheFreshness = (
+		source: Source.Type,
+		cache: Pick<EventSourceQueryCacheMetadata, "state" | "provenance">,
+		match?: EventSourceQueryCacheReconciliation["match"],
+	): QueryCacheState["freshness"] => {
+		if (match === "latest") return "query-mismatch";
+		if (cache.state === "mutated") return "mutated";
+		try {
+			const currentSnapshot = this.getQueryCacheServerSnapshot(source);
+			if (
+				!Number.isFinite(cache.provenance.serverSnapshot.total) ||
+				!Number.isFinite(currentSnapshot.total)
+			) {
+				return "unknown";
+			}
+			return sourceSnapshotsMatch(
+				cache.provenance.serverSnapshot,
+				currentSnapshot,
+			)
+				? "fresh"
+				: "source-changed";
+		} catch (error) {
+			Logger.warn(
+				`Unable to compare query cache freshness for ${source.id}: ${(error as Error).message}`,
+				Info,
+			);
+			return "unknown";
+		}
+	};
+
+	/**
+	 * Builds the client-only history state represented by one durable source summary.
+	 * @param summary Compact EventStore authority after build or cache activation.
+	 * @param fingerprint Fingerprint of the active cache provenance.
+	 * @param freshness Freshness classification calculated from server metadata.
+	 * @returns Runtime query-cache navigation state.
+	 */
+	private createRuntimeQueryCacheState = (
+		summary: EventSourceSummary,
+		fingerprint: string,
+		freshness: QueryCacheState["freshness"],
+	): QueryCacheState => {
+		const history = summary.cacheHistory ?? [];
+		const cursor = summary.cacheHistoryCursor ?? history.length - 1;
+		return {
+			activeGeneration:
+				summary.activeCacheGeneration ??
+				(summary.status === "complete" ? summary.generation : null),
+			fingerprint,
+			historyIndex: cursor,
+			historyLength: history.length,
+			canUndo: cursor > 0,
+			canRedo: cursor >= 0 && cursor < history.length - 1,
+			freshness,
+			warningReason: freshness === "fresh" ? null : freshness,
+			isActivating: false,
+		};
+	};
+
+	/**
+	 * Restores query provenance, normalization, and history from one activated cache.
+	 * This method changes only source metadata; exact documents remain worker-owned.
+	 * @param source Current source object.
+	 * @param activation Cache activation returned by QueryWorker.
+	 * @param match Optional startup exact/fallback selection reason.
+	 * @returns Source state matching the activated physical generation.
+	 */
+	private sourceWithActivatedQueryCache = (
+		source: Source.Type,
+		activation: EventSourceQueryCacheActivation,
+		match?: EventSourceQueryCacheReconciliation["match"],
+	): Source.Type => {
+		const { provenance } = activation.cache;
+		const freshness = this.getQueryCacheFreshness(
+			source,
+			activation.cache,
+			match,
+		);
+		return {
+			...source,
+			appliedQuery: cloneQueryForCache(provenance.query),
+			queryCache: this.createRuntimeQueryCacheState(
+				activation.summary,
+				provenance.fingerprint,
+				freshness,
+			),
+			settings: {
+				...source.settings,
+				field: provenance.normalization.field as keyof Doc.Type,
+				hash_function: provenance.normalization.hashFunction,
+			},
+		};
+	};
+
+	/**
+	 * Commits one or more source-local cache activations to React and DataStore.
+	 * @param activations Activated caches keyed by source and optional startup match.
+	 * @returns Nothing.
+	 */
+	private applyQueryCacheActivations = (
+		activations: Array<{
+			sourceId: Source.Id;
+			activation: EventSourceQueryCacheActivation;
+			match?: EventSourceQueryCacheReconciliation["match"];
+		}>,
+	): void => {
+		if (activations.length === 0) return;
+		const activationBySource = new Map(
+			activations.map((entry) => [entry.sourceId, entry]),
+		);
+		const files = this.app.target.files.map((source) => {
+			const entry = activationBySource.get(source.id);
+			if (!entry) return source;
+			DataStore.publishEventSourceSummary(entry.activation.summary, "immediate");
+			Doc.Entity.clearHashRange(source.id);
+			RenderEngine.resetSource(source.id);
+			return this.sourceWithActivatedQueryCache(
+				source,
+				entry.activation,
+				entry.match,
+			);
+		});
+		this.app.target.files = files;
+		this.setInfoByKey(files, "target", "files");
+	};
+
+	/**
+	 * Reflects a durable query build or active-cache upsert in the source-owned
+	 * provenance state. A newly completed backend replacement is fresh by definition;
+	 * rollback summaries are left for the cancellation handler.
+	 * @param summary Durable source authority published for a registered stream.
+	 * @param options Source/query metadata registered before backend dispatch.
+	 * @returns Nothing.
+	 */
+	private applyStreamQueryCacheSummary = (
+		summary: EventSourceSummary,
+		options: EventDocumentStreamOptions | undefined,
+	): void => {
+		if (!options || summary.status !== "complete") return;
+		let changed = false;
+		const files = this.app.target.files.map((source) => {
+			if (source.id !== summary.sourceId) return source;
+
+			if (options.mode === "upsert") {
+				if (source.queryCache.activeGeneration === null) return source;
+				changed = true;
+				return {
+					...source,
+					queryCache: {
+						...source.queryCache,
+						freshness: "mutated" as const,
+						warningReason: "mutated" as const,
+					},
+				};
+			}
+
+			const provenance = options.queryCache;
+			if (!provenance || summary.activeCacheGeneration !== summary.generation) {
+				return source;
+			}
+			if (
+				options.queryRollback?.cacheState.activeGeneration === summary.generation
+			) {
+				return source;
+			}
+			changed = true;
+			return {
+				...source,
+				appliedQuery: cloneQueryForCache(provenance.query),
+				queryCache: this.createRuntimeQueryCacheState(
+					summary,
+					provenance.fingerprint,
+					"fresh",
+				),
+			};
+		});
+		if (!changed) return;
+		this.app.target.files = files;
+		this.setInfoByKey(files, "target", "files");
+	};
+
+	/**
+	 * Marks a successful compatibility-mode query as fresh without advertising
+	 * IndexedDB history that does not exist in that mode.
+	 * @param options Completed replace-stream metadata.
+	 * @returns Nothing.
+	 */
+	private completeLegacyQueryCacheState = (
+		options: EventDocumentStreamOptions | undefined,
+	): void => {
+		if (!options?.queryCache || options.mode !== "replace") return;
+		const sourceIds = new Set(options.sourceIds);
+		const files = this.app.target.files.map((source) =>
+			sourceIds.has(source.id)
+				? {
+						...source,
+						queryCache: {
+							...createEmptyQueryCacheState(),
+							freshness: "fresh" as const,
+							warningReason: null,
+						},
+					}
+				: source,
+		);
+		this.app.target.files = files;
+		this.setInfoByKey(files, "target", "files");
+	};
+
+	/**
+	 * Attempts startup reconciliation for a desired source query. Errors fall back
+	 * to the existing authoritative backend request path.
+	 * @param source Source selected by the user.
+	 * @param provenance Desired source-scoped query fingerprint and metadata.
+	 * @param operationEpoch Operation fence captured before asynchronous lookup.
+	 * @returns Reconciliation result, or null when the backend must be queried.
+	 */
+	private reconcileInitialSourceQueryCache = async (
+		source: Source.Type,
+		provenance: QueryCacheProvenance,
+		operationEpoch: number,
+	): Promise<EventSourceQueryCacheReconciliation | null> => {
+		const socket = SmartSocket.Class.instance;
+		if (
+			!isEventStoreLodEnabled() ||
+			!socket ||
+			typeof socket.reconcileSourceQueryCache !== "function"
+		) {
+			return null;
+		}
+		try {
+			const result = await socket.reconcileSourceQueryCache({
+				operationId: source.operation_id,
+				sourceId: source.id,
+				queryFingerprint: provenance.fingerprint,
+			});
+			if (
+				!this.isOperationContextCurrent(operationEpoch, source.operation_id)
+			) {
+				return null;
+			}
+			return result;
+		} catch (error) {
+			Logger.warn(
+				`Unable to reconcile query cache for ${source.id}: ${(error as Error).message}`,
+				Info,
+			);
+			return null;
+		}
+	};
+
+	/**
 	 * Normalizes websocket docs on the main thread for small batches.
 	 * @param docs Raw document payload received from the websocket.
 	 * @param sourceIds Source ids associated with the query request.
@@ -1842,6 +2256,9 @@ export class Info implements InfoProps {
 	 * @param options.name - Optional name label for this search action.
 	 * @param options.frame - Optional rendered timeframe to persist before the
 	 * current timeline frame is applied as every source query's base range.
+	 * @param options.cachePolicy - Initial cache reconciliation or forced backend query.
+	 * @param options.query - Optional query to apply instead of the current source query.
+	 * @param options.normalizationRollback - Previous hash settings restored on failure.
 	 * @returns A promise that resolves when all queries are queued.
 	 */
 	refetch = async ({
@@ -1854,6 +2271,9 @@ export class Info implements InfoProps {
 		notes_glyph_id,
 		name,
 		frame,
+		cachePolicy = "force",
+		query: requestedQuery,
+		normalizationRollback,
 	}: RefetchOptions = {}) => {
 		const files: Source.Type[] = Parser.array(_ids).map((id) =>
 			Source.Entity.id(this.app, id),
@@ -1875,16 +2295,34 @@ export class Info implements InfoProps {
 		}
 		effectiveFrame ??= this.app.timeline.frame;
 
-		const sourceQueries = files.map((file) => ({
-			file,
-			query: Filter.Entity.scopeToSource(
+		const sourceQueries = files.map((file) => {
+			const query = Filter.Entity.scopeToSource(
 				this.app,
 				file,
-				this.getQuery(file),
+				requestedQuery ?? this.getQuery(file),
 				effectiveFrame,
-			),
-		}));
-		this.persistSourceQueries(sourceQueries);
+			);
+			return {
+				file,
+				query,
+				provenance: this.createQueryCacheProvenance(
+					file,
+					query,
+					effectiveFrame,
+					refetchKeys?.[file.id],
+				),
+				rollback: {
+					query: file.appliedQuery
+						? cloneQueryForCache(file.appliedQuery)
+						: null,
+					cacheState: { ...file.queryCache },
+					normalization: normalizationRollback?.[file.id] ?? {
+						field: file.settings.field,
+						hash_function: file.settings.hash_function,
+					},
+				} satisfies SourceQueryRollback,
+			};
+		});
 
 		this.notes_reload();
 		this.links_reload();
@@ -1896,7 +2334,52 @@ export class Info implements InfoProps {
 		);
 		this.removeQueuedRefetchesForSources(files.map((file) => file.id));
 
-		sourceQueries.forEach(({ file, query }) => {
+		let backendQueries = sourceQueries;
+		if (cachePolicy === "initial") {
+			const operationEpoch = DataStore.getRenderOperationEpoch();
+			const reconciliationResults = await Promise.all(
+				sourceQueries.map(async (entry) => ({
+					entry,
+					result: await this.reconcileInitialSourceQueryCache(
+						entry.file,
+						entry.provenance,
+						operationEpoch,
+					),
+				})),
+			);
+			if (
+				reconciliationResults.some(
+					({ entry }) =>
+						!this.isOperationContextCurrent(
+							operationEpoch,
+							entry.file.operation_id,
+						),
+				)
+			) {
+				return;
+			}
+			const cacheHits = reconciliationResults.flatMap(({ entry, result }) =>
+				result
+					? [
+							{
+								sourceId: entry.file.id,
+								activation: result,
+								match: result.match,
+							},
+						]
+					: [],
+			);
+			this.applyQueryCacheActivations(cacheHits);
+			backendQueries = reconciliationResults
+				.filter(({ result }) => result === null)
+				.map(({ entry }) => entry);
+		}
+
+		if (backendQueries.length > 0) {
+			this.persistSourceQueries(backendQueries, true);
+		}
+
+		backendQueries.forEach(({ file, query, provenance, rollback }) => {
 			this.events_reset_in_file(file);
 
 			this.enqueueRefetchQuery({
@@ -1915,12 +2398,15 @@ export class Info implements InfoProps {
 					notes_tags,
 					notes_glyph_id,
 					name,
+					queryCache: provenance,
+					queryRollback: rollback,
 				},
 				sequence: this.refetchQueueSequence++,
 			});
 		});
 
 		this.pumpRefetchQueue();
+		if (backendQueries.length === 0) this.render();
 	};
 
 	private static _realtimeTimer: ReturnType<typeof setInterval> | null = null;
@@ -2861,6 +3347,8 @@ export class Info implements InfoProps {
 			queuePriority,
 			eventStoreMode = "upsert",
 			eventStreamKind = "query",
+			queryCache,
+			queryRollback,
 		} = options;
 		const operation = operationId
 			? Operation.Entity.id(this.app, operationId)
@@ -2945,8 +3433,19 @@ export class Info implements InfoProps {
 					kind: eventStreamKind,
 					mode: eventStoreMode,
 					sourceSettingsById: this.getQuerySourceSettingsById(sourceIds),
+					queryCache: eventStoreMode === "replace" ? queryCache : undefined,
+					queryRollback:
+						eventStoreMode === "replace" ? queryRollback : undefined,
 				});
 				if (!registered) {
+					this.restoreSourceQueryRollback({
+						requestId: req_id,
+						sourceIds,
+						operationId: operation.id,
+						kind: eventStreamKind,
+						mode: eventStoreMode,
+						queryRollback,
+					});
 					await this.closeQueryStream(req_id, {
 						managedStatus: "canceled",
 					});
@@ -3626,6 +4125,33 @@ export class Info implements InfoProps {
 				return;
 			}
 
+			if (isEventStoreLodEnabled()) {
+				const socket = SmartSocket.Class.instance;
+				try {
+					if (!socket || typeof socket.clearSourceQueryCache !== "function") {
+						throw new Error("Query cache transport is unavailable.");
+					}
+					await socket.clearSourceQueryCache(source.operation_id, source.id);
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					Logger.warn(
+						`Unable to reset query cache pool after rebase for ${source.id}: ${message}`,
+						Info,
+					);
+					toast.error(
+						translate("source.rebaseFailed", { name: source.name }),
+						{
+							id: toastId,
+							description: message,
+							icon: <Icon name="Stop" />,
+							richColors: true,
+						},
+					);
+					return;
+				}
+			}
+
 			this.events_reset_in_file(source);
 			this.applyCompletedSourceRebase(source.id, offsetMsec);
 			await this.clearSourceOffsetInSessions(
@@ -3721,67 +4247,6 @@ export class Info implements InfoProps {
 		}
 
 		return true;
-	};
-
-	filters_cache = (files: Array<Source.Type | Source.Id>) => {
-		files.forEach((file) => {
-			const id = Parser.useUUID(file) as Source.Id;
-
-			Logger.log(
-				`Caching has been requested for files ${Source.Entity.id(this.app, file).name}`,
-				Info,
-			);
-
-			// Keep only an undo marker. Exact events remain in IndexedDB and the
-			// previous query is reconstructed from the cached filter definition.
-			this.app.timeline.cache.data.set(id, []);
-			this.app.timeline.cache.filters[id] = this.app.target.filters[id];
-		});
-
-		this.setInfoByKey(this.app.timeline.cache, "timeline", "cache");
-		this.render();
-	};
-
-	/**
-	 * Restores cached filters and refetches their exact source documents.
-	 * @param files Sources whose cached filter result should be restored.
-	 * @returns Nothing.
-	 */
-	filters_undo = (files: Array<Source.Type | Source.Id>): void => {
-		const sourceIds: Source.Id[] = [];
-		files.forEach((file) => {
-			const id = Parser.useUUID(file) as Source.Id;
-			sourceIds.push(id);
-
-			this.app.target.filters = {
-				...this.app.target.filters,
-				[id]: this.app.timeline.cache.filters[id],
-			};
-
-			RenderEngine.resetSource(id);
-
-			this.filters_delete_cache(file);
-		});
-
-		this.setInfoByKey(this.app.target.filters, "target", "filters");
-		if (sourceIds.length > 0) {
-			void this.refetch({ ids: sourceIds });
-		}
-	};
-
-	filters_delete_cache = (file: Source.Type | Source.Id) => {
-		const id = Parser.useUUID(file) as Source.Id;
-
-		this.app.timeline.cache.data.delete(id);
-
-		this.setInfoByKey(
-			{
-				data: this.app.timeline.cache.data,
-				filters: { ...this.app.timeline.cache.filters, [id]: undefined },
-			},
-			"timeline",
-			"cache",
-		);
 	};
 
 	render = () => {
@@ -3913,8 +4378,6 @@ export class Info implements InfoProps {
 			// Timeline reset
 			draft.timeline.scale = 1;
 			draft.timeline.target = null;
-			draft.timeline.cache.data.clear();
-			draft.timeline.cache.filters = {};
 
 			// Clear event data
 			draft.target.events.clear();
@@ -4743,11 +5206,22 @@ export class Info implements InfoProps {
 		return Array.isArray(response.data) ? (response.data as Doc.Type[]) : [];
 	};
 
+	/**
+	 * Updates source presentation/normalization settings and rebuilds documents when
+	 * the selected hash input changes.
+	 * @param id Source receiving the settings update.
+	 * @param settings Partial source settings selected by the user.
+	 * @returns Nothing; a normalization rebuild continues asynchronously when needed.
+	 */
 	file_set_settings = (
 		id: Source.Id,
 		settings: Partial<Source.Type["settings"]>,
 	) => {
 		const file = Source.Entity.id(this.app, id);
+		const previousNormalization = {
+			field: file.settings.field,
+			hash_function: file.settings.hash_function,
+		};
 		const newSettings = {
 			...file.settings,
 			...settings,
@@ -4755,6 +5229,13 @@ export class Info implements InfoProps {
 		const isHashInputChanged =
 			newSettings.field !== file.settings.field ||
 			newSettings.hash_function !== file.settings.hash_function;
+		const files = this.app.target.files.map((candidate) =>
+			id === candidate.id
+				? { ...candidate, settings: newSettings }
+				: candidate,
+		);
+		this.app.target.files = files;
+		this.setInfoByKey(files, "target", "files");
 
 		if (isHashInputChanged) {
 			Doc.Entity.clearHashRange(id);
@@ -4762,17 +5243,12 @@ export class Info implements InfoProps {
 			// Exact pages intentionally retain only render-minimal columns. A changed
 			// hash input therefore refetches from the authoritative backend instead of
 			// scanning or rehydrating a source-wide object array on the main thread.
-			file.settings = newSettings;
-			this.refetch({ ids: id, refetchKeys: { [id]: [newSettings.field] } });
+			void this.refetch({
+				ids: id,
+				refetchKeys: { [id]: [newSettings.field] },
+				normalizationRollback: { [id]: previousNormalization },
+			});
 		}
-
-		return this.setInfoByKey(
-			this.app.target.files.map((file) =>
-				id === file.id ? { ...file, settings: newSettings } : file,
-			),
-			"target",
-			"files",
-		);
 	};
 
 	file_set_total = (id: Source.Id, total = 0) =>
@@ -5801,7 +6277,7 @@ export class Info implements InfoProps {
 				target: this.app.timeline.target,
 				scroll: { x: scrollStore.getX(), y: scrollStore.getY() },
 			},
-			filters: this.app.target.filters,
+			filters: Source.Entity.appliedQueries(this.app.target.files),
 			hidden: this.app.hidden,
 			source_settings: this.getSourceSettings(),
 		} satisfies WorkspaceSessionSnapshot);
@@ -5819,11 +6295,11 @@ export class Info implements InfoProps {
 	): Source.Type[] => {
 		const sourceSettingsById =
 			session.snapshot.source_settings?.source_settings;
-		if (!sourceSettingsById) return files;
 
 		return files.map((file) => {
-			const savedSettings = sourceSettingsById[file.id];
-			if (!savedSettings) return file;
+			const savedSettings = sourceSettingsById?.[file.id];
+			const appliedQuery = session.snapshot.filters[file.id] ?? file.appliedQuery;
+			if (!savedSettings) return { ...file, appliedQuery: appliedQuery ?? null };
 
 			const restoredSettings: Partial<Source.Type["settings"]> = {};
 			if (
@@ -5872,6 +6348,7 @@ export class Info implements InfoProps {
 
 			return {
 				...file,
+				appliedQuery: appliedQuery ?? null,
 				pinned:
 					typeof savedSettings.pinned === "boolean"
 						? savedSettings.pinned
@@ -6049,8 +6526,6 @@ export class Info implements InfoProps {
 				Source.Entity.select(draft, snapshot.selected.files),
 				session,
 			);
-			draft.target.filters = snapshot.filters;
-
 			if (snapshot.hidden && typeof snapshot.hidden === "object") {
 				Object.keys(snapshot.hidden).forEach((k) => {
 					const key = k as keyof App.Type["hidden"];
@@ -6073,6 +6548,7 @@ export class Info implements InfoProps {
 			this.refetch({
 				ids: snapshot.selected.files,
 				frame: snapshot.timeline.frame,
+				cachePolicy: "initial",
 			});
 		}, 0);
 	};
@@ -6983,7 +7459,7 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Persists a Query.Type into the application filter cache for one or more source files.
+	 * Persists a Query.Type on one or more canonical source objects.
 	 *
 	 * Before persisting, auto-generates the human-readable `string` label via
 	 * `Filter.Entity.describe()` so it always reflects the actual applied state.
@@ -7001,16 +7477,17 @@ export class Info implements InfoProps {
 	/**
 	 * Persists distinct per-source queries in one state update. This is required
 	 * for timeline frames because source offsets produce different raw ranges.
-	 * @param entries Source/query pairs to store in the application filter cache.
+	 * @param entries Source/query pairs to store on the source collection.
+	 * @param isActivating Whether these queries are starting a backend cache build.
 	 * @returns Nothing.
 	 */
 	private persistSourceQueries = (
 		entries: Array<{ file: Source.Type; query: Query.Type }>,
+		isActivating?: boolean,
 	): void => {
-		const filters = { ...this.app.target.filters };
-
+		const queries = new Map<Source.Id, Query.Type>();
 		entries.forEach(({ file, query }) => {
-			filters[file.id] = {
+			queries.set(file.id, {
 				string: Filter.Entity.describe(query, this.app),
 				text_filter: query.text_filter,
 				source_config: query.source_config,
@@ -7019,15 +7496,33 @@ export class Info implements InfoProps {
 				raw: query.raw,
 				isManual: query.isManual,
 				fieldTypeMap: query.fieldTypeMap,
-			};
+			});
 		});
-
-		this.app.target.filters = filters;
-		this.setInfoByKey(Refractor.object(filters), "target", "filters");
+		const files = this.app.target.files.map((file) => {
+			const query = queries.get(file.id);
+			return query
+				? {
+						...file,
+						appliedQuery: Refractor.object(query),
+						queryCache: {
+							...file.queryCache,
+							...(isActivating === undefined ? {} : { isActivating }),
+						},
+					}
+				: file;
+		});
+		this.app.target.files = files;
+		this.setInfoByKey(files, "target", "files");
 	};
 
+	/**
+	 * Returns the query that produced a source's currently visible data.
+	 * @param file Source whose applied query is requested.
+	 * @returns Existing applied query or a newly initialized source-scoped default.
+	 */
 	getQuery = (file: Source.Type): Query.Type => {
-		const query = this.app.target.filters[file.id];
+		const current = Source.Entity.id(this.app, file.id);
+		const query = current?.appliedQuery ?? file.appliedQuery;
 
 		if (!query) {
 			const q = Filter.Entity.default(this.app, file.id);
@@ -7040,14 +7535,95 @@ export class Info implements InfoProps {
 		return query;
 	};
 
-	filters_remove = (file: Source.Type | Source.Id) => {
-		const id = Parser.useUUID(file) as Source.Id;
-		const filters = Refractor.object({
-			...this.app.target.filters,
-			[id]: Filter.Entity.default(this.app, file),
+	/**
+	 * Resets one source query and creates a new backend-backed cache generation.
+	 * @param file Source whose filters should be cleared.
+	 * @returns Promise resolved after the replacement query is queued.
+	 */
+	filters_remove = (file: Source.Type | Source.Id): Promise<void> => {
+		const source = Source.Entity.id(this.app, file);
+		if (!source) return Promise.resolve();
+		return this.refetch({
+			ids: source.id,
+			query: Filter.Entity.default(this.app, source),
 		});
+	};
 
-		return this.setInfoByKey(filters, "target", "filters");
+	/**
+	 * Moves one source through its browser-local query cache history. No backend
+	 * query is issued; QueryWorker atomically activates the retained manifest.
+	 * @param file Source object or identifier whose local history should move.
+	 * @param direction Undo or Redo direction.
+	 * @returns True when another cache was activated.
+	 */
+	navigateSourceQueryCache = async (
+		file: Source.Type | Source.Id,
+		direction: "undo" | "redo",
+	): Promise<boolean> => {
+		const source = Source.Entity.id(this.app, file);
+		const socket = SmartSocket.Class.instance;
+		if (
+			!source ||
+			!isEventStoreLodEnabled() ||
+			!socket ||
+			typeof socket.navigateSourceQueryCache !== "function" ||
+			source.queryCache.isActivating ||
+			Boolean(requestStore.getRequestIdByFile(source.id)) ||
+			(direction === "undo"
+				? !source.queryCache.canUndo
+				: !source.queryCache.canRedo)
+		) {
+			return false;
+		}
+
+		const setActivating = (isActivating: boolean): void => {
+			const files = this.app.target.files.map((candidate) =>
+				candidate.id === source.id
+					? {
+							...candidate,
+							queryCache: {
+								...candidate.queryCache,
+								isActivating,
+							},
+						}
+					: candidate,
+			);
+			this.app.target.files = files;
+			this.setInfoByKey(files, "target", "files");
+		};
+
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		setActivating(true);
+		try {
+			const activation = await socket.navigateSourceQueryCache({
+				operationId: source.operation_id,
+				sourceId: source.id,
+				direction,
+			});
+			if (
+				!this.isOperationContextCurrent(operationEpoch, source.operation_id)
+			) {
+				return false;
+			}
+			if (!activation) {
+				setActivating(false);
+				return false;
+			}
+			this.applyQueryCacheActivations([
+				{ sourceId: source.id, activation },
+			]);
+			this.render();
+			return true;
+		} catch (error) {
+			if (this.isOperationContextCurrent(operationEpoch, source.operation_id)) {
+				setActivating(false);
+			}
+			Logger.warn(
+				`Unable to ${direction} query cache for ${source.id}: ${(error as Error).message}`,
+				Info,
+			);
+			return false;
+		}
 	};
 
 	useReverseScroll = (bool: boolean) => {

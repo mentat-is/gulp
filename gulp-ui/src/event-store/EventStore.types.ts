@@ -1,5 +1,6 @@
 import type { Doc } from "@/entities/Doc";
 import type { Operation } from "@/entities/Operation";
+import type { QueryCacheProvenance } from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
 
 export const EVENT_PAGE_SIZE = 16_384;
@@ -14,6 +15,7 @@ export const EVENT_DOCUMENT_HASH_PREFIX_BITS = 12;
 export const EVENT_MAXIMUM_SOURCE_HANDLE = 0xffff_fffe;
 export const EVENT_PAGE_LOD_RECORD_KIND = "lod";
 export const EVENT_PAGE_HEIGHT_RECORD_KIND = "height";
+export const EVENT_SOURCE_QUERY_CACHE_LIMIT = 5;
 
 /** Identifies one same-origin event database shared by related browser realms. */
 export interface EventStoreNamespace {
@@ -125,6 +127,79 @@ export interface EventSourceManifest {
 	obsoleteGenerations?: EventObsoleteGenerationMarker[];
 }
 
+/** Compact address of one persisted binary document-index segment. */
+export interface EventDocumentIndexSegmentCatalogEntry {
+	shard: number;
+	segmentId: number;
+	level: number;
+	encodedByteLength: number;
+}
+
+/** Complete physical-generation manifest retained by one query-cache record. */
+export interface EventSourceQueryCacheManifest extends EventSourceManifest {
+	documentIndexSegments: EventDocumentIndexSegmentCatalogEntry[];
+}
+
+/** Reuse safety of one completed query result. */
+export type EventSourceQueryCacheRecordState = "exact" | "mutated";
+
+/** Complete query result retained independently from the currently active source head. */
+export interface EventSourceQueryCacheRecord {
+	sourceId: Source.Id;
+	generation: number;
+	manifest: EventSourceQueryCacheManifest;
+	provenance: QueryCacheProvenance;
+	state: EventSourceQueryCacheRecordState;
+	createdAt: number;
+	lastActivatedAt: number;
+}
+
+/** Compact cache-pool entry returned without reading exact event pages. */
+export interface EventSourceQueryCacheMetadata {
+	sourceId: Source.Id;
+	generation: number;
+	provenance: QueryCacheProvenance;
+	state: EventSourceQueryCacheRecordState;
+	createdAt: number;
+	lastActivatedAt: number;
+	eventCount: number;
+	minTimestamp: number;
+	maxTimestamp: number;
+}
+
+/** Per-source navigation history persisted on the authoritative source head. */
+export interface EventSourceCacheHistory {
+	generations: number[];
+	cursor: number;
+}
+
+/** Logical cache-pool state stored beside the currently active physical manifest. */
+export interface EventSourceCacheHeadState {
+	authorityRevision: number;
+	activeCacheGeneration: number | null;
+	cacheHistory: number[];
+	cacheHistoryCursor: number;
+	nextGeneration: number;
+	pendingCacheCleanup?: EventObsoleteGenerationMarker[];
+}
+
+/** Public readable shape of the authoritative `sources` object-store value. */
+export interface EventSourceHeadManifest
+	extends EventSourceQueryCacheManifest,
+		EventSourceCacheHeadState {}
+
+/** Result of activating an already-complete query cache. */
+export interface EventSourceQueryCacheActivation {
+	summary: EventSourceSummary;
+	cache: EventSourceQueryCacheMetadata;
+}
+
+/** Startup cache selection result and the reason the cache was selected. */
+export interface EventSourceQueryCacheReconciliation
+	extends EventSourceQueryCacheActivation {
+	match: "exact" | "latest";
+}
+
 /** Stable page cursor used by bounded pixel and navigation reads. */
 export interface EventPageCursor {
 	sourceId: Source.Id;
@@ -146,10 +221,16 @@ export interface EventSourceSummary {
 	sourceId: Source.Id;
 	generation: number;
 	revision: number;
+	/** Monotonic logical authority that permits activation of older physical generations. */
+	authorityRevision: number;
 	status: EventSourceManifest["status"];
 	eventCount: number;
 	minTimestamp: number;
 	maxTimestamp: number;
 	hashMin: number;
 	hashMax: number;
+	activeCacheGeneration: number | null;
+	cacheHistory: number[];
+	cacheHistoryCursor: number;
+	nextGeneration: number;
 }

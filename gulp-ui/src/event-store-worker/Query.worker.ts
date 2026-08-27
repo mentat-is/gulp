@@ -168,6 +168,70 @@ async function handleCommand(command: QueryWorkerCommand): Promise<void> {
 				completeControl(command.controlId, error);
 			}
 			break;
+		case "RECONCILE_SOURCE_QUERY_CACHE":
+			try {
+				const result = await requireSession().reconcileSourceQueryCache({
+					operationId: command.operationId,
+					sourceId: command.sourceId,
+					queryFingerprint: command.queryFingerprint,
+				});
+				postWorkerEvent({
+					type: "SOURCE_QUERY_CACHE_RESULT",
+					cacheRequestId: command.cacheRequestId,
+					result,
+				});
+			} catch (error) {
+				postWorkerEvent({
+					type: "SOURCE_QUERY_CACHE_RESULT",
+					cacheRequestId: command.cacheRequestId,
+					result: null,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+			break;
+		case "NAVIGATE_SOURCE_QUERY_CACHE":
+			try {
+				const result = await requireSession().navigateSourceQueryCache({
+					operationId: command.operationId,
+					sourceId: command.sourceId,
+					direction: command.direction,
+				});
+				postWorkerEvent({
+					type: "SOURCE_QUERY_CACHE_RESULT",
+					cacheRequestId: command.cacheRequestId,
+					result,
+				});
+			} catch (error) {
+				postWorkerEvent({
+					type: "SOURCE_QUERY_CACHE_RESULT",
+					cacheRequestId: command.cacheRequestId,
+					result: null,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+			break;
+		case "CLEAR_SOURCE_QUERY_CACHE":
+			try {
+				await requireSession().clearSourceQueryCache(
+					command.operationId,
+					command.sourceId,
+				);
+				completeControl(command.controlId);
+			} catch (error) {
+				completeControl(command.controlId, error);
+			}
+			break;
+		case "DELETE_SOURCE_EVENT_STORE":
+			try {
+				await requireSession().deleteSourceEventStore(
+					command.operationId,
+					command.sourceId,
+				);
+				completeControl(command.controlId);
+			} catch (error) {
+				completeControl(command.controlId, error);
+			}
+			break;
 		case "SEND":
 			requireSession().send(command.data);
 			break;

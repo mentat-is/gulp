@@ -7,7 +7,7 @@ import {
 
 describe("render-worker protocol constants", () => {
 	it("uses an explicit protocol version for every wire envelope", () => {
-		expect(RENDER_PROTOCOL_VERSION).toBe(7);
+		expect(RENDER_PROTOCOL_VERSION).toBe(8);
 	});
 
 	it("describes one atomic multi-source viewport projection", () => {
@@ -18,6 +18,7 @@ describe("render-worker protocol constants", () => {
 			sources: [
 				{
 					sourceId: "source-a",
+					sourceAuthorityRevision: 4,
 					sourceGeneration: 2,
 					sourceRevision: 4,
 					sourceStatus: "complete",

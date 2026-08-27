@@ -11,6 +11,7 @@ describe("getRenderWindowProjectionTransferables", () => {
 			sources: [
 				{
 					sourceId: "source-one",
+					sourceAuthorityRevision: 4,
 					sourceGeneration: 2,
 					sourceRevision: 4,
 					sourceStatus: "complete",

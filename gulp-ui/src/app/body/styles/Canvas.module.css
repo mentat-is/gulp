@@ -17,6 +17,41 @@
 .stable_render_surface {
   width: 100cqw;
 }
+
+.cache_warning_layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cache_warning_row {
+  position: absolute;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.cache_warning_label {
+  visibility: hidden;
+  font: 12px "Geist", sans-serif;
+  line-height: 14px;
+}
+
+.cache_warning_icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  color: #facc15;
+  cursor: help;
+  pointer-events: auto;
+}
+
 .island {
   z-index: 2;
   bottom: 8px;

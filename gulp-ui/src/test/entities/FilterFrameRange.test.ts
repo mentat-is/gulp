@@ -2,6 +2,7 @@ import type { App } from "@/entities/App";
 import { Filter } from "@/entities/Filter";
 import type { Query } from "@/entities/Query";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 
 jest.mock("@/components/QueryBuilder", () => ({
 	OpenSearchQueryBuilder: {},
@@ -46,6 +47,8 @@ function createSource(): Source.Type {
 		settings: { offset: 1_000 },
 		timestamp: { min: 0, max: 100_000 },
 		nanotimestamp: { min: 0n, max: 100_000_000_000n },
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 	} as Source.Type;
 }
 

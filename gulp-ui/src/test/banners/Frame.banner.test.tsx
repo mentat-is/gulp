@@ -224,6 +224,7 @@ describe("Frame.Banner date selection", () => {
 		expect(mockRefetch).toHaveBeenCalledWith({
 			ids: [mockSelectedSourceId],
 			frame: initialFrame,
+			cachePolicy: "force",
 		});
 		expect(mockSetTimelineFrame).not.toHaveBeenCalled();
 		expect(mockDestroyBanner).toHaveBeenCalled();

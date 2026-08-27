@@ -153,16 +153,22 @@ class RendererBenchmarkWriterSpy {
 		sourceId: Source.Id,
 		status: EventSourceSummary["status"],
 	): EventSourceSummary {
+		const revision = this.revisions.get(sourceId) ?? 0;
 		return {
 			sourceId,
 			generation: 1,
-			revision: this.revisions.get(sourceId) ?? 0,
+			revision,
+			authorityRevision: revision,
 			status,
 			eventCount: this.counts.get(sourceId) ?? 0,
 			minTimestamp: 1,
 			maxTimestamp: 2,
 			hashMin: -1,
 			hashMax: 1,
+			activeCacheGeneration: null,
+			cacheHistory: [],
+			cacheHistoryCursor: -1,
+			nextGeneration: 2,
 		};
 	}
 }
@@ -182,6 +188,7 @@ class RendererBenchmarkProjectorSpy {
 			projectionRevision: descriptor.projectionRevision,
 			sources: descriptor.sources.map((source) => ({
 				sourceId: source.sourceId,
+				sourceAuthorityRevision: 1,
 				sourceGeneration: 1,
 				sourceRevision: 1,
 				sourceStatus: "complete",

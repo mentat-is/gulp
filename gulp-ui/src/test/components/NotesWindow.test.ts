@@ -5,6 +5,7 @@ import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
 import type { User } from "@/entities/User";
 import type { Note } from "@/entities/Note";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import {
 	acknowledgeNotesChangeSequence,
 	advanceNotesChangeSequence,
@@ -35,6 +36,8 @@ const sourceById = new Map<Source.Id, Source.Type>([
 		{
 			id: SOURCE_ALPHA_ID,
 			name: "Alpha Source",
+			appliedQuery: null,
+			queryCache: createEmptyQueryCacheState(),
 		} as Source.Type,
 	],
 	[
@@ -42,6 +45,8 @@ const sourceById = new Map<Source.Id, Source.Type>([
 		{
 			id: SOURCE_BETA_ID,
 			name: "Beta Source",
+			appliedQuery: null,
+			queryCache: createEmptyQueryCacheState(),
 		} as Source.Type,
 	],
 ]);

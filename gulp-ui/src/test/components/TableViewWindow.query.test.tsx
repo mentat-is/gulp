@@ -6,6 +6,7 @@ import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import { TableViewWindow } from "@/components/TableViewWindow";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -33,6 +34,8 @@ function createSource(overrides: Partial<Source.Type> = {}): Source.Type {
 		time_updated: 10,
 		settings: { offset: 0 },
 		nanotimestamp: { min: BigInt(1), max: BigInt(100) },
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 		...overrides,
 	} as Source.Type;
 }
@@ -48,7 +51,6 @@ function createApp(source: Source.Type): App.Type {
 			files: [source],
 			operations: [{ id: OPERATION_ID, selected: true }],
 			contexts: [],
-			filters: {},
 		},
 		timeline: {
 			frame: { min: 1, max: 100 },

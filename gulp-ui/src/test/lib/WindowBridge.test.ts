@@ -5,6 +5,7 @@ import type { Glyph } from "@/entities/Glyph";
 import type { Note } from "@/entities/Note";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import type { User } from "@/entities/User";
 import { WindowBridge } from "@/lib/WindowBridge";
 import { DataStore } from "@/store/DataStore";
@@ -41,6 +42,8 @@ function createSource(id: string, name: string, total = 10): Source.Type {
 		pinned: false,
 		total,
 		timestamp: { min: 0, max: 100 },
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 		settings: {
 			frequency_sample: 0,
 			field: "_id",
@@ -106,7 +109,6 @@ function createApp(): App.Type {
 			],
 			files: [],
 			events: new Map(),
-			filters: {},
 			notes: [],
 			links: [],
 			highlights: [],
@@ -119,7 +121,6 @@ function createApp(): App.Type {
 			target: null,
 			filter: "needle",
 			scale: 42,
-			cache: { data: new Map(), filters: {} },
 			isScrollReversed: false,
 			dialogSize: 320,
 			pointers: [],
@@ -347,10 +348,16 @@ describe("WindowBridge capability-scoped projections", () => {
 			selected: false,
 		};
 		app.target.files = [selectedSource, unselectedSource];
-		app.target.filters = {
-			[selectedSource.id]: { text_filter: "needle" },
-			[unselectedSource.id]: { text_filter: "ignored" },
-		} as App.Type["target"]["filters"];
+		selectedSource.appliedQuery = {
+			string: "needle",
+			filters: [],
+			text_filter: "needle",
+		};
+		unselectedSource.appliedQuery = {
+			string: "ignored",
+			filters: [],
+			text_filter: "ignored",
+		};
 
 		const query = WindowBridge.createQueryContext(app, OPERATION_ID);
 

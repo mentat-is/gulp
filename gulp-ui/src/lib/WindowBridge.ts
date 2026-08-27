@@ -900,7 +900,10 @@ export namespace WindowBridge {
   ): Partial<Record<Source.Id, Query.Type>> {
     return Object.fromEntries(
       sourceIds
-        .map((sourceId) => [sourceId, app.target.filters[sourceId]] as const)
+        .map((sourceId) => [
+          sourceId,
+          app.target.files.find((source) => source.id === sourceId)?.appliedQuery,
+        ] as const)
         .filter(([, filter]) => Boolean(filter)),
     ) as Partial<Record<Source.Id, Query.Type>>
   }

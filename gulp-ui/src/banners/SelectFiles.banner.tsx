@@ -426,6 +426,7 @@ export namespace SelectFiles {
 				spawnBanner(
 					<Frame.Banner
 						centerViewportOnSave
+						initialCacheLookup
 						//was fixed //(disable close button)
 						onClose={Info.notes_reload}
 						back={() => spawnBanner(<SelectFiles.Banner />)}

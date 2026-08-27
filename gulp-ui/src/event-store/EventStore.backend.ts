@@ -1,6 +1,7 @@
 /** IndexedDB object stores owned by one operation-scoped event database. */
 export const EVENT_STORE_NAMES = [
 	"sources",
+	"source_query_caches",
 	"pages",
 	"page_lod",
 	"document_index_pages",

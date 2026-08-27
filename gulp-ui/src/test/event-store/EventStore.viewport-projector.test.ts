@@ -1,4 +1,5 @@
 import type { Doc } from "@/entities/Doc";
+import type { QueryCacheProvenance } from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
 import { encodeEventPage } from "@/event-store/EventPage.codec";
 import type { EventStoreName } from "@/event-store/EventStore.backend";
@@ -173,7 +174,91 @@ function expectExactBuffer(view: ArrayBufferView): void {
 	expect(view.byteLength).toBe(view.buffer.byteLength);
 }
 
+/** Creates minimal query provenance for authority-switch projection coverage. */
+function createQueryProvenance(fingerprint: string): QueryCacheProvenance {
+	return {
+		query: {
+			string: fingerprint,
+			filters: [],
+			source_config: {
+				operation_id: "operation",
+				source_ids: [DEFAULT_SOURCE_ID],
+				range: { min: 0, max: 1_000 },
+			},
+		},
+		fingerprint,
+		requestedFrame: { min: 0, max: 1_000 },
+		normalization: {
+			field: "number_hash",
+			hashFunction: "fnv1a",
+			requestedFields: [],
+		},
+		serverSnapshot: {
+			total: 1,
+			minNanoseconds: "0",
+			maxNanoseconds: "1000000000",
+			timeUpdated: 1,
+			millisecondPrecision: false,
+		},
+	};
+}
+
 describe("EventStoreViewportProjector", () => {
+	it("projects logical authority after undo activates an older generation", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const first = await repository.beginGeneration({
+			sourceId: DEFAULT_SOURCE_ID,
+			queryCache: createQueryProvenance("first"),
+		});
+		await repository.appendPages({
+			sourceId: DEFAULT_SOURCE_ID,
+			generation: first.generation,
+			pages: [
+				encodeEventPage({
+					sourceId: DEFAULT_SOURCE_ID,
+					generation: first.generation,
+					pageId: 0,
+					revision: first.revision,
+					documents: [createDocument("first-cache", 100, 1)],
+					handles: new Uint32Array([1]),
+				}),
+			],
+		});
+		await repository.finalizeGeneration(DEFAULT_SOURCE_ID, first.generation);
+		const second = await repository.beginGeneration({
+			sourceId: DEFAULT_SOURCE_ID,
+			queryCache: createQueryProvenance("second"),
+		});
+		await repository.appendPages({
+			sourceId: DEFAULT_SOURCE_ID,
+			generation: second.generation,
+			pages: [
+				encodeEventPage({
+					sourceId: DEFAULT_SOURCE_ID,
+					generation: second.generation,
+					pageId: 0,
+					revision: second.revision,
+					documents: [createDocument("second-cache", 200, 2)],
+					handles: new Uint32Array([1]),
+				}),
+			],
+		});
+		await repository.finalizeGeneration(DEFAULT_SOURCE_ID, second.generation);
+		const activation = await repository.undoQueryCache(DEFAULT_SOURCE_ID);
+		if (!activation) throw new Error("Expected an undo activation.");
+
+		const projection = await new EventStoreViewportProjector(
+			backend,
+		).requestRenderWindow(createDescriptor(DEFAULT_SOURCE_ID));
+		expect(projection.sources[0]).toMatchObject({
+			sourceGeneration: 1,
+			sourceAuthorityRevision: activation.summary.authorityRevision,
+			loadedCount: 1,
+		});
+		expect(Array.from(projection.sources[0].representativeHandles)).toEqual([1]);
+	});
+
 	it("matches an exact per-pixel oracle across overlapping random pages", async () => {
 		const backend = new MemoryEventStoreBackend();
 		const repository = new EventStoreRepository(backend);

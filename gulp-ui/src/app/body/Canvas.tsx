@@ -126,6 +126,7 @@ import {
 	isCanvasRenderWindowRequestCurrent,
 	isCanvasRenderWindowSourceAcceptable,
 	shouldRetryCanvasRenderWindow,
+	type CanvasAcceptedRenderWindowSourceState,
 	type CanvasRenderWindowRequestFence,
 } from "./CanvasRenderWindowRetry";
 import { CanvasTerminalRenderConvergence } from "./CanvasTerminalRenderConvergence";
@@ -143,6 +144,7 @@ import {
 	type EventPixelPage,
 	type EventTimestampRange,
 } from "@/event-store";
+import { CanvasCacheWarningOverlay } from "./CanvasCacheWarning";
 
 export namespace Canvas {
 	export interface Props extends Stack.Props {
@@ -383,7 +385,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const workerSceneSignatureRef = useRef<string>("");
 	const workerViewportSignatureRef = useRef<string>("");
 	const workerAcceptedProjectionSourcesRef = useRef(
-		new Map<Source.Id, { generation: number; revision: number }>(),
+		new Map<Source.Id, CanvasAcceptedRenderWindowSourceState>(),
 	);
 	const [scaleCommitGuard] = useState(
 		() => new CanvasScaleCommitGuard(app.timeline.scale),
@@ -1757,6 +1759,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				workerAcceptedProjectionSourcesRef.current.set(
 					source.sourceId as Source.Id,
 					{
+						authorityRevision: source.sourceAuthorityRevision,
 						generation: source.sourceGeneration,
 						revision: source.sourceRevision,
 					},
@@ -2710,6 +2713,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 						contextLabel,
 						contextColor,
 						loadingKind,
+						source.queryCache.freshness,
 						rowOrder,
 					]);
 					const previousSignature =
@@ -2741,6 +2745,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 							source.context_id,
 						),
 						loadingKind,
+						cacheFreshness: source.queryCache.freshness,
 						gradient,
 						customPaletteColors,
 					});
@@ -2914,6 +2919,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				workerTerminalRenderConvergence.record({
 					sourceId: summary.sourceId,
 					operationEpoch: DataStore.getRenderOperationEpoch(),
+					sourceAuthorityRevision: summary.authorityRevision,
 					sourceGeneration: summary.generation,
 					sourceRevision: summary.revision,
 					sourceStatus: summary.status,
@@ -3827,6 +3833,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 						ref={canvas_ref}
 						id="canvas"
 					/>
+					<CanvasCacheWarningOverlay sources={Source.Entity.rendered(app)} />
 				</div>
 				<Stack
 					pos="absolute"

@@ -6,6 +6,7 @@ import type { Link } from "@/entities/Link";
 import type { Note } from "@/entities/Note";
 import type { Source } from "@/entities/Source";
 import type {
+	RenderCacheFreshness,
 	RenderDataPatch,
 	RenderEventBatch,
 	RenderEventBatchMode,
@@ -17,6 +18,7 @@ import type {
 	RenderOverlaySnapshot,
 	RenderSource,
 } from "./RenderWorker.types";
+import { getRenderSourceName } from "./RenderSourceLabel";
 
 const DEFAULT_PROJECTION_SLICE_MS = 4;
 const PROJECTION_RECORD_BLOCK_SIZE = 2_048;
@@ -36,6 +38,7 @@ export interface RenderSourceProjectionInput {
 	contextColor: string;
 	contextTintAlpha?: number;
 	loadingKind: RenderLoadingKind;
+	cacheFreshness?: RenderCacheFreshness;
 	gradient: string[];
 	customPaletteColors?: string[];
 }
@@ -162,10 +165,7 @@ export class RenderProjectionAdapter {
 			id: source.id,
 			revision: input.revision,
 			rowOrder: input.rowOrder,
-			name:
-				source.settings.timeline_label === "full_path"
-					? source.name
-					: source.name.split(/[\\/]/).pop() || source.name,
+			name: getRenderSourceName(source),
 			contextLabel: input.contextLabel,
 			contextColor: input.contextColor,
 			contextTintAlpha: input.contextTintAlpha ?? 0.08,
@@ -175,6 +175,7 @@ export class RenderProjectionAdapter {
 			},
 			total: source.total,
 			loadingKind: input.loadingKind,
+			cacheFreshness: input.cacheFreshness ?? "fresh",
 			offset: source.settings.offset,
 			engine: source.settings.render_engine,
 			frequency: source.settings.frequency_sample,

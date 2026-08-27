@@ -372,10 +372,8 @@ export function FilterFileBanner({
 	 *
 	 * Steps:
 	 * 1. Build the final query (with display label)
-	 * 2. Cache current events for undo support
-	 * 3. Persist the query via Info.setQuery()
-	 * 4. Trigger refetch for all selected files
-	 * 5. Re-render and close the banner
+	 * 2. Trigger a new cache-producing refetch for all selected files
+	 * 3. Re-render and close the banner
 	 */
 	const submit = useCallback(async () => {
 		const finalQuery = getFinalQuery();
@@ -383,10 +381,9 @@ export function FilterFileBanner({
 
 		setLoading(true);
 		try {
-			Info.filters_cache(files);
-			Info.setQuery(files, finalQuery);
 			await Info.refetch({
 				ids: files.map((f) => f.id),
+				query: finalQuery,
 				addToHistory: true,
 				create_notes: createNotesChecked,
 				notes_color,

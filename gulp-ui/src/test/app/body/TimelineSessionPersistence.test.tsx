@@ -33,7 +33,6 @@ const mockApp = {
 		files: [{ id: "source-a", selected: true }],
 		contexts: [{ id: "context-a", selected: true }],
 		operations: [{ id: OPERATION_ID, selected: true }],
-		filters: {},
 	},
 	hidden: {
 		notes: false,

@@ -34,7 +34,6 @@ const mockApp = {
 		files: [],
 		contexts: [],
 		operations: [],
-		filters: {},
 	},
 	hidden: {},
 };

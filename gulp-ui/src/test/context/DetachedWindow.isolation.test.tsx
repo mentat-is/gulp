@@ -6,6 +6,7 @@ import type { Context } from "@/entities/Context";
 import type { Doc } from "@/entities/Doc";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import type { Note } from "@/entities/Note";
 import type { Link } from "@/entities/Link";
 import { DetachedWindow } from "@/context/DetachedWindow.context";
@@ -194,6 +195,8 @@ function createApp(): App.Type {
 		pinned: false,
 		total: 1,
 		timestamp: { min: 0, max: 100 },
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 		settings: { frequency_sample: 0 },
 	} as Source.Type;
 
@@ -203,7 +206,6 @@ function createApp(): App.Type {
 			contexts: [context],
 			files: [source],
 			events: new Map(),
-			filters: {},
 			notes: [],
 			links: [],
 			highlights: [],
@@ -216,7 +218,6 @@ function createApp(): App.Type {
 			target: null,
 			filter: "",
 			scale: 1,
-			cache: { data: new Map(), filters: {} },
 			isScrollReversed: false,
 			dialogSize: 480,
 			pointers: [],

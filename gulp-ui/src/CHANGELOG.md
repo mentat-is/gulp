@@ -1,3 +1,17 @@
+# v2.0.0
+
+## Advanced Filtering and Querying
+
+- `Source query cache pool`: Added up to five IndexedDB query generations per source, exact startup reuse with latest-cache fallback, source-local Undo/Redo, query provenance restoration, rollback-safe forced queries, and cache invalidation for rebase/source deletion.
+
+## UI/UX and Rendering
+
+- `Cache freshness`: Added localized query summaries and freshness reasons to the source menu. A shared DOM `AlertTriangle` with a cache-origin tooltip now marks only settled active caches carrying a real warning; valid caches and newly fetched backend results remain unmarked.
+
+## Architecture and Documentation
+
+- `IndexedDB`: Added `source_query_caches`, logical `authorityRevision`, bounded resumable pruning, QueryWorker cache commands, detached-window synchronization, and updated EventStore architecture documentation.
+
 # v1.7.400
 
 ## Performance and Engine Optimizations

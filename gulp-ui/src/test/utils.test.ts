@@ -2,6 +2,7 @@ import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import {
 	getCanvasRenderedSourceIds,
 	getCanvasRenderedSourceIdSet,
@@ -42,6 +43,8 @@ function createSource(id: string, name: string, total = 10): Source.Type {
 		selected: true,
 		pinned: false,
 		total,
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 	} as Source.Type;
 }
 
@@ -70,7 +73,6 @@ function createApp(
 			],
 			files: sources,
 			events: new Map(),
-			filters: {},
 			notes: [],
 			links: [],
 			highlights: [],
@@ -83,7 +85,6 @@ function createApp(
 			frame: { min: 0, max: 100 },
 			target: null,
 			filter: appOverrides.filter ?? "",
-			cache: { data: new Map(), filters: {} },
 			isScrollReversed: false,
 			dialogSize: 320,
 			pointers: [],

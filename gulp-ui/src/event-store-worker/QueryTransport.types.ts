@@ -11,6 +11,11 @@ import type {
 	QueryWorkerDiagnostics,
 } from "@/event-stream";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
+import type {
+	EventSourceQueryCacheActivation,
+	EventSourceQueryCacheReconciliation,
+} from "@/event-store/EventStore.types";
+import type { Source } from "@/entities/Source";
 
 /** Application-facing callbacks shared by worker and direct fallback transports. */
 export interface QueryTransportCallbacks {
@@ -61,6 +66,26 @@ export interface QueryTransport {
 
 	/** Clears cumulative QueryWorker diagnostics without changing active work. */
 	resetQueryDiagnostics(): Promise<void>;
+
+	/** Chooses and prunes one source's startup query cache. */
+	reconcileSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		queryFingerprint: string;
+	}): Promise<EventSourceQueryCacheReconciliation | null>;
+
+	/** Moves one source-local query-cache cursor without contacting the backend. */
+	navigateSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		direction: "undo" | "redo";
+	}): Promise<EventSourceQueryCacheActivation | null>;
+
+	/** Clears every persisted query generation for one source. */
+	clearSourceQueryCache(operationId: string, sourceId: Source.Id): Promise<void>;
+
+	/** Deletes the complete EventStore state for a removed backend source. */
+	deleteSourceEventStore(operationId: string, sourceId: Source.Id): Promise<void>;
 
 	/** Sends one application payload through the WebSocket. */
 	send(data: object): void;

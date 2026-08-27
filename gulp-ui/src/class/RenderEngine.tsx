@@ -23,6 +23,7 @@ import { stringToHexColor } from "@/ui/utils";
 import { translate } from "@/locales/core";
 import { requestStore } from "@/store/request.store";
 import { formatTimestampInTimeZone } from "@/timeZone";
+import { getRenderSourceLabel } from "@/render-worker/RenderSourceLabel";
 
 const NOTE_SIZE = 32;
 const NOTE_OFFSET = (NOTE_SIZE / 2) * -1;
@@ -1299,7 +1300,13 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		}
 	};
 
-	public draw_info = (file: Source.Type, y?: number) => {
+	/**
+	 * Draws legacy source labels; cache warnings use the shared DOM overlay.
+	 * @param file Source represented by the current timeline row.
+	 * @param y Optional precomputed row center.
+	 * @returns Nothing.
+	 */
+	public draw_info = (file: Source.Type, y?: number): void => {
 		y =
 			(typeof y === "number"
 				? y
@@ -1321,9 +1328,10 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 
 		const context = Source.Entity.context(this.info.app, file);
 		const frameEventCount = this.getFrameEventCount(file);
+		const sourceLabel = getRenderSourceLabel(file, suffix);
 		const lines: Array<{ text: string; dy: number; color: string }> = [
 			{
-				text: file.name + suffix,
+				text: sourceLabel,
 				dy: 0,
 				color: Color.Themer.theme.FONT_ACCENT,
 			},
@@ -1340,7 +1348,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			},
 		];
 
-		this.ctx.font = "12px sans-serif";
+		this.ctx.font = '12px "Geist", sans-serif';
 
 		this.ctx.textAlign = "left";
 		for (const { text, dy, color } of lines) {

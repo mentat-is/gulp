@@ -65,6 +65,7 @@ export function isCanvasRenderWindowSourceStale(
 
 /** Compact source summary fields used to validate one same-revision projection. */
 export interface CanvasRenderWindowSourceSummary {
+	authorityRevision: number;
 	generation: number;
 	revision: number;
 	status: "building" | "complete" | "incomplete";
@@ -73,14 +74,16 @@ export interface CanvasRenderWindowSourceSummary {
 
 /** Projection authority fields used to reject obsolete source generations. */
 export interface CanvasRenderWindowSourceProjectionState {
+	sourceAuthorityRevision: number;
 	sourceGeneration: number;
 	sourceRevision: number;
 	sourceStatus: "building" | "complete" | "incomplete";
 	loadedCount: number;
 }
 
-/** Last source generation and revision transferred to the RenderWorker. */
+/** Last logical authority, physical generation, and revision sent to RenderWorker. */
 export interface CanvasAcceptedRenderWindowSourceState {
+	authorityRevision: number;
 	generation: number;
 	revision: number;
 }
@@ -101,15 +104,18 @@ export function isCanvasRenderWindowSourceAcceptable(
 ): boolean {
 	if (
 		accepted &&
-		(projection.sourceGeneration < accepted.generation ||
-			(projection.sourceGeneration === accepted.generation &&
-				projection.sourceRevision < accepted.revision))
+		(projection.sourceAuthorityRevision < accepted.authorityRevision ||
+			(projection.sourceAuthorityRevision === accepted.authorityRevision &&
+				(projection.sourceGeneration < accepted.generation ||
+					(projection.sourceGeneration === accepted.generation &&
+						projection.sourceRevision < accepted.revision))))
 	) {
 		return false;
 	}
 	if (projection.sourceStatus !== "building") {
 		return (
 			summary !== undefined &&
+			projection.sourceAuthorityRevision === summary.authorityRevision &&
 			projection.sourceGeneration === summary.generation &&
 			projection.sourceRevision === summary.revision &&
 			projection.sourceStatus === summary.status &&
@@ -117,6 +123,8 @@ export function isCanvasRenderWindowSourceAcceptable(
 		);
 	}
 	if (!summary) return true;
+	if (projection.sourceAuthorityRevision < summary.authorityRevision) return false;
+	if (projection.sourceAuthorityRevision > summary.authorityRevision) return true;
 	if (projection.sourceGeneration < summary.generation) return false;
 	if (
 		projection.sourceGeneration === summary.generation &&

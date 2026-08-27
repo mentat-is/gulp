@@ -88,11 +88,13 @@ function DateSelection({
 
 export namespace Frame {
 	export namespace Banner {
-		export interface Props extends UIBanner.Props {
+			export interface Props extends UIBanner.Props {
 			frame?: MinMax;
 			callback?: (frame: MinMax) => void;
 			/** Centers a newly selected operation frame in the visible timeline. */
 			centerViewportOnSave?: boolean;
+			/** Reconciles operation caches before issuing any backend query. */
+			initialCacheLookup?: boolean;
 		}
 	}
 
@@ -105,6 +107,7 @@ export namespace Frame {
 		frame: initFrame,
 		callback,
 		centerViewportOnSave = false,
+		initialCacheLookup = false,
 		...props
 	}: Frame.Banner.Props) {
 		const { Info, destroyBanner, app, timeline } = Application.use();
@@ -163,6 +166,7 @@ export namespace Frame {
 			void Info.refetch({
 				ids: Source.Entity.selected(app).map((file) => file.id),
 				frame: nextFrame,
+				cachePolicy: initialCacheLookup ? "initial" : "force",
 			});
 			centerFrameInViewport(nextFrame);
 			destroyBanner();

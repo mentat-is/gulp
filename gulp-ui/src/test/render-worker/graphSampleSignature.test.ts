@@ -1,4 +1,5 @@
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import { getWorkerGraphSampleSignature } from "@/render-worker/graphSampleSignature";
 
 /**
@@ -16,6 +17,8 @@ function createSource(overrides: Partial<Source.Type> = {}): Source.Type {
 			min: 10,
 			max: 20,
 		},
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 		...overrides,
 	} as Source.Type;
 }

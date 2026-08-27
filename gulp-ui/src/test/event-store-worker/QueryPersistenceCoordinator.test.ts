@@ -1,4 +1,5 @@
 import type { Doc } from "@/entities/Doc";
+import type { QueryCacheProvenance } from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
 import { EventStoreRepository } from "@/event-store/EventStore.repository";
 import {
@@ -149,6 +150,37 @@ function createDescriptor(
 	};
 }
 
+/** Creates deterministic source-scoped query provenance for cache-pool tests. */
+function createQueryCacheProvenance(
+	fingerprint: string,
+): QueryCacheProvenance {
+	return {
+		query: {
+			string: fingerprint,
+			filters: [],
+			source_config: {
+				operation_id: "operation-one",
+				source_ids: [SOURCE_ONE],
+				range: { min: 0, max: 100 },
+			},
+		},
+		fingerprint,
+		requestedFrame: { min: 0, max: 100 },
+		normalization: {
+			field: "gulp.event_code",
+			hashFunction: "fnv1a",
+			requestedFields: [],
+		},
+		serverSnapshot: {
+			total: 1,
+			minNanoseconds: "0",
+			maxNanoseconds: "100000000",
+			timeUpdated: null,
+			millisecondPrecision: true,
+		},
+	};
+}
+
 /** Creates one raw backend document for worker-side normalization. */
 function createRawDocument(
 	id: string,
@@ -240,6 +272,134 @@ async function seedCompleteReplacement(
 }
 
 describe("QueryPersistenceCoordinator", () => {
+	it("queues cache controls behind an active replacement source lease", async () => {
+		const harness = createHarness();
+		await seedCompleteReplacement(
+			harness,
+			createDescriptor("lease-cache-seed", {
+				queryCache: createQueryCacheProvenance("lease-seed"),
+			}),
+			[createRawDocument("lease-seed")],
+		);
+		const replacement = createDescriptor("lease-cache-replacement", {
+			queryCache: createQueryCacheProvenance("lease-replacement"),
+		});
+		await harness.coordinator.register(replacement);
+
+		let reconciliationSettled = false;
+		const reconciliation = harness.coordinator
+			.reconcileSourceQueryCache({
+				operationId: "operation-one",
+				sourceId: SOURCE_ONE,
+				queryFingerprint: "lease-replacement",
+			})
+			.finally(() => {
+				reconciliationSettled = true;
+			});
+		await Promise.resolve();
+		expect(reconciliationSettled).toBe(false);
+
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				replacement,
+				[createRawDocument("lease-replacement")],
+				true,
+			),
+		);
+		await waitFor(() => harness.completed.includes(replacement.requestId));
+		expect((await reconciliation)?.cache.provenance.fingerprint).toBe(
+			"lease-replacement",
+		);
+		harness.coordinator.destroy();
+	});
+
+	it("serializes cache reconciliation and source-local history navigation", async () => {
+		const harness = createHarness();
+		const first = createDescriptor("cache-first", {
+			queryCache: createQueryCacheProvenance("fingerprint-one"),
+		});
+		await seedCompleteReplacement(
+			harness,
+			first,
+			[createRawDocument("cache-one")],
+		);
+		const second = createDescriptor("cache-second", {
+			queryCache: createQueryCacheProvenance("fingerprint-two"),
+		});
+		await seedCompleteReplacement(
+			harness,
+			second,
+			[createRawDocument("cache-two")],
+		);
+
+		const repository = harness.repositories.get("operation-one");
+		if (!repository) throw new Error("Expected operation repository.");
+		const initialCaches = await repository.listQueryCaches(SOURCE_ONE);
+		expect(initialCaches).toHaveLength(2);
+		const secondAuthority = (
+			await repository.getSourceSummary(SOURCE_ONE)
+		)?.authorityRevision;
+
+		const undo = await harness.coordinator.navigateSourceQueryCache({
+			operationId: "operation-one",
+			sourceId: SOURCE_ONE,
+			direction: "undo",
+		});
+		expect(undo?.cache.provenance.fingerprint).toBe("fingerprint-one");
+		expect(
+			(undo?.summary.authorityRevision ?? -1) > (secondAuthority ?? -1),
+		).toBe(true);
+		expect(harness.broadcasts.at(-1)).toEqual(undo?.summary);
+
+		const redo = await harness.coordinator.navigateSourceQueryCache({
+			operationId: "operation-one",
+			sourceId: SOURCE_ONE,
+			direction: "redo",
+		});
+		expect(redo?.cache.provenance.fingerprint).toBe("fingerprint-two");
+
+		const reconciliation =
+			await harness.coordinator.reconcileSourceQueryCache({
+				operationId: "operation-one",
+				sourceId: SOURCE_ONE,
+				queryFingerprint: "fingerprint-one",
+			});
+		expect(reconciliation).toMatchObject({
+			match: "exact",
+			cache: { provenance: { fingerprint: "fingerprint-one" } },
+			summary: { cacheHistoryCursor: 0 },
+		});
+		if (!reconciliation) throw new Error("Expected reconciled query cache.");
+		expect(reconciliation.summary.cacheHistory).toEqual([
+			reconciliation.cache.generation,
+		]);
+		expect(await repository.listQueryCaches(SOURCE_ONE)).toHaveLength(1);
+
+		await harness.coordinator.clearSourceQueryCache(
+			"operation-one",
+			SOURCE_ONE,
+		);
+		const resetSummary = await repository.getSourceSummary(SOURCE_ONE);
+		expect(resetSummary).toMatchObject({
+			status: "incomplete",
+			eventCount: 0,
+			activeCacheGeneration: null,
+			cacheHistory: [],
+			cacheHistoryCursor: -1,
+		});
+		expect(harness.broadcasts.at(-1)).toEqual(resetSummary);
+		expect(await repository.listQueryCaches(SOURCE_ONE)).toHaveLength(0);
+
+		const broadcastCount = harness.broadcasts.length;
+		await harness.coordinator.deleteSourceEventStore(
+			"operation-one",
+			SOURCE_ONE,
+		);
+		expect(await repository.getSourceSummary(SOURCE_ONE)).toBeNull();
+		expect(harness.broadcasts).toHaveLength(broadcastCount);
+		harness.coordinator.destroy();
+	});
+
 	it("registers persistence without consulting quota telemetry", async () => {
 		const storageDescriptor = Object.getOwnPropertyDescriptor(
 			globalThis.navigator,

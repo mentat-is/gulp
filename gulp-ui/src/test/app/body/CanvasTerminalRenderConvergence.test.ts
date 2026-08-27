@@ -7,6 +7,7 @@ import {
 const SOURCE_ONE = "source-one";
 const SOURCE_TWO = "source-two";
 const OPERATION_EPOCH = 4;
+const AUTHORITY_REVISION = 6;
 
 /** Records the 94,391-event terminal source used by the regression scenarios. */
 function recordTerminalTarget(
@@ -15,6 +16,7 @@ function recordTerminalTarget(
 	controller.record({
 		sourceId: SOURCE_ONE,
 		operationEpoch: OPERATION_EPOCH,
+		sourceAuthorityRevision: AUTHORITY_REVISION,
 		sourceGeneration: 3,
 		sourceRevision: 12,
 		sourceStatus: "complete",
@@ -36,6 +38,7 @@ describe("Canvas terminal render convergence", () => {
 			controller.acceptsProjection(OPERATION_EPOCH, visible, [
 				{
 					sourceId: SOURCE_ONE,
+					sourceAuthorityRevision: AUTHORITY_REVISION,
 					sourceGeneration: 3,
 					sourceRevision: 11,
 					sourceStatus: "building",
@@ -66,6 +69,7 @@ describe("Canvas terminal render convergence", () => {
 				controller.acceptsProjection(OPERATION_EPOCH, visible, [
 					{
 						sourceId: SOURCE_ONE,
+						sourceAuthorityRevision: AUTHORITY_REVISION,
 						sourceGeneration: 3,
 						sourceRevision: 12,
 						sourceStatus: "complete",
@@ -94,6 +98,7 @@ describe("Canvas terminal render convergence", () => {
 		controller.record({
 			sourceId: SOURCE_TWO,
 			operationEpoch: OPERATION_EPOCH,
+			sourceAuthorityRevision: AUTHORITY_REVISION,
 			sourceGeneration: 5,
 			sourceRevision: 7,
 			sourceStatus: "incomplete",
@@ -105,6 +110,7 @@ describe("Canvas terminal render convergence", () => {
 			controller.acceptsProjection(OPERATION_EPOCH, visible, [
 				{
 					sourceId: SOURCE_ONE,
+					sourceAuthorityRevision: AUTHORITY_REVISION,
 					sourceGeneration: 3,
 					sourceRevision: 12,
 					sourceStatus: "complete",
@@ -116,6 +122,7 @@ describe("Canvas terminal render convergence", () => {
 			controller.acceptsProjection(OPERATION_EPOCH, visible, [
 				{
 					sourceId: SOURCE_ONE,
+					sourceAuthorityRevision: AUTHORITY_REVISION,
 					sourceGeneration: 3,
 					sourceRevision: 12,
 					sourceStatus: "complete",
@@ -123,6 +130,7 @@ describe("Canvas terminal render convergence", () => {
 				},
 				{
 					sourceId: SOURCE_TWO,
+					sourceAuthorityRevision: AUTHORITY_REVISION,
 					sourceGeneration: 5,
 					sourceRevision: 7,
 					sourceStatus: "incomplete",
@@ -130,6 +138,44 @@ describe("Canvas terminal render convergence", () => {
 				},
 			]),
 		).toBe(true);
+	});
+
+	it("replaces a newer physical generation with an authoritative Undo target", () => {
+		const controller = new CanvasTerminalRenderConvergence();
+		controller.record({
+			sourceId: SOURCE_ONE,
+			operationEpoch: OPERATION_EPOCH,
+			sourceAuthorityRevision: 10,
+			sourceGeneration: 5,
+			sourceRevision: 30,
+			sourceStatus: "complete",
+			eventCount: 50,
+		});
+		const undoTarget = {
+			sourceId: SOURCE_ONE,
+			operationEpoch: OPERATION_EPOCH,
+			sourceAuthorityRevision: 11,
+			sourceGeneration: 1,
+			sourceRevision: 12,
+			sourceStatus: "complete" as const,
+			eventCount: 10,
+		};
+
+		expect(controller.record(undoTarget)).toBe(true);
+		expect(
+			controller.getVisibleTargets(
+				OPERATION_EPOCH,
+				new Set([SOURCE_ONE]),
+			)[0],
+		).toMatchObject(undoTarget);
+		expect(
+			controller.record({
+				...undoTarget,
+				sourceAuthorityRevision: 10,
+				sourceGeneration: 9,
+				sourceRevision: 99,
+			}),
+		).toBe(false);
 	});
 
 	it("retains the terminal target when a pre-terminal frame arrives after the final ACK", () => {

@@ -1622,8 +1622,10 @@ export class WorkerRenderCore {
 		const eventCount =
 			this.repository.getEvents(source.id)?.loadedCount ?? 0;
 		const contextLabel = source.contextLabel || state.localized.unknownContext;
+		const sourceLabel = `${source.name}${suffix}`;
+		const sourceLabelY = centerY + 4;
 		const lines = [
-			{ text: `${source.name}${suffix}`, y: centerY + 4, color: state.palette.fontAccent },
+			{ text: sourceLabel, y: sourceLabelY, color: state.palette.fontAccent },
 			{ text: eventCount.toString(), y: centerY + 18, color: state.palette.fontAccent },
 			{
 				text: `${source.total} | ${contextLabel}${suffix}`,

@@ -1,4 +1,10 @@
 import type { Source } from "@/entities/Source";
+import type { QueryCacheProvenance } from "@/entities/QueryCache";
+import type {
+	EventSourceSummary,
+	EventSourceQueryCacheActivation,
+	EventSourceQueryCacheReconciliation,
+} from "@/event-store/EventStore.types";
 import type { EventStoreViewportDescriptor } from "@/event-store/EventStore.viewport-projector";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 
@@ -65,6 +71,8 @@ export interface StreamDescriptor {
 	sourceSettingsById?: Readonly<Record<string, DocumentStreamSourceSettings>>;
 	expectedEvents?: number;
 	revision?: number;
+	/** Query identity and source metadata persisted when a replace generation completes. */
+	queryCache?: QueryCacheProvenance;
 }
 
 /** Explicit alias used at document-routing integration boundaries. */
@@ -151,17 +159,7 @@ export interface QuerySourceSummaryEvent {
 	operationEpoch: number;
 	/** Present on exactly one source update when rollback storage was reclaimed. */
 	replacementMode?: "in-place";
-	summary: {
-		sourceId: Source.Id;
-		generation: number;
-		revision: number;
-		status: "building" | "complete" | "incomplete";
-		eventCount: number;
-		minTimestamp: number;
-		maxTimestamp: number;
-		hashMin: number;
-		hashMax: number;
-	};
+	summary: EventSourceSummary;
 }
 
 /** Persistence failure reasons surfaced to the main-thread stream lifecycle. */
@@ -281,6 +279,38 @@ export interface ResetQueryDiagnosticsCommand extends QueryWorkerControlCommand 
 	type: "RESET_QUERY_DIAGNOSTICS";
 }
 
+/** Selects one startup cache by exact fingerprint or latest fallback. */
+export interface ReconcileSourceQueryCacheCommand {
+	type: "RECONCILE_SOURCE_QUERY_CACHE";
+	cacheRequestId: string;
+	operationId: string;
+	sourceId: Source.Id;
+	queryFingerprint: string;
+}
+
+/** Moves one source-local query-cache history cursor without backend I/O. */
+export interface NavigateSourceQueryCacheCommand {
+	type: "NAVIGATE_SOURCE_QUERY_CACHE";
+	cacheRequestId: string;
+	operationId: string;
+	sourceId: Source.Id;
+	direction: "undo" | "redo";
+}
+
+/** Deletes one source cache pool before an authoritative rebuild such as rebase. */
+export interface ClearSourceQueryCacheCommand extends QueryWorkerControlCommand {
+	type: "CLEAR_SOURCE_QUERY_CACHE";
+	operationId: string;
+	sourceId: Source.Id;
+}
+
+/** Deletes one source's complete EventStore after the backend source is removed. */
+export interface DeleteSourceEventStoreCommand extends QueryWorkerControlCommand {
+	type: "DELETE_SOURCE_EVENT_STORE";
+	operationId: string;
+	sourceId: Source.Id;
+}
+
 /** Sends an application command through the authenticated WebSocket. */
 export interface SendQuerySocketCommand {
 	type: "SEND";
@@ -310,6 +340,10 @@ export type QueryWorkerCommand =
 	| RequestQueryRenderWindowCommand
 	| GetQueryDiagnosticsCommand
 	| ResetQueryDiagnosticsCommand
+	| ReconcileSourceQueryCacheCommand
+	| NavigateSourceQueryCacheCommand
+	| ClearSourceQueryCacheCommand
+	| DeleteSourceEventStoreCommand
 	| SendQuerySocketCommand
 	| ReconnectQuerySocketCommand
 	| CloseQuerySocketCommand;
@@ -383,6 +417,17 @@ export interface QueryWorkerDiagnosticsResultEvent {
 	diagnostics: QueryWorkerDiagnostics;
 }
 
+/** Completes one correlated startup reconciliation or history navigation. */
+export interface QueryWorkerSourceQueryCacheResultEvent {
+	type: "SOURCE_QUERY_CACHE_RESULT";
+	cacheRequestId: string;
+	result:
+		| EventSourceQueryCacheActivation
+		| EventSourceQueryCacheReconciliation
+		| null;
+	error?: string;
+}
+
 /** Reports malformed transport input without terminating the socket. */
 export interface QueryWorkerProtocolErrorEvent {
 	type: "PROTOCOL_ERROR";
@@ -402,6 +447,7 @@ export type QueryWorkerEvent =
 	| QueryWorkerStreamFailureEvent
 	| QueryWorkerRenderWindowResultEvent
 	| QueryWorkerDiagnosticsResultEvent
+	| QueryWorkerSourceQueryCacheResultEvent
 	| QueryWorkerProtocolErrorEvent;
 
 /**

@@ -12,6 +12,11 @@ import type {
 	QueryTransport,
 	QueryTransportCallbacks,
 } from "./QueryTransport.types";
+import type {
+	EventSourceQueryCacheActivation,
+	EventSourceQueryCacheReconciliation,
+} from "@/event-store/EventStore.types";
+import type { Source } from "@/entities/Source";
 
 const CONTROL_TIMEOUT_MS = 10_000;
 const READY_TIMEOUT_MS = 10_000;
@@ -46,6 +51,16 @@ interface PendingDiagnostics {
 	timer: ReturnType<typeof setTimeout>;
 }
 
+interface PendingSourceQueryCache {
+	resolve: (
+		result:
+			| EventSourceQueryCacheActivation
+			| EventSourceQueryCacheReconciliation
+			| null,
+	) => void;
+	reject: (error: Error) => void;
+}
+
 /** Main-thread facade for the browser QueryWorker protocol. */
 export class QueryWorkerClient implements QueryTransport {
 	private readonly worker: QueryWorkerLike;
@@ -54,10 +69,15 @@ export class QueryWorkerClient implements QueryTransport {
 	private readonly readyWaiters = new Set<ReadyWaiter>();
 	private readonly pendingRenderWindows = new Map<string, PendingRenderWindow>();
 	private readonly pendingDiagnostics = new Map<string, PendingDiagnostics>();
+	private readonly pendingSourceQueryCaches = new Map<
+		string,
+		PendingSourceQueryCache
+	>();
 	private socketState: QuerySocketState = "disconnected";
 	private controlCounter = 0;
 	private projectionCounter = 0;
 	private diagnosticsCounter = 0;
+	private sourceQueryCacheCounter = 0;
 	private destroyed = false;
 
 	/**
@@ -81,6 +101,7 @@ export class QueryWorkerClient implements QueryTransport {
 			this.rejectPendingControls("QueryWorker execution failed.");
 			this.rejectPendingRenderWindows("QueryWorker execution failed.");
 			this.rejectPendingDiagnostics("QueryWorker execution failed.");
+			this.rejectPendingSourceQueryCaches("QueryWorker execution failed.");
 			this.rejectReadyWaiters("QueryWorker execution failed.");
 		};
 
@@ -99,6 +120,7 @@ export class QueryWorkerClient implements QueryTransport {
 			this.rejectPendingControls(message);
 			this.rejectPendingRenderWindows(message);
 			this.rejectPendingDiagnostics(message);
+			this.rejectPendingSourceQueryCaches(message);
 			this.rejectReadyWaiters(message);
 		});
 	}
@@ -270,6 +292,116 @@ export class QueryWorkerClient implements QueryTransport {
 	}
 
 	/**
+	 * Selects an exact startup cache or the latest complete fallback for one source.
+	 * @param input Operation, source, and desired semantic fingerprint.
+	 * @returns Reconciled activation, or null when the source has no reusable cache.
+	 */
+	public reconcileSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		queryFingerprint: string;
+	}): Promise<EventSourceQueryCacheReconciliation | null> {
+		return this.requestSourceQueryCache({
+			type: "RECONCILE_SOURCE_QUERY_CACHE",
+			...input,
+		}) as Promise<EventSourceQueryCacheReconciliation | null>;
+	}
+
+	/**
+	 * Moves one source-local cache history cursor.
+	 * @param input Operation, source, and navigation direction.
+	 * @returns Activated cache, or null at the corresponding history boundary.
+	 */
+	public navigateSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		direction: "undo" | "redo";
+	}): Promise<EventSourceQueryCacheActivation | null> {
+		return this.requestSourceQueryCache({
+			type: "NAVIGATE_SOURCE_QUERY_CACHE",
+			...input,
+		}) as Promise<EventSourceQueryCacheActivation | null>;
+	}
+
+	/**
+	 * Clears one source cache pool through an acknowledged worker mutation.
+	 * @param operationId Operation owning the source database.
+	 * @param sourceId Source whose generations must be removed.
+	 * @returns Promise resolved after bounded deletion completes.
+	 */
+	public clearSourceQueryCache(
+		operationId: string,
+		sourceId: Source.Id,
+	): Promise<void> {
+		return this.sendControl({
+			type: "CLEAR_SOURCE_QUERY_CACHE",
+			controlId: this.nextControlId(),
+			operationId,
+			sourceId,
+		});
+	}
+
+	/**
+	 * Deletes all EventStore records for a source removed from the backend.
+	 * @param operationId Operation owning the source database.
+	 * @param sourceId Removed source whose complete local state must be deleted.
+	 * @returns Promise resolved after bounded deletion completes.
+	 */
+	public deleteSourceEventStore(
+		operationId: string,
+		sourceId: Source.Id,
+	): Promise<void> {
+		return this.sendControl({
+			type: "DELETE_SOURCE_EVENT_STORE",
+			controlId: this.nextControlId(),
+			operationId,
+			sourceId,
+		});
+	}
+
+	/**
+	 * Sends one correlated cache command that may include bounded physical cleanup.
+	 * @param command Cache command without its generated correlation identifier.
+	 * @returns Cache activation result returned by QueryWorker.
+	 */
+	private requestSourceQueryCache(
+		command:
+			| {
+					type: "RECONCILE_SOURCE_QUERY_CACHE";
+					operationId: string;
+					sourceId: Source.Id;
+					queryFingerprint: string;
+			  }
+			| {
+					type: "NAVIGATE_SOURCE_QUERY_CACHE";
+					operationId: string;
+					sourceId: Source.Id;
+					direction: "undo" | "redo";
+			  },
+	): Promise<
+		| EventSourceQueryCacheActivation
+		| EventSourceQueryCacheReconciliation
+		| null
+	> {
+		if (this.destroyed) {
+			return Promise.reject(new Error("QueryWorker transport is destroyed."));
+		}
+		const cacheRequestId = this.nextSourceQueryCacheRequestId();
+		return new Promise((resolve, reject) => {
+			this.pendingSourceQueryCaches.set(cacheRequestId, {
+				resolve,
+				reject,
+			});
+			try {
+				this.worker.postMessage({ ...command, cacheRequestId });
+			} catch (error) {
+				this.pendingSourceQueryCaches.delete(cacheRequestId);
+				reject(error instanceof Error ? error : new Error(String(error)));
+			}
+		});
+	}
+
+	/**
 	 * Sends an application payload through the worker-owned WebSocket.
 	 * @param data Serializable payload to send.
 	 */
@@ -312,6 +444,7 @@ export class QueryWorkerClient implements QueryTransport {
 		this.pendingControls.clear();
 		this.rejectPendingRenderWindows("QueryWorker transport was destroyed.");
 		this.rejectPendingDiagnostics("QueryWorker transport was destroyed.");
+		this.rejectPendingSourceQueryCaches("QueryWorker transport was destroyed.");
 	}
 
 	/**
@@ -332,7 +465,9 @@ export class QueryWorkerClient implements QueryTransport {
 		}
 		return new Promise<void>((resolve, reject) => {
 			const timer =
-				command.type === "REGISTER_STREAM"
+				command.type === "REGISTER_STREAM" ||
+				command.type === "CLEAR_SOURCE_QUERY_CACHE" ||
+				command.type === "DELETE_SOURCE_EVENT_STORE"
 					? null
 					: setTimeout(() => {
 							this.pendingControls.delete(command.controlId);
@@ -422,9 +557,17 @@ export class QueryWorkerClient implements QueryTransport {
 					event.diagnosticsRequestId,
 				);
 				if (!pending) return;
-				clearTimeout(pending.timer);
+				if (pending.timer) clearTimeout(pending.timer);
 				this.pendingDiagnostics.delete(event.diagnosticsRequestId);
 				pending.resolve(event.diagnostics);
+				break;
+			}
+			case "SOURCE_QUERY_CACHE_RESULT": {
+				const pending = this.pendingSourceQueryCaches.get(event.cacheRequestId);
+				if (!pending) return;
+				this.pendingSourceQueryCaches.delete(event.cacheRequestId);
+				if (event.error) pending.reject(new Error(event.error));
+				else pending.resolve(event.result);
 				break;
 			}
 			case "PROTOCOL_ERROR":
@@ -483,6 +626,14 @@ export class QueryWorkerClient implements QueryTransport {
 		this.pendingDiagnostics.clear();
 	}
 
+	/** Rejects correlated source-cache requests after worker failure or destruction. */
+	private rejectPendingSourceQueryCaches(message: string): void {
+		for (const pending of this.pendingSourceQueryCaches.values()) {
+			pending.reject(new Error(message));
+		}
+		this.pendingSourceQueryCaches.clear();
+	}
+
 	/** Returns a unique correlation identifier for the next control command. */
 	private nextControlId(): string {
 		this.controlCounter += 1;
@@ -499,5 +650,11 @@ export class QueryWorkerClient implements QueryTransport {
 	private nextDiagnosticsRequestId(): string {
 		this.diagnosticsCounter += 1;
 		return `query_diagnostics_${this.diagnosticsCounter}`;
+	}
+
+	/** Returns a unique correlation identifier for one source-cache request. */
+	private nextSourceQueryCacheRequestId(): string {
+		this.sourceQueryCacheCounter += 1;
+		return `query_source_cache_${this.sourceQueryCacheCounter}`;
 	}
 }

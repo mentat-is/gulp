@@ -6,6 +6,11 @@ import type {
 	QueryWorkerDiagnostics,
 } from "@/event-stream";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
+import type {
+	EventSourceQueryCacheActivation,
+	EventSourceQueryCacheReconciliation,
+} from "@/event-store/EventStore.types";
+import type { Source } from "@/entities/Source";
 import { QuerySocketSession } from "./QuerySocket.session";
 import type { QueryPersistenceCoordinatorOptions } from "./QueryPersistenceCoordinator";
 import type {
@@ -156,6 +161,58 @@ export class DirectQueryTransport implements QueryTransport {
 	public resetQueryDiagnostics(): Promise<void> {
 		this.session.resetQueryDiagnostics();
 		return Promise.resolve();
+	}
+
+	/**
+	 * Selects one exact startup cache or latest reusable fallback in direct mode.
+	 * @param input Operation, source, and desired semantic query fingerprint.
+	 * @returns Reconciled cache activation, or null when no cache is reusable.
+	 */
+	public reconcileSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		queryFingerprint: string;
+	}): Promise<EventSourceQueryCacheReconciliation | null> {
+		return this.session.reconcileSourceQueryCache(input);
+	}
+
+	/**
+	 * Moves one source-local query-cache cursor in direct mode.
+	 * @param input Operation, source, and Undo or Redo direction.
+	 * @returns Activated cache, or null at the corresponding history boundary.
+	 */
+	public navigateSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		direction: "undo" | "redo";
+	}): Promise<EventSourceQueryCacheActivation | null> {
+		return this.session.navigateSourceQueryCache(input);
+	}
+
+	/**
+	 * Clears every retained query cache for one source in direct mode.
+	 * @param operationId Operation owning the source database.
+	 * @param sourceId Source whose cache pool must be deleted.
+	 * @returns Promise resolved after bounded cleanup finishes.
+	 */
+	public clearSourceQueryCache(
+		operationId: string,
+		sourceId: Source.Id,
+	): Promise<void> {
+		return this.session.clearSourceQueryCache(operationId, sourceId);
+	}
+
+	/**
+	 * Deletes every EventStore record for a removed source in direct mode.
+	 * @param operationId Operation owning the source database.
+	 * @param sourceId Removed source whose complete local state must be deleted.
+	 * @returns Promise resolved after bounded cleanup finishes.
+	 */
+	public deleteSourceEventStore(
+		operationId: string,
+		sourceId: Source.Id,
+	): Promise<void> {
+		return this.session.deleteSourceEventStore(operationId, sourceId);
 	}
 
 	/**

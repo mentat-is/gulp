@@ -1,5 +1,6 @@
 import type { Filter } from "@/entities/Filter";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import {
 	getSourceFieldCacheKey,
 	SourceFieldCache,
@@ -61,6 +62,8 @@ function createSource(overrides: Partial<Source.Type> = {}): Source.Type {
 		plugin: "test-plugin",
 		timestamp: { min: 1, max: 2 },
 		nanotimestamp: { min: BigInt(1), max: BigInt(2) },
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 		...overrides,
 	} as Source.Type;
 }

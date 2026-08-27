@@ -87,4 +87,39 @@ describe("RenderProjectionAdapter cooperative ranges", () => {
 		expect(project("filename")).toBe("events.json");
 		expect(project("full_path")).toBe(source.name);
 	});
+
+	it("projects explicit cache freshness and defaults missing state to fresh", () => {
+		const adapter = new RenderProjectionAdapter({
+			resolveDocument: () => undefined,
+		});
+		const source = {
+			id: SOURCE_ID,
+			name: "events.json",
+			settings: {
+				offset: 0,
+				render_engine: "default",
+				timeline_label: "filename",
+				frequency_sample: 1_000,
+			} as Source.Type["settings"],
+			timestamp: { min: 0, max: 1 },
+			total: 0,
+		} as Source.Type;
+		const input = {
+			source,
+			revision: 1,
+			rowOrder: 0,
+			contextLabel: "Context",
+			contextColor: "#000000",
+			loadingKind: "none" as const,
+			gradient: [],
+		};
+
+		expect(adapter.createSource(input).cacheFreshness).toBe("fresh");
+		expect(
+			adapter.createSource({
+				...input,
+				cacheFreshness: "query-mismatch",
+			}).cacheFreshness,
+		).toBe("query-mismatch");
+	});
 });

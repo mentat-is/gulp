@@ -101,12 +101,17 @@ export class EventStoreFacade implements EventStoreReader {
 			sourceId,
 			generation: 0,
 			revision: this.fallbacks.resolveSourceRevision?.(sourceId) ?? 0,
+			authorityRevision: this.fallbacks.resolveSourceRevision?.(sourceId) ?? 0,
 			status: "complete",
 			eventCount: events.length,
 			minTimestamp: events[events.length - 1]?.gulp_timestamp ?? 0,
 			maxTimestamp: events[0]?.gulp_timestamp ?? 0,
 			hashMin: events.length === 0 ? 0 : hashMin,
 			hashMax: events.length === 0 ? 0 : hashMax,
+			activeCacheGeneration: null,
+			cacheHistory: [],
+			cacheHistoryCursor: -1,
+			nextGeneration: 1,
 		};
 	}
 

@@ -3,6 +3,7 @@ import {
 	getCanvasViewportSourceRange,
 } from "@/app/body/CanvasViewport";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 
 /**
  * Creates the minimum source fixture required by the viewport ID selector.
@@ -10,7 +11,11 @@ import type { Source } from "@/entities/Source";
  * @returns Strictly typed source fixture.
  */
 function createSource(id: string): Source.Type {
-	return { id } as Source.Type;
+	return {
+		id,
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
+	} as Source.Type;
 }
 
 describe("Canvas viewport source range", () => {

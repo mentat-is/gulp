@@ -13,6 +13,67 @@ import type {
 import type { QueryTransportCallbacks } from "@/event-store-worker/QueryTransport.types";
 import { QueryWorkerClient } from "@/event-store-worker/QueryWorker.client";
 import type { Source } from "@/entities/Source";
+import type {
+	EventSourceQueryCacheReconciliation,
+	EventSourceSummary,
+} from "@/event-store/EventStore.types";
+
+const SOURCE_ONE = "source-one" as Source.Id;
+
+/** Creates one complete source authority summary for worker protocol tests. */
+function createSourceSummary(): EventSourceSummary {
+	return {
+		sourceId: SOURCE_ONE,
+		generation: 1,
+		revision: 2,
+		authorityRevision: 2,
+		status: "complete",
+		eventCount: 1,
+		minTimestamp: 10,
+		maxTimestamp: 10,
+		hashMin: 4,
+		hashMax: 4,
+		activeCacheGeneration: 1,
+		cacheHistory: [1],
+		cacheHistoryCursor: 0,
+		nextGeneration: 2,
+	};
+}
+
+/** Creates one page-free startup cache result for correlation tests. */
+function createCacheReconciliation(): EventSourceQueryCacheReconciliation {
+	return {
+		match: "exact",
+		summary: createSourceSummary(),
+		cache: {
+			sourceId: SOURCE_ONE,
+			generation: 1,
+			provenance: {
+				query: { string: "", filters: [] },
+				fingerprint: "source-query-v1:test",
+				requestedFrame: { min: 0, max: 100 },
+				normalization: {
+					field: "gulp.event_code",
+					hashFunction: "fnv1a",
+					requestedFields: [],
+				},
+				serverSnapshot: {
+					total: 1,
+					minNanoseconds: "10",
+					maxNanoseconds: "10",
+					timeUpdated: null,
+					millisecondPrecision: false,
+				},
+			},
+			state: "exact",
+			createdAt: 1,
+			lastActivatedAt: 2,
+			eventCount: 1,
+			minTimestamp: 10,
+			maxTimestamp: 10,
+		},
+	};
+}
 
 class FakeQueryWorker {
 	public onmessage: ((event: MessageEvent<QueryWorkerEvent>) => void) | null =
@@ -122,17 +183,7 @@ describe("QueryWorkerClient", () => {
 			requestId: "worker-request",
 			operationId: "operation-one",
 			operationEpoch: 7,
-			summary: {
-				sourceId: "source-one" as Source.Id,
-				generation: 1,
-				revision: 2,
-				status: "complete",
-				eventCount: 1,
-				minTimestamp: 10,
-				maxTimestamp: 10,
-				hashMin: 4,
-				hashMax: 4,
-			},
+			summary: createSourceSummary(),
 		};
 		worker.emitWorkerEvent({ type: "SOURCE_SUMMARY", event: sourceSummary });
 		const streamFailure: QueryStreamFailureEvent = {
@@ -273,6 +324,120 @@ describe("QueryWorkerClient", () => {
 		expect(streamFailures).toEqual([streamFailure]);
 		expect(streamChanges).toHaveLength(0);
 		expect(protocolErrors).toHaveLength(0);
+	});
+
+	it("correlates startup reconciliation, history navigation, and cache clearing", async () => {
+		const worker = new FakeQueryWorker();
+		const client = new QueryWorkerClient(
+			worker,
+			{
+				socketUrl: "ws://gulp.test/ws",
+				token: "token",
+				wsId: "worker-cache-client",
+				coordinatorId: "test-coordinator",
+			},
+			{
+				onSocketState: () => undefined,
+				onSocketOpen: () => undefined,
+				onSocketClose: () => undefined,
+				onSocketError: () => undefined,
+				onForwardMessage: () => undefined,
+				onStreamStateChange: () => undefined,
+				onSourceSummary: () => undefined,
+				onStreamFailure: () => undefined,
+				onProtocolError: () => undefined,
+			},
+		);
+		const initialization = worker.commands[0];
+		if (initialization.type !== "INITIALIZE") {
+			throw new Error("Expected INITIALIZE command.");
+		}
+		worker.emitWorkerEvent({
+			type: "CONTROL_RESULT",
+			controlId: initialization.controlId,
+		});
+
+		const reconciliationPromise = client.reconcileSourceQueryCache({
+			operationId: "operation-one",
+			sourceId: SOURCE_ONE,
+			queryFingerprint: "source-query-v1:test",
+		});
+		const reconciliationCommand = worker.commands.find(
+			(command) => command.type === "RECONCILE_SOURCE_QUERY_CACHE",
+		);
+		if (
+			!reconciliationCommand ||
+			reconciliationCommand.type !== "RECONCILE_SOURCE_QUERY_CACHE"
+		) {
+			throw new Error("Expected RECONCILE_SOURCE_QUERY_CACHE command.");
+		}
+		expect(reconciliationCommand).toMatchObject({
+			operationId: "operation-one",
+			sourceId: SOURCE_ONE,
+			queryFingerprint: "source-query-v1:test",
+		});
+		const reconciliation = createCacheReconciliation();
+		worker.emitWorkerEvent({
+			type: "SOURCE_QUERY_CACHE_RESULT",
+			cacheRequestId: reconciliationCommand.cacheRequestId,
+			result: reconciliation,
+		});
+		expect(await reconciliationPromise).toEqual(reconciliation);
+
+		const navigationPromise = client.navigateSourceQueryCache({
+			operationId: "operation-one",
+			sourceId: SOURCE_ONE,
+			direction: "undo",
+		});
+		const navigationCommand = worker.commands.find(
+			(command) => command.type === "NAVIGATE_SOURCE_QUERY_CACHE",
+		);
+		if (
+			!navigationCommand ||
+			navigationCommand.type !== "NAVIGATE_SOURCE_QUERY_CACHE"
+		) {
+			throw new Error("Expected NAVIGATE_SOURCE_QUERY_CACHE command.");
+		}
+		worker.emitWorkerEvent({
+			type: "SOURCE_QUERY_CACHE_RESULT",
+			cacheRequestId: navigationCommand.cacheRequestId,
+			result: null,
+		});
+		expect(await navigationPromise).toBeNull();
+
+		const clearPromise = client.clearSourceQueryCache(
+			"operation-one",
+			SOURCE_ONE,
+		);
+		const clearCommand = worker.commands.find(
+			(command) => command.type === "CLEAR_SOURCE_QUERY_CACHE",
+		);
+		if (!clearCommand || clearCommand.type !== "CLEAR_SOURCE_QUERY_CACHE") {
+			throw new Error("Expected CLEAR_SOURCE_QUERY_CACHE command.");
+		}
+		worker.emitWorkerEvent({
+			type: "CONTROL_RESULT",
+			controlId: clearCommand.controlId,
+		});
+		await clearPromise;
+
+		const deletePromise = client.deleteSourceEventStore(
+			"operation-one",
+			SOURCE_ONE,
+		);
+		const deleteCommand = worker.commands.find(
+			(command) => command.type === "DELETE_SOURCE_EVENT_STORE",
+		);
+		if (!deleteCommand || deleteCommand.type !== "DELETE_SOURCE_EVENT_STORE") {
+			throw new Error("Expected DELETE_SOURCE_EVENT_STORE command.");
+		}
+		worker.emitWorkerEvent({
+			type: "CONTROL_RESULT",
+			controlId: deleteCommand.controlId,
+		});
+		await deletePromise;
+
+		client.destroy();
 	});
 
 	it("surfaces a correlated initialization failure and terminates the worker", async () => {

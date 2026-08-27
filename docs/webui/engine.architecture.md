@@ -21,7 +21,7 @@ flowchart LR
     UI[Main thread<br/>React and Canvas coordinator]
     API[gULP /query_raw]
     QW[Query worker<br/>WebSocket and persistence]
-    DB[(IndexedDB<br/>exact pages and LOD)]
+    DB[(IndexedDB<br/>query-cache pool, exact pages and LOD)]
     RW[Render worker<br/>OffscreenCanvas]
 
     UI -->|register req_id| QW
@@ -38,7 +38,7 @@ flowchart LR
     RW -->|FRAME_RENDERED| UI
 ```
 
-A normal raw query follows these stages:
+A backend raw query follows these stages:
 
 1. The main thread generates the request ID and registers its stream in the
    query worker before calling `/query_raw`.
@@ -59,6 +59,19 @@ A normal raw query follows these stages:
 last `docs_chunk` is durable or visible. Storage completion and frame completion
 have their own explicit fences.
 
+Before the initial backend request, each selected source is reconciled with its
+IndexedDB cache pool. An exact query-fingerprint hit activates its compact
+manifest immediately. If no exact entry exists, the most recently activated
+complete, non-mutated cache is shown with a query-mismatch warning. A source
+with no usable cache, including one with only mutated entries, dispatches
+`/query_raw`; cached and uncached sources can therefore load together.
+
+After initial reconciliation, the source history intentionally contains only
+the chosen cache and the other entries are cleaned up. Queries explicitly
+requested during the session always call the backend and append a new cache.
+Undo/Redo in a source menu switches only that source's active manifest and query
+without copying event pages or calling the backend.
+
 ## Responsibilities of the three threads
 
 ### Main thread
@@ -66,7 +79,9 @@ have their own explicit fences.
 The main thread owns React state and user interaction. In the rendering path it:
 
 - registers queries before dispatching backend work;
-- retains compact source summaries and current viewport state;
+- retains each source's applied query, compact cache/freshness state, source
+  summary, and current viewport state;
+- requests initial cache reconciliation and source-local Undo/Redo;
 - coalesces projection triggers into one active request and one trailing request;
 - transfers render windows and other incremental scene patches;
 - correlates terminal source revisions with worker ACKs and frames;
@@ -84,6 +99,7 @@ It:
 - accounts for raw bytes before a chunk enters an ordered promise chain;
 - normalizes documents cooperatively so socket/control work can continue;
 - writes exact pages and their indexes to IndexedDB;
+- owns source cache reconciliation, activation, bounded history, and cleanup;
 - publishes durable source summaries;
 - builds render-window projections from IndexedDB;
 - exposes diagnostics only when `GET_QUERY_DIAGNOSTICS` is requested.
@@ -104,9 +120,16 @@ highest applied data sequence actually included in that draw.
 
 ## What is stored and what is rendered
 
-IndexedDB is a rebuildable exact-event cache. It contains source manifests,
-encoded event pages, LOD records, height/graph aggregates, and paged document
-indexes. The backend remains authoritative.
+IndexedDB is a rebuildable exact-event cache. Version 4 contains source heads,
+query-cache records with provenance, encoded event pages, LOD records,
+height/graph aggregates, and paged document indexes. The backend remains
+authoritative.
+
+Each source head selects one physical cache manifest and stores a source-local
+history cursor. A query-cache record contains query/fingerprint, requested
+range, normalization, server-source snapshot and result summary; its physical
+generation addresses the existing exact pages, LOD, and document indexes. Up to
+five complete caches are retained per source.
 
 A render window is not a page of documents. It is a bounded projection for the
 visible time range and visible source rows, plus horizontal and vertical
@@ -124,6 +147,27 @@ Projection budgets may reduce visual density when the viewport would otherwise
 exceed its representative limit. This degradation changes detail, not the exact
 event authority stored in IndexedDB.
 
+## Applied query and cache freshness
+
+The query shown for a source is the immutable snapshot that produced its active
+cache, not an approximation rebuilt from the current global controls. Session
+snapshots and detached-window context derive their filters from this
+source-owned applied query.
+
+Freshness compares the cache's full-source server snapshot with current source
+metadata: total count, complete min/max range, and `time_updated` when both
+snapshots expose it. The current `/query_operations` response may omit that
+marker, so matching count and range remain sufficient in that case. It never
+compares a filtered cache's `eventCount` with the source total. Range comparison
+uses nanoseconds and allows one millisecond only when one server value has no
+finer precision.
+
+An exact fingerprint and matching metadata produce `fresh`; a newly completed
+backend replacement and a source without an active cache are also `fresh`. A
+latest-cache fallback is `query-mismatch`; changed comparable server metadata
+is `source-changed`; post-query upserts are `mutated`; insufficient count/range
+evidence is `unknown`.
+
 ## Revisions, generations, ACKs, and frames
 
 Several counters exist because they answer different questions.
@@ -133,13 +177,14 @@ Several counters exist because they answer different questions.
 | operation epoch | Rejects work from an operation that is no longer active. |
 | viewport revision | Identifies the current dimensions, scroll, scale, and visible rows. |
 | projection revision | Orders accepted snapshots for the same viewport. |
-| source generation | Identifies one replacement build; older generations are obsolete. |
-| source revision | Orders durable changes within one generation. |
+| source authority revision | Monotonically orders builds and cache activations, including Undo to an older physical generation. |
+| source generation | Identifies the physical cache, pages, LOD, and index records. An older generation may remain reachable in history. |
+| source revision | Orders durable changes within one physical generation. |
 | source status | Distinguishes `building`, `complete`, and `incomplete` authority. |
 | data sequence | Identifies the `DATA_PATCH` that applied a source revision. |
 | `globalRevision` | Aggregate telemetry; it is not terminal-render proof. |
 
-The render protocol is version 7. ACKs travel on the data port and frames travel
+The render protocol is version 8. ACKs travel on the data port and frames travel
 on the control port, so their delivery order can be inverted. Canvas therefore
 stores, for each acknowledged source revision, the data sequence that applied
 it. A terminal target is cleared only when all of these statements are true:
@@ -147,12 +192,21 @@ it. A terminal target is cleared only when all of these statements are true:
 - the frame belongs to the current operation epoch and viewport;
 - the acknowledged source revision covers the exact terminal revision;
 - the frame's `renderedDataSequence` covers the ACK's applying sequence;
-- the terminal projection has the exact generation, status, revision, and event
-  count from the complete summary.
+- the terminal projection has the exact authority, generation, status, revision,
+  and event count from the complete summary.
 
 A stale frame received after a newer ACK cannot complete convergence. A watchdog
 requests another projection after 500 ms and backs off to at most two seconds
 until the correct frame arrives or the lifecycle changes.
+
+Version 8 also carries `RenderSource.cacheFreshness`. The values are `fresh`,
+`query-mismatch`, `source-changed`, `mutated`, and `unknown`. Source warnings
+are exposed by one DOM overlay shared by the worker and legacy backends. It
+shows the Lucide `AlertTriangle` icon only for a settled active cache with a
+non-`fresh` warning and provides a localized hover tooltip explaining that the
+displayed events came from cache. Fresh caches, sources without cache authority,
+and backend replacements still in progress show no indicator. The source menu
+continues to expose the detailed reason and actually applied query.
 
 ## Behavior while a query is loading
 
@@ -168,6 +222,11 @@ even when a newer summary already exists; the trailing request then catches up.
 A real operation, epoch, or viewport change invalidates the old request
 immediately.
 
+The preceding complete cache remains the rollback while the new generation is
+building. Cancel, storage failure, or quota failure restores its physical
+manifest and applied query. Cache-pool queries never discard this rollback for
+an in-place replacement, because its pages may still be required by Undo.
+
 The render worker normally waits for an 8 ms quiet window before drawing a dirty
 data batch. Continuous traffic cannot postpone drawing indefinitely: while the
 page is visible, a non-renewable 100 ms deadline forces a frame of the latest
@@ -175,18 +234,21 @@ atomically committed repository state.
 
 ## Terminal behavior
 
-The final chunk first flushes every residual page and commits a `complete`
-manifest. That manifest makes the new generation authoritative and records any
-old generation as pending cleanup. The complete source summary and completed
-stream state are published before old physical records are removed.
+The final chunk first flushes every residual page and atomically commits a
+`complete` query-cache record, source head, active cache, and history cursor.
+The complete source summary and completed stream state are then published.
 
 Canvas requests an exact terminal projection as soon as it observes the complete
-summary. Cleanup continues independently in IndexedDB batches of at most 256
-delete operations. A cleanup failure is non-fatal for the already authoritative
-generation; its marker is retried before the next source mutation.
+summary. The previous complete generation remains reachable for Undo and is not
+deleted at finalization. Cleanup applies only to a truncated Redo branch, an
+entry evicted beyond the five-cache bound, or caches discarded by initial
+reconciliation. It continues independently in IndexedDB batches of at most 256
+delete operations. A cleanup failure is non-fatal for the authoritative cache;
+its durable marker is retried before the next source mutation.
 
-This separation ensures that an old multi-million-event generation cannot make
-the terminal transaction unbounded or delay the final render.
+This separation ensures that cache history and an old multi-million-event
+generation cannot make the terminal transaction unbounded or delay the final
+render.
 
 ## Memory and queue limits
 
@@ -199,8 +261,9 @@ The scalable path has explicit UI-side bounds:
 | normalized documents, including page builders | 32,768 |
 | normal EventStore page | 16,384 events |
 | concurrent persistence commits | 2 |
+| reachable query caches per source | 5 |
 | render data queue | 1 in flight + 1 pending |
-| obsolete-generation cleanup transaction | 256 deletes |
+| cache/generation cleanup transaction | 256 deletes |
 
 Raw bytes are reserved synchronously before a chunk is queued. A chunk that
 would exceed either raw limit is cleared immediately, the affected stream fails
@@ -228,7 +291,8 @@ single-source case.
 
 Normalization, backlog, and disconnect failures close only the affected stream
 and use the normal user-visible failure path. Storage and quota failures preserve
-the last coherent generation and publish an explicit compatibility decision.
+the last coherent cache and its applied query, then publish an explicit
+compatibility decision.
 
 An unavailable or fatal render worker follows the same explicit policy while
 EventStore owns the documents. No error writes the legacy marker or reloads the
@@ -241,6 +305,8 @@ page automatically. The localized banner offers:
 If the marker cannot be persisted, the page does not reload and the banner shows
 a recoverable error. Compatibility mode has no event-count threshold, but it
 keeps canonical events in main-thread RAM and can consume substantial memory.
+It has no persistent query-cache history, so initial loads use the backend and
+source-menu Undo/Redo is disabled.
 
 Operation reset, hidden-document state, unmount, and worker disposal cancel their
 timers, projection relevance, pending interactions, and transient bitmaps. An
@@ -319,6 +385,10 @@ Use the diagnostics in pipeline order:
    sequence with `renderedDataSequence`, viewport revision, and terminal age.
 6. **Frames arrive slowly during traffic**: compare maximum frame interval with
    the 100 ms visible-page deadline and check tab visibility or fatal errors.
+7. **A source loads a cache but shows a warning**: inspect the source menu for
+   the applied query and freshness reason, then compare its fingerprint and
+   server snapshot with the current source metadata. Refetch explicitly when a
+   current result is required.
 
 For schema fields, stream descriptors, exact-read APIs, and projection selection
 rules, continue with [query-worker.md](query-worker.md).
@@ -329,6 +399,9 @@ Changes to the engine must preserve these boundaries:
 
 - do not move complete documents onto the main thread or into the render worker;
 - keep persisted pages and render projections versioned and atomically replaceable;
+- keep query provenance source-scoped and activate cached manifests without
+  copying their pages;
+- preserve monotonic authority independently from physical generation;
 - retain one active and one trailing projection/data slot rather than unbounded
   queues;
 - carry operation epoch and relevant revisions across every asynchronous boundary;

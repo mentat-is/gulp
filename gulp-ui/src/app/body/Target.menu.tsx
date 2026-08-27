@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { Icon } from "@/ui/Icon";
 import { Stack } from "@/ui/Stack";
 import { Source } from "@/entities/Source";
+import { Filter } from "@/entities/Filter";
 import { Locale } from "@/locales";
 import { Request } from "@/entities/Request";
 import { requestStore, useRequestLoadings } from "@/store/request.store";
@@ -40,14 +41,28 @@ export function TargetMenu({ source }: TargetMenuProps) {
 	const loadings = useRequestLoadings();
 	const hasOffset =
 		Number.isFinite(source.settings.offset) && source.settings.offset !== 0;
+	const cacheBusy =
+		source.queryCache.isActivating || Boolean(loadings.byFileId.get(source.id));
+	const appliedQuery = source.appliedQuery
+		? source.appliedQuery.string || Filter.Entity.describe(source.appliedQuery, app)
+		: t("filter.noFiltersApplied");
+	const cacheWarning = (() => {
+		switch (source.queryCache.warningReason) {
+			case "query-mismatch":
+				return t("source.cacheWarning.queryMismatch");
+			case "source-changed":
+				return t("source.cacheWarning.sourceChanged");
+			case "mutated":
+				return t("source.cacheWarning.mutated");
+			case "unknown":
+				return t("source.cacheWarning.unknown");
+			default:
+				return null;
+		}
+	})();
 
 	const removeFilters = (source: Source.Type) => {
-		Info.filters_remove(source);
-		setTimeout(() => {
-			Info.refetch({
-				ids: source.id,
-			});
-		}, 300);
+		void Info.filters_remove(source);
 	};
 
 	/**
@@ -142,6 +157,9 @@ export function TargetMenu({ source }: TargetMenuProps) {
 			<ContextMenuSeparator />
 			<ContextMenuGroup>
 				<ContextMenuLabel>{t("common.filters")}</ContextMenuLabel>
+				<ContextMenuLabel icon="Search" title={appliedQuery}>
+					{t("targetMenu.appliedQuery", { query: appliedQuery })}
+				</ContextMenuLabel>
 				<ContextMenuItem
 					onClick={() => spawnBanner(<FilterFileBanner sources={[source]} />)}
 					icon="Filter"
@@ -154,12 +172,27 @@ export function TargetMenu({ source }: TargetMenuProps) {
 				>
 					{t("targetMenu.resetFilters")}
 				</ContextMenuItem>
-				{app.timeline.cache.data.has(source.id) && (
-					<ContextMenuItem
-						onClick={() => Info.filters_undo([source])}
-						icon="Undo"
-					>
-						{t("targetMenu.undoLastFiltersChange")}
+				<ContextMenuItem
+					disabled={cacheBusy || !source.queryCache.canUndo}
+					onClick={() =>
+						void Info.navigateSourceQueryCache(source, "undo")
+					}
+					icon="Undo"
+				>
+					{t("targetMenu.undoQueryCache")}
+				</ContextMenuItem>
+				<ContextMenuItem
+					disabled={cacheBusy || !source.queryCache.canRedo}
+					onClick={() =>
+						void Info.navigateSourceQueryCache(source, "redo")
+					}
+					icon="Redo"
+				>
+					{t("targetMenu.redoQueryCache")}
+				</ContextMenuItem>
+				{cacheWarning && (
+					<ContextMenuItem disabled icon="Warning">
+						{cacheWarning}
 					</ContextMenuItem>
 				)}
 			</ContextMenuGroup>

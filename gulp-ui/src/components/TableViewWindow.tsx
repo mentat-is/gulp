@@ -383,7 +383,7 @@ export function TableViewWindow({
 	// --- Filter Derived State ---
 	const syncedSourceFilter =
 		isSyncActive && primarySelectedSource
-			? app.target.filters?.[primarySelectedSource.id]
+			? primarySelectedSource.appliedQuery
 			: null;
 
 	const serializedFilters = useMemo(() => {
@@ -629,7 +629,7 @@ export function TableViewWindow({
 	const activeMax = isSyncActive ? timelineTimeFrame.max : timeFrame.max;
 	const activeFilters =
 		isSyncActive && primarySelectedSource
-			? app.target.filters?.[primarySelectedSource.id]
+			? primarySelectedSource.appliedQuery
 			: null;
 	const querySourceIds = selectedSources.map((source) => source.id);
 	const flaggedDocIds =

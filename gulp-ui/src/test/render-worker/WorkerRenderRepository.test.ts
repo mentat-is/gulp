@@ -45,6 +45,7 @@ function createRenderSource(overrides: Partial<RenderSource> = {}): RenderSource
 		timestamp: { min: 0, max: 240_000 },
 		total: 3,
 		loadingKind: "none",
+		cacheFreshness: "fresh",
 		offset: 0,
 		engine: "default",
 		frequency: 1,
@@ -108,6 +109,7 @@ function createRenderWindowSourceProjection(
 ): RenderWindowSourceProjection {
 	return {
 		sourceId: "source-a",
+		sourceAuthorityRevision: 1,
 		sourceGeneration: 1,
 		sourceRevision: 1,
 		sourceStatus: "complete",

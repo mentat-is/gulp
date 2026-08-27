@@ -2,6 +2,7 @@ import type { Context } from "@/entities/Context";
 import type { Operation } from "@/entities/Operation";
 import type { Query } from "@/entities/Query";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import {
 	getSemanticSyncedQuery,
 	serializeSemanticValue,
@@ -27,6 +28,8 @@ function createSource(overrides: Partial<Source.Type> = {}): Source.Type {
 		name: "Source A",
 		plugin: "test-plugin",
 		time_updated: 10,
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 		...overrides,
 	} as Source.Type;
 }

@@ -23,6 +23,7 @@ import { RenderEngine } from "@/class/RenderEngine";
 import { Color } from "@/entities/Color";
 import { Operation } from "@/entities/Operation";
 import { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import type { Context } from "@/entities/Context";
 import { Doc } from "@/entities/Doc";
 import { User } from "@/entities/User";
@@ -99,6 +100,8 @@ function hydrateDetachedSource(
 			time_updated: null,
 			glyph_id: null as never,
 			pinned: false,
+			appliedQuery: null,
+			queryCache: createEmptyQueryCacheState(),
 			timestamp: { min: 0, max: 0 },
 			nanotimestamp: { min: 0n, max: 0n },
 			total: 0,
@@ -118,6 +121,8 @@ function hydrateDetachedSource(
 	return {
 		...source,
 		selected: true,
+		appliedQuery: source.appliedQuery ?? null,
+		queryCache: source.queryCache ?? createEmptyQueryCacheState(),
 		nanotimestamp: {
 			min: BigInt(source.nanotimestamp.min),
 			max: BigInt(source.nanotimestamp.max),
@@ -194,7 +199,6 @@ function applyContextSnapshot(
 			operations: payload.operation ? [payload.operation] : [],
 			contexts: payload.contexts.map(hydrateDetachedContext),
 			files: payload.sources.map(hydrateDetachedSource),
-			filters: operationChanged ? {} : app.target.filters,
 			events: operationChanged ? new Map() : app.target.events,
 		},
 		timeline: {
@@ -215,7 +219,11 @@ function applyQueryContext(
 		...app,
 		target: {
 			...app.target,
-			filters: payload.filters as App.Type["target"]["filters"],
+			files: app.target.files.map((source) => ({
+				...source,
+				appliedQuery:
+					payload.filters[source.id] ?? source.appliedQuery ?? null,
+			})),
 		},
 		timeline: {
 			...app.timeline,
@@ -1158,10 +1166,6 @@ export function DetachedAppProvider({
 			timeline: {
 				...previous.timeline,
 				target: null,
-				cache: {
-					data: new Map(),
-					filters: {},
-				},
 				renderVersion: previous.timeline.renderVersion + 1,
 			},
 			general: {

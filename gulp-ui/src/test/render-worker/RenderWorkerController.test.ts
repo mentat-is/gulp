@@ -206,6 +206,7 @@ function createRenderSource(): RenderSource {
 		timestamp: { min: 0, max: 1_000 },
 		total: 0,
 		loadingKind: "none",
+		cacheFreshness: "fresh",
 		offset: 0,
 		engine: "default",
 		frequency: 100,
@@ -1551,6 +1552,7 @@ describe("RenderWorkerController", () => {
 					sources: [
 						{
 							sourceId: sourceA.id,
+							sourceAuthorityRevision: 7,
 							sourceGeneration: 3,
 							sourceRevision: 7,
 							sourceStatus: "complete",
@@ -1627,6 +1629,7 @@ describe("RenderWorkerController", () => {
 					sources: [
 						{
 							sourceId: "source-a",
+							sourceAuthorityRevision: 9,
 							sourceGeneration: 4,
 							sourceRevision: 9,
 							sourceStatus: "complete",

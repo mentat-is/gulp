@@ -12,6 +12,11 @@ import {
 	type QueryWorkerDiagnostics,
 } from "@/event-stream";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
+import type {
+	EventSourceQueryCacheActivation,
+	EventSourceQueryCacheReconciliation,
+} from "@/event-store/EventStore.types";
+import type { Source } from "@/entities/Source";
 import type { QueryTransportCallbacks } from "./QueryTransport.types";
 import {
 	QueryPersistenceCoordinator,
@@ -250,6 +255,58 @@ export class QuerySocketSession {
 		this.projectionCompletedCount = 0;
 		this.projectionSupersededCount = 0;
 		this.persistence.resetDiagnostics();
+	}
+
+	/**
+	 * Selects one exact startup cache or latest reusable fallback for a source.
+	 * @param input Operation, source, and desired semantic query fingerprint.
+	 * @returns Reconciled cache activation, or null when no cache is reusable.
+	 */
+	public reconcileSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		queryFingerprint: string;
+	}): Promise<EventSourceQueryCacheReconciliation | null> {
+		return this.persistence.reconcileSourceQueryCache(input);
+	}
+
+	/**
+	 * Moves one source-local query-cache history cursor without backend I/O.
+	 * @param input Operation, source, and Undo or Redo direction.
+	 * @returns Activated cache, or null at the corresponding history boundary.
+	 */
+	public navigateSourceQueryCache(input: {
+		operationId: string;
+		sourceId: Source.Id;
+		direction: "undo" | "redo";
+	}): Promise<EventSourceQueryCacheActivation | null> {
+		return this.persistence.navigateSourceQueryCache(input);
+	}
+
+	/**
+	 * Deletes one source's complete query-cache pool before an authoritative rebuild.
+	 * @param operationId Operation owning the persisted source.
+	 * @param sourceId Source whose cache data must be removed.
+	 * @returns Promise resolved after bounded cleanup finishes.
+	 */
+	public clearSourceQueryCache(
+		operationId: string,
+		sourceId: Source.Id,
+	): Promise<void> {
+		return this.persistence.clearSourceQueryCache(operationId, sourceId);
+	}
+
+	/**
+	 * Deletes every EventStore record for a source removed from the backend.
+	 * @param operationId Operation owning the source database.
+	 * @param sourceId Removed source whose complete local state must be deleted.
+	 * @returns Promise resolved after bounded cleanup finishes.
+	 */
+	public deleteSourceEventStore(
+		operationId: string,
+		sourceId: Source.Id,
+	): Promise<void> {
+		return this.persistence.deleteSourceEventStore(operationId, sourceId);
 	}
 
 	/**

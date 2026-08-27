@@ -3,6 +3,7 @@ import type { Context } from "@/entities/Context";
 import type { Doc } from "@/entities/Doc";
 import type { Icon } from "@/ui/Icon";
 import type { Operation } from "@/entities/Operation";
+import type { Query } from "@/entities/Query";
 import type { Source } from "@/entities/Source";
 import type { User } from "@/entities/User";
 
@@ -28,7 +29,7 @@ export interface WorkspaceSessionSnapshot {
 		filter: string;
 		target: Doc.Type | null;
 	};
-	filters: App.Type["target"]["filters"];
+	filters: Partial<Record<Source.Id, Query.Type>>;
 	hidden: App.Type["hidden"];
 	source_settings: {
 		source_settings: Record<Source.Id, WorkspaceSessionSourceSetting>;
@@ -239,7 +240,9 @@ function parseSnapshot(value: unknown): WorkspaceSessionSnapshot | null {
 				? (value.timeline.target as unknown as Doc.Type)
 				: null,
 		},
-		filters: (isRecord(value.filters) ? value.filters : {}) as App.Type["target"]["filters"],
+		filters: (isRecord(value.filters) ? value.filters : {}) as Partial<
+			Record<Source.Id, Query.Type>
+		>,
 		hidden: (isRecord(value.hidden) ? value.hidden : {}) as App.Type["hidden"],
 		source_settings: { source_settings: sourceSettings },
 	};

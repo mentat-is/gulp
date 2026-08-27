@@ -20,6 +20,7 @@ function createProjection(): RenderWindowProjection {
 		sources: [
 			{
 				sourceId: "source-a",
+				sourceAuthorityRevision: 4,
 				sourceGeneration: 2,
 				sourceRevision: 4,
 				sourceStatus: "complete",

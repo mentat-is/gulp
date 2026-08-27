@@ -81,6 +81,7 @@ export function isRenderWindowSourceProjection(
 	if (!isRecord(value)) return false;
 	if (
 		typeof value.sourceId !== "string" ||
+		!isNonNegativeSafeInteger(value.sourceAuthorityRevision) ||
 		!isNonNegativeSafeInteger(value.sourceGeneration) ||
 		!isNonNegativeSafeInteger(value.sourceRevision) ||
 		!["building", "complete", "incomplete"].includes(

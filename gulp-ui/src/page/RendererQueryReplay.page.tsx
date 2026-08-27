@@ -5,6 +5,7 @@ import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import type { Glyph } from "@/entities/Glyph";
 import { Operation } from "@/entities/Operation";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
 import type { User } from "@/entities/User";
 import { Internal } from "@/entities/addon/Internal";
@@ -113,6 +114,8 @@ function createReplayFixture(
 		glyph_id: null as unknown as Glyph.Id,
 		selected: true,
 		pinned: false,
+		appliedQuery: null,
+		queryCache: createEmptyQueryCacheState(),
 		settings: { ...Internal.Settings.default },
 		total: RENDERER_QUERY_REPLAY_TARGET_EVENTS,
 		timestamp: {

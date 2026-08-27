@@ -8,6 +8,7 @@ export const CANVAS_TERMINAL_RENDER_MAX_RETRY_DELAY_MS = 2_000;
 export interface CanvasTerminalRenderTarget {
 	sourceId: string;
 	operationEpoch: number;
+	sourceAuthorityRevision: number;
 	sourceGeneration: number;
 	sourceRevision: number;
 	sourceStatus: "complete" | "incomplete";
@@ -17,6 +18,7 @@ export interface CanvasTerminalRenderTarget {
 /** Minimal render-window source fields needed to validate a terminal target. */
 export interface CanvasTerminalRenderProjectionSource {
 	sourceId: string;
+	sourceAuthorityRevision: number;
 	sourceGeneration: number;
 	sourceRevision: number;
 	sourceStatus: "building" | "complete" | "incomplete";
@@ -55,18 +57,29 @@ export class CanvasTerminalRenderConvergence {
 	 */
 	public record(target: CanvasTerminalRenderTarget): boolean {
 		const current = this.targets.get(target.sourceId);
-		if (
-			current &&
-			(current.operationEpoch > target.operationEpoch ||
-				(current.operationEpoch === target.operationEpoch &&
-					(current.sourceGeneration > target.sourceGeneration ||
-						(current.sourceGeneration === target.sourceGeneration &&
-							(current.sourceRevision > target.sourceRevision ||
-								(current.sourceRevision === target.sourceRevision &&
-									current.sourceStatus === target.sourceStatus &&
-									current.eventCount === target.eventCount))))))
-		) {
-			return false;
+		if (current) {
+			const sameOperation = current.operationEpoch === target.operationEpoch;
+			const sameAuthority =
+				current.sourceAuthorityRevision === target.sourceAuthorityRevision;
+			const sameGeneration =
+				current.sourceGeneration === target.sourceGeneration;
+			const sameRevision = current.sourceRevision === target.sourceRevision;
+			const isDuplicate =
+				sameOperation &&
+				sameAuthority &&
+				sameGeneration &&
+				sameRevision &&
+				current.sourceStatus === target.sourceStatus &&
+				current.eventCount === target.eventCount;
+			const isObsolete =
+				current.operationEpoch > target.operationEpoch ||
+				(sameOperation &&
+					(current.sourceAuthorityRevision > target.sourceAuthorityRevision ||
+						(sameAuthority &&
+							(current.sourceGeneration > target.sourceGeneration ||
+								(sameGeneration &&
+									current.sourceRevision > target.sourceRevision)))));
+			if (isDuplicate || isObsolete) return false;
 		}
 		this.targets.set(target.sourceId, {
 			...target,
@@ -113,6 +126,8 @@ export class CanvasTerminalRenderConvergence {
 				const projection = projections.get(target.sourceId);
 				return (
 					projection !== undefined &&
+					projection.sourceAuthorityRevision ===
+						target.sourceAuthorityRevision &&
 					projection.sourceGeneration === target.sourceGeneration &&
 					projection.sourceRevision === target.sourceRevision &&
 					projection.sourceStatus === target.sourceStatus &&

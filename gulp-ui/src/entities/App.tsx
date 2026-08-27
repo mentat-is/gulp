@@ -8,7 +8,6 @@ import { Source } from "./Source";
 import { Pointers } from "@/components/Pointers";
 import { generateUUID } from "@/ui/utils";
 import { User } from "./User";
-import { Query } from "./Query";
 import { Request } from "./Request";
 import { Glyph } from "./Glyph";
 import { Highlight } from "./Highlight";
@@ -22,7 +21,6 @@ export namespace App {
 			contexts: Context.Type[];
 			files: Source.Type[];
 			events: Map<Source.Id, Doc.Type[]>;
-			filters: Record<Source.Id, Query.Type>;
 			notes: Note.Type[];
 			links: Link.Type[];
 			highlights: Highlight.Type[];
@@ -48,10 +46,6 @@ export namespace App {
 			frame: MinMax;
 			target: Doc.Type | null;
 			filter: string;
-			cache: {
-				data: Map<Source.Id, Doc.Type[]>;
-				filters: Record<Source.Id, Query.Type>;
-			};
 			isScrollReversed: boolean;
 			dialogSize: number;
 			pointers: Pointers.Pointer[];
@@ -86,10 +80,6 @@ export namespace App {
 			scale: 1,
 			target: null,
 			filter: "",
-			cache: {
-				data: new Map<Source.Id, Doc.Type[]>(),
-				filters: {},
-			},
 			frame: {
 				min: 0,
 				max: Date.now(),
@@ -105,7 +95,6 @@ export namespace App {
 			contexts: [],
 			files: [],
 			events: new Map<Source.Id, Doc.Type[]>(),
-			filters: {},
 			notes: [],
 			links: [],
 			highlights: [],

@@ -1,4 +1,5 @@
 import type { Operation } from "@/entities/Operation";
+import { EVENT_STORE_NAMES } from "@/event-store/EventStore.backend";
 import {
 	createEventStoreDatabaseName,
 	EVENT_STORE_DATABASE_VERSION,
@@ -16,12 +17,20 @@ describe("IndexedDbEventStoreBackend", () => {
 		).toBe("gulp-event-store:coordinator%3Aone:operation%2Ftwo");
 	});
 
-	it("rebuilds version one and two caches for the version-three page schema", () => {
-		expect(EVENT_STORE_DATABASE_VERSION).toBe(3);
+	it("rebuilds older caches for the version-four query-cache-pool schema", () => {
+		expect(EVENT_STORE_DATABASE_VERSION).toBe(4);
+		expect(EVENT_STORE_NAMES).toEqual([
+			"sources",
+			"source_query_caches",
+			"pages",
+			"page_lod",
+			"document_index_pages",
+		]);
 		expect(shouldRebuildEventStoreCache(0)).toBe(false);
 		expect(shouldRebuildEventStoreCache(1)).toBe(true);
 		expect(shouldRebuildEventStoreCache(2)).toBe(true);
-		expect(shouldRebuildEventStoreCache(3)).toBe(false);
+		expect(shouldRebuildEventStoreCache(3)).toBe(true);
+		expect(shouldRebuildEventStoreCache(4)).toBe(false);
 	});
 
 	it("rejects reads when IndexedDB is unavailable or the backend is closed", async () => {

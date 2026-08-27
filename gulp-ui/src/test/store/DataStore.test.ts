@@ -2,6 +2,7 @@ import type { Doc } from "@/entities/Doc";
 import type { Note } from "@/entities/Note";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import type { EventSourceSummary } from "@/event-store/EventStore.types";
 import {
 	DataStore,
 	type DataStoreRenderChange,
@@ -48,6 +49,29 @@ function createNote(id: string): Note.Type {
 	} as Note.Type;
 }
 
+/** Creates one complete compact source authority fixture. */
+function createSourceSummary(
+	overrides: Partial<EventSourceSummary> = {},
+): EventSourceSummary {
+	return {
+		sourceId: SOURCE_ID,
+		generation: 1,
+		revision: 3,
+		authorityRevision: 3,
+		status: "complete",
+		eventCount: 12,
+		minTimestamp: 100,
+		maxTimestamp: 300,
+		hashMin: 1,
+		hashMax: 9,
+		activeCacheGeneration: 1,
+		cacheHistory: [1],
+		cacheHistoryCursor: 0,
+		nextGeneration: 2,
+		...overrides,
+	};
+}
+
 describe("DataStore source insertion", () => {
 	beforeEach(() => {
 		DataStore.resetRenderOperation();
@@ -80,17 +104,7 @@ describe("DataStore source insertion", () => {
 		const unsubscribe = DataStore.subscribeEventSourceSummaries((summary) => {
 			summaries.push(summary.eventCount);
 		});
-		const summary = {
-			sourceId: SOURCE_ID,
-			generation: 1,
-			revision: 3,
-			status: "complete",
-			eventCount: 12,
-			minTimestamp: 100,
-			maxTimestamp: 300,
-			hashMin: 1,
-			hashMax: 9,
-		} as const;
+		const summary = createSourceSummary();
 		DataStore.publishEventSourceSummary(summary);
 		DataStore.publishEventSourceSummary(summary);
 
@@ -100,6 +114,49 @@ describe("DataStore source insertion", () => {
 		expect(DataStore.getEventSourceSummary(SOURCE_ID)?.eventCount).toBe(12);
 		expect(summaries).toEqual([12]);
 		unsubscribe();
+	});
+
+	it("uses logical authority before physical generation when accepting summaries", () => {
+		const current = createSourceSummary({
+			generation: 5,
+			revision: 30,
+			authorityRevision: 10,
+			eventCount: 50,
+			activeCacheGeneration: 5,
+			cacheHistory: [1, 5],
+			cacheHistoryCursor: 1,
+			nextGeneration: 6,
+		});
+		const undo = createSourceSummary({
+			generation: 1,
+			revision: 12,
+			authorityRevision: 11,
+			eventCount: 10,
+			activeCacheGeneration: 1,
+			cacheHistory: [1, 5],
+			cacheHistoryCursor: 0,
+			nextGeneration: 6,
+		});
+		const obsolete = createSourceSummary({
+			generation: 9,
+			revision: 99,
+			authorityRevision: 10,
+			eventCount: 99,
+			activeCacheGeneration: 9,
+			cacheHistory: [9],
+			cacheHistoryCursor: 0,
+			nextGeneration: 10,
+		});
+
+		DataStore.publishEventSourceSummary(current, "immediate");
+		expect(DataStore.publishEventSourceSummary(undo, "immediate")).toBe(undo);
+		expect(DataStore.getEventSourceSummary(SOURCE_ID)).toBe(undo);
+		expect(DataStore.getSourceRevision(SOURCE_ID)).toBe(12);
+
+		expect(
+			DataStore.publishEventSourceSummary(obsolete, "immediate"),
+		).toBe(undo);
+		expect(DataStore.getEventSourceSummary(SOURCE_ID)).toBe(undo);
 	});
 
 	it("appends proven-new older batches without replacing the canonical array", () => {

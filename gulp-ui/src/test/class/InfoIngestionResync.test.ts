@@ -633,12 +633,17 @@ describe("Info event stream registration", () => {
 				sourceId,
 				generation: 1,
 				revision: 1,
+				authorityRevision: 1,
 				status: "building" as const,
 				eventCount: 0,
 				minTimestamp: 0,
 				maxTimestamp: 0,
 				hashMin: 0,
 				hashMax: 0,
+				activeCacheGeneration: null,
+				cacheHistory: [],
+				cacheHistoryCursor: -1,
+				nextGeneration: 2,
 			},
 		};
 

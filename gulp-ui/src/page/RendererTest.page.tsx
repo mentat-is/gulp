@@ -27,6 +27,7 @@ import { Doc } from '@/entities/Doc';
 import { Source } from '@/entities/Source';
 import { Context } from '@/entities/Context';
 import { Operation } from '@/entities/Operation';
+import { createEmptyQueryCacheState } from '@/entities/QueryCache';
 import { Note } from '@/entities/Note';
 import { Link } from '@/entities/Link';
 import { Highlight } from '@/entities/Highlight';
@@ -465,6 +466,8 @@ function buildMockSources(
             glyph_id: EMPTY_GLYPH_ID,
             selected: true,
             pinned: false,
+            appliedQuery: null,
+            queryCache: createEmptyQueryCacheState(),
             settings,
             total: getRendererBenchmarkSourceEventCount(
                 totalDocs,

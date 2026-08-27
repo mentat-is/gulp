@@ -342,6 +342,20 @@ function _({ children }: { children: ReactNode }) {
 				(source) => deletedIdSet.has(source.id),
 			);
 			deletedSources.forEach((deletedSource) => {
+				const socket = SmartSocket.Class.instance;
+				if (socket && typeof socket.deleteSourceEventStore === "function") {
+					void socket
+						.deleteSourceEventStore(
+							deletedSource.operation_id,
+							deletedSource.id,
+						)
+						.catch((error: unknown) => {
+							console.warn(
+								`Unable to clear deleted source cache ${deletedSource.id}`,
+								error,
+							);
+						});
+				}
 				Doc.Entity.delete(appRef.current, deletedSource);
 				RenderEngine.resetSource(deletedSource.id);
 			});

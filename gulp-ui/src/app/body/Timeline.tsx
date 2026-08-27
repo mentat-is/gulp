@@ -217,7 +217,6 @@ export function Timeline({
 		app.target.files,
 		app.target.contexts,
 		app.target.operations,
-		app.target.filters,
 		app.hidden,
 		debouncedSessionAutosave,
 		disableSessionAutosave,
