@@ -167,15 +167,12 @@ function createSource(): Source.Type {
 		queryCache: {
 			...createEmptyQueryCacheState(),
 			activeGeneration: 2,
-			fingerprint: "query-cache-2",
-			historyIndex: 1,
-			historyLength: 3,
 			canUndo: true,
 			canRedo: false,
 			freshness: "query-mismatch",
 			warningReason: "query-mismatch",
 		},
-	} as Source.Type;
+	} as unknown as Source.Type;
 }
 
 /** Finds one mocked context-menu item by its icon identifier. */

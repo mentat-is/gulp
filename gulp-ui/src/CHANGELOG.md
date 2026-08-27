@@ -3,14 +3,18 @@
 ## Advanced Filtering and Querying
 
 - `Source query cache pool`: Added up to five IndexedDB query generations per source, exact startup reuse with latest-cache fallback, source-local Undo/Redo, query provenance restoration, rollback-safe forced queries, and cache invalidation for rebase/source deletion.
+- `Source query range coverage`: Reuses fresh same-query caches when their source-local range covers the newly selected timeframe, while preserving source-change warnings and latest-cache fallback behavior.
 
 ## UI/UX and Rendering
 
-- `Cache freshness`: Added localized query summaries and freshness reasons to the source menu. A shared DOM `AlertTriangle` with a cache-origin tooltip now marks only settled active caches carrying a real warning; valid caches and newly fetched backend results remain unmarked.
+- `Cache freshness`: Added localized query summaries and freshness reasons to the source menu. A shared DOM `AlertTriangle` with a cache-origin tooltip now marks only the exact source ID owning a settled active warning; same-name sources, valid caches, and newly fetched backend results remain unmarked.
+- `Frame-local counts`: Canvas source labels now show the exact event count inside the selected timeframe even when the active IndexedDB generation covers a wider range.
 
 ## Architecture and Documentation
 
 - `IndexedDB`: Added `source_query_caches`, logical `authorityRevision`, bounded resumable pruning, QueryWorker cache commands, detached-window synchronization, and updated EventStore architecture documentation.
+- `IndexedDB identity`: Namespaced EventStore databases, revision channels, and writer locks by canonical backend plus authenticated user so caches survive browser restarts; retained tab-scoped WindowBridge coordination and isolated auth-user transitions.
+- `Render protocol v9`: Added `frameEventCount`, kept `loadedCount` as terminal authority, and removed obsolete cache-freshness metadata from the render-worker contract.
 
 # v1.7.400
 

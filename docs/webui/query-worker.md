@@ -148,10 +148,10 @@ Each registered stream records:
   `realtime-ingest`;
 - completion mode: final `last` chunk or explicit completion;
 - known source IDs and source-specific hash settings;
-- for a replace owned by the cache pool, the source-scoped query snapshot and
-  fingerprint, requested timeline frame, normalization settings, and current
-  server-source snapshot; the precise backend range remains in the query
-  snapshot;
+- for a replace owned by the cache pool, the source-scoped query snapshot,
+  exact and range-independent shape fingerprints, normalization settings, and
+  current server-source snapshot; the precise backend range remains in the
+  query snapshot;
 - optional expected event count and request revision;
 - whether numeric chunk sequences can be deduplicated globally for the request.
 
@@ -177,14 +177,16 @@ stream.
 ### Query provenance and fingerprint
 
 The main thread builds one query snapshot per source before registration. The
-fingerprint is derived from deterministic JSON: object keys are sorted and
-array order is preserved. It includes operation/source identity, the effective
-nanosecond range, text and structured filters, a manual raw query, manual mode,
-and the normalization inputs that affect persisted timeline documents. The
-display-only `Query.string` and `fieldTypeMap` itself are excluded from
-identity; the canonical backend filter after field-type coercion is included,
-so effective transformed values still participate. The query snapshot retained
-for the UI remains complete.
+exact fingerprint is derived from deterministic JSON: object keys are sorted
+and array order is preserved. It includes operation/source identity, the
+effective nanosecond range, text and structured filters, a manual raw query,
+manual mode, and the normalization inputs that affect persisted timeline
+documents. A second shape fingerprint uses the same inputs but canonicalizes
+only the range generated from `source_config`, including its generated backend
+clause. User-authored ranges remain semantic. The display-only `Query.string`
+and `fieldTypeMap` itself are excluded; the canonical backend filter after
+field-type coercion is included, so effective transformed values still
+participate. The query snapshot retained for the UI remains complete.
 
 The descriptor is cloned at the registration boundary. Later edits to a filter
 form cannot change the provenance attached to a stream already in progress.
@@ -290,17 +292,32 @@ execution error.
 
 ## Operation-scoped EventStore
 
-Every cache is namespaced by `coordinatorId` and `operationId` and uses the
-database name:
+Every cache is namespaced by canonical backend identity, authenticated user,
+and `operationId`. The resolved `cacheNamespaceId` is stable across browser
+restarts for the same backend/user pair and uses the database name:
 
 ```text
-gulp-event-store:<coordinatorId>:<operationId>
+gulp-event-store:<cacheNamespaceId>:<operationId>
 ```
 
-The namespace allows the main window, compatible detached windows, and workers
-on the same origin to open the same exact event data without copying the whole
-dataset between realms. A `BroadcastChannel` distributes compact source
-revision summaries; exact documents remain in IndexedDB.
+The namespace allows independent main tabs for the same user, compatible
+detached windows, and workers on the same origin to open the same exact event
+data without copying the whole dataset between realms. The main realm sends the
+resolved namespace in detached bootstrap/context messages. `coordinatorId`
+continues to scope WindowBridge only. A `BroadcastChannel` distributes compact
+source revision summaries, and Web Locks serialize source writers under the
+same namespace when `navigator.locks` is available; exact documents remain in
+IndexedDB. Without Web Locks, each coordinator retains its local FIFO but
+independent tabs must not mutate the same source concurrently. Cache reuse
+across sequential browser sessions is unaffected.
+
+The authenticated application user is authoritative. The persisted
+`__user_id` is only a reload/detached recovery fallback; without either identity
+the cache falls back to the current tab coordinator and is not shared across
+sessions. Logout, auth loss, backend change, and user change immediately close
+the current reader and QueryWorker. Legacy databases named by random tab
+coordinators are not adopted because they do not carry a verified owner. This
+causes one post-upgrade cold load but prevents cross-user cache association.
 
 The EventStore database is version 4 and contains five object stores. Opening a
 v1-v3 database rebuilds the EventStore because those caches have no trustworthy
@@ -331,9 +348,11 @@ without being rejected as stale by Canvas or the projector.
 ### `source_query_caches`
 
 The key `[sourceId, generation]` selects one complete query-cache record. The
-record stores a compact generation manifest, the immutable query snapshot and
-fingerprint, requested range, normalization settings, server-source snapshot,
-result summary, creation/activation timestamps, and state `exact` or `mutated`.
+record stores a compact generation manifest, the immutable query snapshot,
+exact fingerprint, optional range-independent shape fingerprint, normalization
+settings, server-source snapshot, result summary, creation/activation
+timestamps, and state `exact` or `mutated`. The precise backend range remains
+in the query snapshot.
 It does not duplicate documents: its manifest points to records in `pages`,
 `page_lod`, and `document_index_pages` with the same physical generation.
 
@@ -392,24 +411,34 @@ index rewrite on every append.
 ## Initial cache reconciliation
 
 After operation metadata is available and the user confirms source/timeframe
-selection, the main thread requests one reconciliation per source. The worker
-computes or receives the desired source-scoped fingerprint and, under the source
-lease:
+selection, the main thread requests one reconciliation per source. The request
+contains the desired exact and shape fingerprints, raw nanosecond range and
+current server snapshot. Under the source lease, the worker:
 
 1. lists only complete cache metadata, without reading event pages;
 2. excludes `mutated` records from automatic reuse;
-3. selects the most recently activated exact match;
-4. otherwise selects the most recently activated complete cache;
-5. activates the compact manifest and restores the cached query and
+3. selects an exact cache with a fresh server snapshot when available;
+4. otherwise selects a fresh same-shape cache when the desired source-local
+   range is fully covered;
+5. otherwise prefers an exact stale cache and finally the latest complete
+   cache;
+6. activates the compact manifest and restores the cached query and
    normalization settings;
-6. labels a non-exact fallback `query-mismatch` while preserving the timeframe
-   selected by the user;
-7. resets history to the selected cache and schedules every other cache for
-   bounded cleanup.
+7. labels a safe range match `covered`, or an unrelated fallback `latest`,
+   while preserving the timeframe selected by the user;
+8. only after selection resets history to the chosen cache and schedules every
+   other cache for bounded cleanup.
 
-Both selection branches use only records in state `exact`. If every retained
+All selection branches use only records in state `exact`. If every retained
 record is `mutated`, reconciliation prunes them and returns a miss so the source
-is fetched again from the backend.
+is fetched again from the backend. Records created before shape fingerprints
+remain eligible for exact/latest, but not `covered`; no IndexedDB migration is
+required.
+
+For cached range `C`, desired range `N`, and complete current source range `S`,
+coverage means `(N intersection S)` is contained by `(C intersection S)`. The
+comparison uses inclusive `BigInt` raw-nanosecond boundaries. It has no
+millisecond tolerance, and invalid ranges conservatively fail coverage.
 
 Only a source with no usable complete cache dispatches `/query_raw`. Sources in
 one selection reconcile independently, so cached and uncached results may be
@@ -421,9 +450,10 @@ when both snapshots provide it. Result `eventCount` is deliberately excluded
 because it may describe a filtered subset. Ranges are normalized to
 nanoseconds; a one-millisecond tolerance is used only when one server value has
 millisecond precision. A source without active cache authority and a newly
-completed backend replacement are `fresh`. Reopened caches resolve to `fresh`,
-`query-mismatch`, `source-changed`, `mutated`, or `unknown` from the comparable
-metadata.
+completed backend replacement are `fresh`. Exact and covered matches are fresh
+only when their server snapshot agrees; server changes take precedence over a
+query mismatch. Reopened caches resolve to `fresh`, `query-mismatch`,
+`source-changed`, `mutated`, or `unknown` from the comparable metadata.
 
 Undo and Redo move the source-local history cursor and activate another compact
 manifest under the same lease. They never call the backend or copy pages. The
@@ -460,9 +490,10 @@ Query upserts, enrichment, and real-time ingestion mutate only the active cache
 under the same source lease and mark its provenance `mutated`; inactive caches
 remain immutable snapshots. A mutated cache remains usable in the current
 history but is not an automatic exact hit on the next initial reconciliation.
-Browser Web Locks coordinate writers across same-origin realms; a
-coordinator-local FIFO lease provides the in-realm order. Leases are acquired
-in deterministic source order for multi-source chunks.
+Browser Web Locks coordinate writers across same-origin realms when available;
+a coordinator-local FIFO lease always provides the in-realm order. Without Web
+Locks, independent tabs must not mutate the same source concurrently. Leases
+are acquired in deterministic source order for multi-source chunks.
 
 Rebasing a source calls `resetQueryCachePool(sourceId)`: it removes cache records
 and physical data but retains an empty `incomplete` source head, advances its
@@ -562,8 +593,10 @@ the viewport scale. The Graph engine aggregates source samples into graph
 buckets appropriate to the visible width.
 
 The render window carries source-wide totals and hash ranges independently of
-the representative arrays. Labels and color scaling therefore describe the
-complete committed dataset rather than the LOD sample.
+the representative arrays. `loadedCount` remains the authority of the complete
+active generation. A separate `frameEventCount` counts active cached events in
+the selected timeline frame and drives the source labels without changing
+terminal convergence or freshness.
 
 One projection contains at most 1,000,000 representatives. The render worker
 may temporarily own the preceding and next atomic projections, keeping the
@@ -578,23 +611,31 @@ Projection fields are typed arrays containing only render data:
 - representative handles, timestamps, and hashes;
 - HeightMap timestamps and counts;
 - Graph timestamps and counts;
-- covered range, bucket width, total count, hash range, source authority and
-  revision;
-- compact source drawing metadata including `cacheFreshness`.
+- covered range, bucket width, loaded count, frame event count, hash range,
+  source authority and revision;
+- compact source drawing metadata.
 
 Their `ArrayBuffer` instances are transferred from the query worker to the main
 thread. A single-consumer render-window bus synchronously hands the result to
 the mounted Canvas, which validates its revisions and transfers the same
 buffers to the render worker. The bus does not retain the projection.
 
-Render protocol version 8 carries
-`RenderSource.cacheFreshness = "fresh" | "query-mismatch" |
-"source-changed" | "mutated" | "unknown"`. A main-thread DOM overlay shared by
-the OffscreenCanvas and legacy backends shows `AlertTriangle` only when a
-settled active cache has a non-`fresh` warning. Its localized hover tooltip
-states that the displayed events were loaded from cache; fresh caches, missing
-cache authority, and a backend replacement in progress have no indicator. The
-detailed localized explanation remains in the source menu.
+Render protocol version 9 adds `frameEventCount` to each atomic source
+projection. The projector sums page catalog counts for fully covered pages and
+reads only partially covered exact pages, ignoring tombstones. A one-entry
+cache per source keyed by authority, generation, revision, raw frame and offset avoids
+repeating those reads during scroll or zoom. Direct RAM snapshots derive the
+same value through binary timestamp bounds.
+
+Cache freshness is not part of the render-worker protocol. A main-thread DOM
+overlay shared by the OffscreenCanvas and legacy backends shows
+`AlertTriangle` only when a settled active cache has a non-`fresh` warning. Its
+localized hover tooltip states that the displayed events were loaded from
+cache; fresh caches, missing cache authority, and a backend replacement in
+progress have no indicator. The overlay also requires the applied query's sole
+source ID to equal the rendered `source.id`; display names never participate in
+warning ownership. The detailed localized explanation remains in the source
+menu.
 
 ## Exact read API
 

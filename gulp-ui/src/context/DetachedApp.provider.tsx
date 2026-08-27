@@ -35,6 +35,7 @@ import { applyDetachedThemeSnapshot } from "@/context/detachedTheme";
 import { SmartSocket } from "@/class/SmartSocket";
 import { Boundary } from "@/context/Boundary.context";
 import { isEventStoreLodEnabled } from "@/event-store";
+import { resolveEventStoreCacheNamespaceId } from "@/event-store/EventStore.namespace";
 import s from "./styles/DetachedApp.module.css";
 
 const ACTIVE_HEARTBEAT_MSEC = 30_000;
@@ -274,6 +275,14 @@ export function DetachedAppProvider({
 	const awaitingBootstrapRef = useRef(awaitingBootstrap);
 	awaitingBootstrapRef.current = awaitingBootstrap;
 	const selectedOperationIdRef = useRef<Operation.Id | null>(null);
+	const initialCacheNamespaceId = resolveEventStoreCacheNamespaceId(
+		initialApp.general.user?.id,
+		initialApp.general.server,
+		coordinatorId,
+	);
+	const [cacheNamespaceId, setCacheNamespaceId] = useState(
+		initialCacheNamespaceId,
+	);
 	const selectedSourceIdsRef = useRef<Source.Id[]>([]);
 	const controlBridgeRef = useRef<WindowBridge.Bridge | null>(null);
 	const privateBridgeRef = useRef<WindowBridge.Bridge | null>(null);
@@ -296,6 +305,27 @@ export function DetachedAppProvider({
 	const ownsIndependentDataStore = ownsIndependentDetachedDataStore(
 		detachedDocument,
 		window,
+	);
+
+	/**
+	 * Accepts the main realm's authenticated cache namespace or resolves a safe
+	 * reload fallback before any detached EventStore reader is opened.
+	 * @param propagatedCacheNamespaceId Namespace carried by WindowBridge context.
+	 * @returns Namespace selected for detached IndexedDB and socket persistence.
+	 */
+	const applyCacheNamespace = useCallback(
+		(propagatedCacheNamespaceId: string | null | undefined): string => {
+			const nextCacheNamespaceId =
+				propagatedCacheNamespaceId ??
+				resolveEventStoreCacheNamespaceId(
+					null,
+					initialApp.general.server,
+					coordinatorId,
+				);
+			setCacheNamespaceId(nextCacheNamespaceId);
+			return nextCacheNamespaceId;
+		},
+		[coordinatorId, initialApp.general.server],
 	);
 
 	/**
@@ -520,20 +550,24 @@ export function DetachedAppProvider({
 			const themeChanged = applyTheme(payload.theme);
 
 			if (payload.context) {
+				const nextCacheNamespaceId = applyCacheNamespace(
+					payload.context.cacheNamespaceId,
+				);
 				const operationId = payload.context.operation?.id ?? null;
 				const previousOperationId = selectedOperationIdRef.current;
 				if (previousOperationId !== operationId) {
 					releaseDetachedOperation(previousOperationId);
 				}
 				selectedOperationIdRef.current = operationId;
-				if (
-					ownsIndependentDataStore &&
-					operationId &&
-					DataStore.getRenderOperationId() !== operationId
-				) {
-					DataStore.resetRenderOperation(operationId);
+				if (ownsIndependentDataStore && operationId) {
+					if (DataStore.getRenderOperationId() !== operationId) {
+						DataStore.resetRenderOperation(operationId);
+					}
 					if (isEventStoreLodEnabled()) {
-						DataStore.openEventStoreNamespace({ coordinatorId, operationId });
+						DataStore.openEventStoreNamespace({
+							cacheNamespaceId: nextCacheNamespaceId,
+							operationId,
+						});
 					}
 				}
 				selectedSourceIdsRef.current = payload.context.sources.map(
@@ -617,6 +651,7 @@ export function DetachedAppProvider({
 			setDetachedStatus(payload.status);
 		},
 		[
+			applyCacheNamespace,
 			applyDialogChanged,
 			applyNotesChanged,
 			applyTheme,
@@ -633,20 +668,24 @@ export function DetachedAppProvider({
 			const signature = serializePayload(payload);
 			if (payloadSignaturesRef.current.context === signature) return;
 			payloadSignaturesRef.current.context = signature;
+			const nextCacheNamespaceId = applyCacheNamespace(
+				payload.cacheNamespaceId,
+			);
 			const operationId = payload.operation?.id ?? null;
 			const previousOperationId = selectedOperationIdRef.current;
 			if (previousOperationId !== operationId) {
 				releaseDetachedOperation(previousOperationId);
 			}
 			selectedOperationIdRef.current = operationId;
-			if (
-				ownsIndependentDataStore &&
-				operationId &&
-				DataStore.getRenderOperationId() !== operationId
-			) {
-				DataStore.resetRenderOperation(operationId);
+			if (ownsIndependentDataStore && operationId) {
+				if (DataStore.getRenderOperationId() !== operationId) {
+					DataStore.resetRenderOperation(operationId);
+				}
 				if (isEventStoreLodEnabled()) {
-					DataStore.openEventStoreNamespace({ coordinatorId, operationId });
+					DataStore.openEventStoreNamespace({
+						cacheNamespaceId: nextCacheNamespaceId,
+						operationId,
+					});
 				}
 			}
 			selectedSourceIdsRef.current = payload.sources.map(
@@ -654,7 +693,12 @@ export function DetachedAppProvider({
 			);
 			setInfo((previous) => applyContextSnapshot(previous, payload));
 		},
-		[coordinatorId, ownsIndependentDataStore, releaseDetachedOperation, setInfo],
+		[
+			applyCacheNamespace,
+			ownsIndependentDataStore,
+			releaseDetachedOperation,
+			setInfo,
+		],
 	);
 
 	const applyQuery = useCallback(
@@ -906,9 +950,13 @@ export function DetachedAppProvider({
 			return;
 		}
 
-		const socket = new SmartSocket.Class(app.general.ws_id);
+		const socket = new SmartSocket.Class(
+			app.general.ws_id,
+			app.general.user?.id,
+			cacheNamespaceId,
+		);
 		return () => socket.destroy();
-	}, [app.general.ws_id, detachedStatus, kind]);
+	}, [app.general.user?.id, app.general.ws_id, cacheNamespaceId, detachedStatus, kind]);
 
 	useEffect(() => {
 		let bootstrapFallbackTimeoutId: number | null = null;
@@ -1147,9 +1195,11 @@ export function DetachedAppProvider({
 		setDetachedDialog(null);
 		setDetachedDialogEventColors({});
 		setDetachedDialogNavigation(null);
-		if (kind === "dialog" && ownsIndependentDataStore) {
+		if (ownsIndependentDataStore) {
 			Doc.Entity.clearIndex();
 			DataStore.resetRenderOperation(null);
+		}
+		if (kind === "dialog" && ownsIndependentDataStore) {
 			DataStore.replaceNotes([], "deferred");
 			DataStore.replaceLinks([], "deferred");
 		}

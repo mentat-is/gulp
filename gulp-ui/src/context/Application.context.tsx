@@ -112,9 +112,11 @@ function _({ children }: { children: ReactNode }) {
 
 	useEffect(() => {
 		/**
-		 * Clears authenticated application state after the API reports auth loss.
+		 * Clears authenticated application and EventStore state after auth loss.
 		 */
 		const handleAuthLost = () => {
+			SmartSocket.Class.instance?.destroy();
+			DataStore.resetRenderOperation(null);
 			setBanner(null);
 			setDialog(null);
 			setInfo((prev) => ({
@@ -171,11 +173,26 @@ function _({ children }: { children: ReactNode }) {
 			return;
 		}
 
-		return new SmartSocket.Class(app.general.ws_id);
+		return new SmartSocket.Class(app.general.ws_id, app.general.user.id);
 	}, [app.general.server, app.general.ws_id, app.general.user?.id]);
 
+	const activeUserAuthorityRef = useRef<string | null>(null);
 	useEffect(() => {
-		if (!SmartSocket.Class.instance) return;
+		const userAuthority = app.general.user
+			? `${app.general.server}:${app.general.user.id}`
+			: null;
+		const previousUserAuthority = activeUserAuthorityRef.current;
+		activeUserAuthorityRef.current = userAuthority;
+		if (
+			previousUserAuthority !== null &&
+			previousUserAuthority !== userAuthority
+		) {
+			DataStore.resetRenderOperation(null);
+		}
+	}, [app.general.server, app.general.user?.id]);
+
+	useEffect(() => {
+		if (!ws) return;
 
 		/**
 		 * Handles incoming collab create messages from WebSocket.
@@ -342,9 +359,8 @@ function _({ children }: { children: ReactNode }) {
 				(source) => deletedIdSet.has(source.id),
 			);
 			deletedSources.forEach((deletedSource) => {
-				const socket = SmartSocket.Class.instance;
-				if (socket && typeof socket.deleteSourceEventStore === "function") {
-					void socket
+				if (typeof ws.deleteSourceEventStore === "function") {
+					void ws
 						.deleteSourceEventStore(
 							deletedSource.operation_id,
 							deletedSource.id,
@@ -396,30 +412,30 @@ function _({ children }: { children: ReactNode }) {
 		const requestStatsCallback = (message: any): void =>
 			instanceRef.current.request_add(message.payload.obj);
 
-		SmartSocket.Class.instance.on(
+		ws.on(
 			SmartSocket.Message.Type.COLLAB_CREATE,
 			collabCreateCallback,
 		);
-		SmartSocket.Class.instance.on(
+		ws.on(
 			SmartSocket.Message.Type.COLLAB_UPDATE,
 			collabUpdateCallback,
 		);
-		SmartSocket.Class.instance.on(
+		ws.on(
 			SmartSocket.Message.Type.COLLAB_DELETE,
 			collabDeleteCallback,
 		);
-		const statsCreateListenerId = SmartSocket.Class.instance.con(
+		const statsCreateListenerId = ws.con(
 			SmartSocket.Message.Type.STATS_CREATE,
 			(m) => m.payload.obj?.type === "request_stats",
 			requestStatsCallback,
 		);
-		const statsUpdateListenerId = SmartSocket.Class.instance.con(
+		const statsUpdateListenerId = ws.con(
 			SmartSocket.Message.Type.STATS_UPDATE,
 			(m) => m.payload.obj?.type === "request_stats",
 			requestStatsCallback,
 		);
 		const unsubscribeSourceSummaries =
-			SmartSocket.Class.instance.subscribeSourceSummaries((event) => {
+			ws.subscribeSourceSummaries((event) => {
 				if (
 					event.operationEpoch !== DataStore.getRenderOperationEpoch() ||
 					DataStore.getRenderOperationId() !== event.operationId
@@ -429,11 +445,11 @@ function _({ children }: { children: ReactNode }) {
 				instanceRef.current.handleEventSourceSummary(event);
 			});
 		const subscribeStreamFailures =
-			SmartSocket.Class.instance.subscribeDocumentStreamFailures((event) => {
+			ws.subscribeDocumentStreamFailures((event) => {
 				instanceRef.current.handleEventDocumentStreamFailure(event);
 			});
 		const subscribeStreamStates =
-			SmartSocket.Class.instance.subscribeDocumentStreamStates((change) => {
+			ws.subscribeDocumentStreamStates((change) => {
 				instanceRef.current.handleEventDocumentStreamState(change);
 			});
 
@@ -441,26 +457,29 @@ function _({ children }: { children: ReactNode }) {
 			unsubscribeSourceSummaries();
 			subscribeStreamFailures();
 			subscribeStreamStates();
-			SmartSocket.Class.instance.off(
+			ws.off(
 				SmartSocket.Message.Type.COLLAB_CREATE,
 				collabCreateCallback,
 			);
-			SmartSocket.Class.instance.off(
+			ws.off(
 				SmartSocket.Message.Type.COLLAB_UPDATE,
 				collabUpdateCallback,
 			);
-			SmartSocket.Class.instance.off(
+			ws.off(
 				SmartSocket.Message.Type.COLLAB_DELETE,
 				collabDeleteCallback,
 			);
-			SmartSocket.Class.instance.coff(
+			ws.coff(
 				SmartSocket.Message.Type.STATS_CREATE,
 				statsCreateListenerId,
 			);
-			SmartSocket.Class.instance.coff(
+			ws.coff(
 				SmartSocket.Message.Type.STATS_UPDATE,
 				statsUpdateListenerId,
 			);
+			if (SmartSocket.Class.instance === ws && !appRef.current.general.user) {
+				ws.destroy();
+			}
 		};
 	}, [ws]);
 

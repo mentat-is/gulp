@@ -234,7 +234,7 @@ async function runReplay(options: RendererQueryReplayStartOptions): Promise<void
 			socketUrl: "ws://renderer-query-replay.invalid",
 			token: "renderer-query-replay",
 			wsId: "renderer-query-replay",
-			coordinatorId: options.coordinatorId,
+			cacheNamespaceId: options.cacheNamespaceId,
 		},
 		callbacks,
 		() => {

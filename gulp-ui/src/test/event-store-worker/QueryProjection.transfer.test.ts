@@ -19,6 +19,7 @@ describe("getRenderWindowProjectionTransferables", () => {
 					bucketPixelWidth: 1,
 					degradedLod: false,
 					loadedCount: 1,
+					frameEventCount: 1,
 					hashRange: { min: 7, max: 7 },
 					representativeHandles: new Uint32Array([1]),
 					representativeTimestamps: new Float64Array([5]),

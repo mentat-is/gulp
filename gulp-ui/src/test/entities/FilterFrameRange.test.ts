@@ -103,6 +103,30 @@ describe("timeline frame query scope", () => {
 		expect(scoped.filters).toBe(query.filters);
 	});
 
+	it("converts a rendered frame through a negative source offset", () => {
+		const source = createSource();
+		source.settings.offset = -1_000;
+		const scoped = Filter.Entity.scopeToSource(
+			createApp(source),
+			source,
+			{
+				string: "",
+				filters: [],
+				source_config: {
+					operation_id: source.operation_id,
+					source_ids: [source.id],
+					range: { min: "0", max: "100000000000" },
+				},
+			},
+			{ min: 12_000, max: 18_000 },
+		);
+
+		expect(scoped.source_config?.range).toEqual({
+			min: "13000000000",
+			max: "19000000000",
+		});
+	});
+
 	it("uses the new frame as the base of a manual query without retaining the old generated scope", () => {
 		const source = createSource();
 		const oldSourceConfig = {

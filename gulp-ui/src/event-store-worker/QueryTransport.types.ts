@@ -14,6 +14,7 @@ import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types"
 import type {
 	EventSourceQueryCacheActivation,
 	EventSourceQueryCacheReconciliation,
+	DesiredQueryCacheLookup,
 } from "@/event-store/EventStore.types";
 import type { Source } from "@/entities/Source";
 
@@ -71,7 +72,7 @@ export interface QueryTransport {
 	reconcileSourceQueryCache(input: {
 		operationId: string;
 		sourceId: Source.Id;
-		queryFingerprint: string;
+		desired: DesiredQueryCacheLookup;
 	}): Promise<EventSourceQueryCacheReconciliation | null>;
 
 	/** Moves one source-local query-cache cursor without contacting the backend. */

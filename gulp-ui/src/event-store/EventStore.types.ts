@@ -1,6 +1,9 @@
 import type { Doc } from "@/entities/Doc";
 import type { Operation } from "@/entities/Operation";
-import type { QueryCacheProvenance } from "@/entities/QueryCache";
+import type {
+	QueryCacheProvenance,
+	QueryCacheServerSnapshot,
+} from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
 
 export const EVENT_PAGE_SIZE = 16_384;
@@ -17,9 +20,9 @@ export const EVENT_PAGE_LOD_RECORD_KIND = "lod";
 export const EVENT_PAGE_HEIGHT_RECORD_KIND = "height";
 export const EVENT_SOURCE_QUERY_CACHE_LIMIT = 5;
 
-/** Identifies one same-origin event database shared by related browser realms. */
+/** Identifies one same-origin event database shared by one backend/user authority. */
 export interface EventStoreNamespace {
-	coordinatorId: string;
+	cacheNamespaceId: string;
 	operationId: Operation.Id;
 }
 
@@ -194,10 +197,18 @@ export interface EventSourceQueryCacheActivation {
 	cache: EventSourceQueryCacheMetadata;
 }
 
+/** Desired source-query identity and coverage inputs used during startup reuse. */
+export interface DesiredQueryCacheLookup {
+	fingerprint: string;
+	shapeFingerprint: string;
+	range: { min: string; max: string };
+	serverSnapshot: QueryCacheServerSnapshot;
+}
+
 /** Startup cache selection result and the reason the cache was selected. */
 export interface EventSourceQueryCacheReconciliation
 	extends EventSourceQueryCacheActivation {
-	match: "exact" | "latest";
+	match: "exact" | "covered" | "latest";
 }
 
 /** Stable page cursor used by bounded pixel and navigation reads. */

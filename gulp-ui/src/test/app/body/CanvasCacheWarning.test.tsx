@@ -12,6 +12,7 @@ import {
 	getCanvasSourceLoadingSuffix,
 	getCanvasCacheWarningTop,
 	shouldShowCanvasCacheWarning,
+	shouldShowCanvasSourceCacheWarning,
 } from "@/app/body/CanvasCacheWarning";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -51,7 +52,6 @@ function createQueryCacheState(
 	return {
 		...createEmptyQueryCacheState(),
 		activeGeneration: 7,
-		fingerprint: "cached-query",
 		freshness: "query-mismatch",
 		warningReason: "query-mismatch",
 		...overrides,
@@ -64,17 +64,27 @@ function createSource(
 	queryCache: QueryCacheState,
 	options: {
 		name?: string;
+		querySourceIds?: string[];
 		timelineLabel?: "filename" | "full_path";
 	} = {},
 ): Source.Type {
 	return {
 		id: id as Source.Id,
 		name: options.name ?? `${id}.json`,
+		appliedQuery: {
+			string: "cached query",
+			filters: [],
+			source_config: {
+				operation_id: "operation-id",
+				source_ids: options.querySourceIds ?? [id],
+				range: { min: 1, max: 2 },
+			},
+		},
 		settings: {
 			timeline_label: options.timelineLabel ?? "filename",
 		},
 		queryCache,
-	} as Source.Type;
+	} as unknown as Source.Type;
 }
 
 describe("CanvasCacheWarningOverlay", () => {
@@ -191,5 +201,41 @@ describe("CanvasCacheWarningOverlay", () => {
 				createQueryCacheState({ freshness: "fresh", warningReason: null }),
 			),
 		).toBe(false);
+	});
+
+	it("associates warnings by source id even when source names are identical", () => {
+		const warningState = createQueryCacheState();
+		const cachedSource = createSource("cached-source-id", warningState, {
+			name: "duplicate.json",
+		});
+		const differentSource = createSource("different-source-id", warningState, {
+			name: "duplicate.json",
+			querySourceIds: [cachedSource.id],
+		});
+
+		expect(shouldShowCanvasSourceCacheWarning(cachedSource)).toBe(true);
+		expect(shouldShowCanvasSourceCacheWarning(differentSource)).toBe(false);
+
+		act(() =>
+			root.render(
+				<CanvasCacheWarningOverlay
+					sources={[cachedSource, differentSource]}
+				/>,
+			),
+		);
+
+		expect(
+			container.querySelectorAll('[data-icon="AlertTriangle"]'),
+		).toHaveLength(1);
+		expect(
+			container.querySelector(
+				'[data-source-cache-warning="cached-source-id"]',
+			),
+		).not.toBeNull();
+		expect(
+			container.querySelector(
+				'[data-source-cache-warning="different-source-id"]',
+			),
+		).toBeNull();
 	});
 });

@@ -6,7 +6,6 @@ import type { Link } from "@/entities/Link";
 import type { Note } from "@/entities/Note";
 import type { Source } from "@/entities/Source";
 import type {
-	RenderCacheFreshness,
 	RenderDataPatch,
 	RenderEventBatch,
 	RenderEventBatchMode,
@@ -38,7 +37,6 @@ export interface RenderSourceProjectionInput {
 	contextColor: string;
 	contextTintAlpha?: number;
 	loadingKind: RenderLoadingKind;
-	cacheFreshness?: RenderCacheFreshness;
 	gradient: string[];
 	customPaletteColors?: string[];
 }
@@ -175,7 +173,6 @@ export class RenderProjectionAdapter {
 			},
 			total: source.total,
 			loadingKind: input.loadingKind,
-			cacheFreshness: input.cacheFreshness ?? "fresh",
 			offset: source.settings.offset,
 			engine: source.settings.render_engine,
 			frequency: source.settings.frequency_sample,

@@ -2,6 +2,8 @@ import {
 	cloneQueryForCache,
 	createEmptyQueryCacheState,
 	fingerprintSourceQuery,
+	fingerprintSourceQueryShape,
+	coversRequestedSourceRange,
 	sourceSnapshotsMatch,
 	type QueryCacheNormalization,
 } from "@/entities/QueryCache";
@@ -153,6 +155,172 @@ describe("source query cache identity", () => {
 		variants.forEach((fingerprint) => expect(fingerprint).not.toBe(base));
 	});
 
+	it("fingerprints query shape without display text or source range", () => {
+		const base = fingerprintSourceQueryShape({
+			query: createQuery(),
+			normalization,
+		});
+		expect(
+			fingerprintSourceQueryShape({
+				query: createQuery({
+					string: "different display text",
+					source_config: {
+						operation_id: "operation-1",
+						source_ids: ["source-1"],
+						range: { min: "3000000", max: "4000000" },
+					},
+				}),
+				normalization,
+			}),
+		).toBe(base);
+		expect(
+			fingerprintSourceQueryShape({
+				query: createQuery({
+					source_config: {
+						operation_id: "operation-1",
+						source_ids: ["source-2"],
+						range: { min: "1000000", max: "2000000" },
+					},
+				}),
+				normalization,
+			}),
+		).not.toBe(base);
+		expect(
+			fingerprintSourceQueryShape({
+				query: createQuery({ text_filter: "needle" }),
+				normalization,
+			}),
+		).not.toBe(base);
+		expect(
+			fingerprintSourceQueryShape({
+				query: createQuery(),
+				normalization: { ...normalization, hashFunction: "djb2" },
+			}),
+		).not.toBe(base);
+		expect(
+			fingerprintSourceQueryShape({
+				query: createQuery({
+					fieldTypeMap: { "event.code": "long" } as never,
+				}),
+				normalization,
+			}),
+		).toBe(base);
+		expect(
+			fingerprintSourceQueryShape({
+				query: createQuery(),
+				normalization,
+				backendFilter: { term: { "event.code": 1 } },
+			}),
+		).not.toBe(
+			fingerprintSourceQueryShape({
+				query: createQuery(),
+				normalization,
+				backendFilter: { term: { "event.code": "1" } },
+			}),
+		);
+	});
+
+	it("checks inclusive source-local range coverage with exact bigint arithmetic", () => {
+		const snapshot = {
+			total: 10,
+			minNanoseconds: "100",
+			maxNanoseconds: "200",
+			timeUpdated: null,
+			millisecondPrecision: false,
+		};
+		const coveredCases = [
+			{
+				cached: { min: "100", max: "200" },
+				desired: { min: "120", max: "180" },
+			},
+			{
+				cached: { min: "100", max: "200" },
+				desired: { min: "0", max: "300" },
+			},
+			{
+				cached: { min: "100", max: "200" },
+				desired: { min: "300", max: "400" },
+			},
+			{
+				cached: {
+					min: "9007199254740993000",
+					max: "9007199254740993000",
+				},
+				desired: {
+					min: "9007199254740993000",
+					max: "9007199254740993000",
+				},
+				source: {
+					...snapshot,
+					minNanoseconds: "9007199254740993000",
+					maxNanoseconds: "9007199254740993000",
+				},
+			},
+		];
+		coveredCases.forEach(({ cached, desired, source }) =>
+			expect(
+				coversRequestedSourceRange(cached, desired, source ?? snapshot),
+			).toBe(true),
+		);
+
+		expect(
+			coversRequestedSourceRange(
+				{ min: "100", max: "150" },
+				{ min: "140", max: "180" },
+				snapshot,
+			),
+		).toBe(false);
+		expect(
+			coversRequestedSourceRange(
+				{ min: "100", max: "149" },
+				{ min: "150", max: "150" },
+				snapshot,
+			),
+		).toBe(false);
+		expect(
+			coversRequestedSourceRange(
+				{ min: "200", max: "100" },
+				{ min: "100", max: "200" },
+				snapshot,
+			),
+		).toBe(false);
+		expect(
+			coversRequestedSourceRange(
+				{ min: "100", max: "200" },
+				{ min: "invalid", max: "200" },
+				snapshot,
+			),
+		).toBe(false);
+		expect(
+			coversRequestedSourceRange(
+				{ min: "100", max: "200" },
+				{ min: "", max: "200" },
+				snapshot,
+			),
+		).toBe(false);
+		expect(
+			coversRequestedSourceRange(
+				{ min: "100", max: "200" },
+				{ min: "100", max: "200" },
+				{ ...snapshot, minNanoseconds: " " },
+			),
+		).toBe(false);
+		expect(
+			coversRequestedSourceRange(
+				{ min: 9_007_199_254_740_992, max: 9_007_199_254_740_994 },
+				{ min: "100", max: "200" },
+				snapshot,
+			),
+		).toBe(false);
+		expect(
+			coversRequestedSourceRange(
+				{ min: "500", max: "600" },
+				{ min: "100", max: "200" },
+				{ ...snapshot, total: 0 },
+			),
+		).toBe(true);
+	});
+
 	it("creates an independent serializable query snapshot", () => {
 		const query = createQuery({ raw: { value: 1n } });
 		const snapshot = cloneQueryForCache(query);
@@ -204,6 +372,23 @@ describe("source query cache identity", () => {
 		).toBe(true);
 		expect(
 			sourceSnapshotsMatch(cached, { ...cached, timeUpdated: 11 }),
+		).toBe(false);
+	});
+
+	it("still compares complete-source ranges when both snapshots are empty", () => {
+		const cached = {
+			total: 0,
+			minNanoseconds: "100",
+			maxNanoseconds: "200",
+			timeUpdated: null,
+			millisecondPrecision: false,
+		};
+		expect(
+			sourceSnapshotsMatch(cached, {
+				...cached,
+				minNanoseconds: "300",
+				maxNanoseconds: "400",
+			}),
 		).toBe(false);
 	});
 });

@@ -133,7 +133,7 @@ function createApp(): App.Type {
 			toasts: false,
 		},
 		general: {
-			server: "",
+			server: "https://gulp.test",
 			ws_id: "",
 			glyphs_syncronized: false,
 			requests: [],
@@ -330,6 +330,9 @@ describe("WindowBridge capability-scoped projections", () => {
 
 		expect(assistantContext.sources).toEqual([]);
 		expect(assistantContext.contexts).toEqual([]);
+		expect(
+			assistantContext.cacheNamespaceId?.includes("dialog-user"),
+		).toBe(true);
 		expect(assistantContext.user).toBeUndefined();
 		expect(dialogContext.contexts.map((context) => context.id)).toEqual([
 			CONTEXT_ID,

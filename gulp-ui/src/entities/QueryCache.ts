@@ -29,7 +29,8 @@ export interface QueryCacheServerSnapshot {
 export interface QueryCacheProvenance {
 	query: Query.Type;
 	fingerprint: string;
-	requestedFrame: { min: number; max: number };
+	/** Range-independent semantic identity. Absent on caches written before coverage reuse. */
+	shapeFingerprint?: string;
 	normalization: QueryCacheNormalization;
 	serverSnapshot: QueryCacheServerSnapshot;
 }
@@ -37,9 +38,6 @@ export interface QueryCacheProvenance {
 /** Query-cache navigation state attached to one runtime source object. */
 export interface QueryCacheState {
 	activeGeneration: number | null;
-	fingerprint: string | null;
-	historyIndex: number;
-	historyLength: number;
 	canUndo: boolean;
 	canRedo: boolean;
 	freshness: QueryCacheFreshness;
@@ -57,6 +55,20 @@ export interface SourceQueryFingerprintInput {
 	backendFilter?: unknown;
 }
 
+/** Inputs whose range-independent semantics identify a reusable source query shape. */
+export interface SourceQueryShapeFingerprintInput {
+	query: Query.Type;
+	normalization: QueryCacheNormalization;
+	/** Final backend filter with the generated source-time range neutralized. */
+	backendFilter?: unknown;
+}
+
+/** Inclusive nanosecond range used by source query coverage checks. */
+export interface QueryCacheNanosecondRange {
+	min: string | number;
+	max: string | number;
+}
+
 type CanonicalValue =
 	| null
 	| boolean
@@ -65,19 +77,111 @@ type CanonicalValue =
 	| CanonicalValue[]
 	| { [key: string]: CanonicalValue };
 
+/**
+ * Parses one exact nanosecond boundary without accepting already-rounded numbers.
+ * @param value String or safe integer boundary.
+ * @returns Exact bigint boundary.
+ */
+function parseExactNanoseconds(value: string | number): bigint {
+	if (typeof value === "number" && !Number.isSafeInteger(value)) {
+		throw new RangeError("Nanosecond number boundaries must be safe integers.");
+	}
+	if (typeof value === "string" && !/^-?\d+$/.test(value)) {
+		throw new RangeError("Nanosecond string boundaries must be decimal integers.");
+	}
+	return BigInt(value);
+}
+
 /** Creates an independent empty cache state for one source. */
 export function createEmptyQueryCacheState(): QueryCacheState {
 	return {
 		activeGeneration: null,
-		fingerprint: null,
-		historyIndex: -1,
-		historyLength: 0,
 		canUndo: false,
 		canRedo: false,
 		freshness: "fresh",
 		warningReason: null,
 		isActivating: false,
 	};
+}
+
+/**
+ * Produces the canonical range-independent identity used for covered cache reuse.
+ * Display text, generated time range, and descriptive field-type metadata are
+ * excluded. Effective filters and normalization inputs remain semantic.
+ * @param input Serializable query snapshot and result normalization settings.
+ * @returns Versioned canonical query-shape fingerprint.
+ */
+export function fingerprintSourceQueryShape(
+	input: SourceQueryShapeFingerprintInput,
+): string {
+	const semanticShape = {
+		operationId: input.query.source_config?.operation_id ?? null,
+		sourceIds: input.query.source_config?.source_ids ?? [],
+		textFilter: input.query.text_filter ?? null,
+		filters: input.query.filters ?? [],
+		raw: input.query.raw ?? null,
+		isManual: input.query.isManual === true,
+		backendFilter: input.backendFilter ?? null,
+		normalization: {
+			field: input.normalization.field,
+			hashFunction: input.normalization.hashFunction,
+			requestedFields: [...input.normalization.requestedFields],
+		},
+	};
+	return `source-query-shape-v1:${JSON.stringify(
+		canonicalizeValue(semanticShape),
+	)}`;
+}
+
+/**
+ * Checks whether a cached inclusive range contains every current-source event that
+ * can fall inside the desired range. Values are parsed as exact nanoseconds.
+ * @param cachedRange Inclusive raw range materialized by the cache.
+ * @param desiredRange Inclusive raw range requested for the source.
+ * @param currentSourceSnapshot Current complete-source count and raw range.
+ * @returns True when the cache proves complete coverage for the desired source slice.
+ */
+export function coversRequestedSourceRange(
+	cachedRange: QueryCacheNanosecondRange,
+	desiredRange: QueryCacheNanosecondRange,
+	currentSourceSnapshot: QueryCacheServerSnapshot,
+): boolean {
+	if (
+		!Number.isFinite(currentSourceSnapshot.total) ||
+		currentSourceSnapshot.total < 0
+	) {
+		return false;
+	}
+
+	try {
+		const cachedMin = parseExactNanoseconds(cachedRange.min);
+		const cachedMax = parseExactNanoseconds(cachedRange.max);
+		const desiredMin = parseExactNanoseconds(desiredRange.min);
+		const desiredMax = parseExactNanoseconds(desiredRange.max);
+		if (cachedMin > cachedMax || desiredMin > desiredMax) {
+			return false;
+		}
+		if (currentSourceSnapshot.total === 0) return true;
+
+		const sourceMin = parseExactNanoseconds(
+			currentSourceSnapshot.minNanoseconds,
+		);
+		const sourceMax = parseExactNanoseconds(
+			currentSourceSnapshot.maxNanoseconds,
+		);
+		if (sourceMin > sourceMax) return false;
+
+		const intersectionMin =
+			desiredMin > sourceMin ? desiredMin : sourceMin;
+		const intersectionMax =
+			desiredMax < sourceMax ? desiredMax : sourceMax;
+		return (
+			intersectionMin > intersectionMax ||
+			(cachedMin <= intersectionMin && intersectionMax <= cachedMax)
+		);
+	} catch {
+		return false;
+	}
 }
 
 /**

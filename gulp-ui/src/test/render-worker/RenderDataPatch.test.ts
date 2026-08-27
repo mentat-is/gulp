@@ -56,7 +56,6 @@ function createRenderSource(id: string, name: string): RenderSource {
 		timestamp: { min: 0, max: 1_000 },
 		total: 0,
 		loadingKind: "none",
-		cacheFreshness: "fresh",
 		offset: 0,
 		engine: "default",
 		frequency: 100,
@@ -95,6 +94,7 @@ function createRenderWindowProjection(
 				bucketPixelWidth: 1,
 				degradedLod: false,
 				loadedCount: 20,
+				frameEventCount: 20,
 				hashRange: { min: -10, max: 10 },
 				representativeHandles: Uint32Array.of(handle),
 				representativeTimestamps: Float64Array.of(150),
@@ -338,7 +338,7 @@ describe("mergeRenderDataPatches", () => {
 		const previousSourceA = createRenderSource("source-a", "Source A old");
 		const nextSourceA = {
 			...createRenderSource("source-a", "Source A new"),
-			cacheFreshness: "source-changed" as const,
+			loadingKind: "loading" as const,
 		};
 		const sourceB = createRenderSource("source-b", "Source B");
 		const sourceC = createRenderSource("source-c", "Source C");
@@ -368,7 +368,7 @@ describe("mergeRenderDataPatches", () => {
 			"source-d",
 		]);
 		expect(merged.sources?.records[0]).toBe(nextSourceA);
-		expect(merged.sources?.records[0].cacheFreshness).toBe("source-changed");
+		expect(merged.sources?.records[0].loadingKind).toBe("loading");
 		expect(merged.sources?.removedSourceIds).toEqual([
 			"source-c",
 			"source-b",

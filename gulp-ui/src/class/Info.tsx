@@ -43,6 +43,7 @@ import {
 	cloneQueryForCache,
 	createEmptyQueryCacheState,
 	fingerprintSourceQuery,
+	fingerprintSourceQueryShape,
 	sourceSnapshotsMatch,
 	type QueryCacheNormalization,
 	type QueryCacheProvenance,
@@ -96,6 +97,7 @@ import type {
 import {
 	getEventStoreLodDecision,
 	isEventStoreLodEnabled,
+	resolveEventStoreCacheNamespaceId,
 	type EventSourceQueryCacheActivation,
 	type EventSourceQueryCacheMetadata,
 	type EventSourceQueryCacheReconciliation,
@@ -492,6 +494,10 @@ const ACTIVE_REQUEST_STATUSES = new Set<Request.Status>([
 ]);
 const MAX_QUERY_CONCURRENCY = 4;
 const QUERY_DOC_WORKER_THRESHOLD = 1000;
+const QUERY_CACHE_SHAPE_RANGE = {
+	min: "__gulp_source_range_min__",
+	max: "__gulp_source_range_max__",
+} as const;
 
 export class Info implements InfoProps {
 	private _app: App.Type;
@@ -1837,14 +1843,12 @@ export class Info implements InfoProps {
 	 * Builds immutable query provenance for a new replace generation.
 	 * @param source Source whose cache will be created.
 	 * @param query Final source-scoped query sent to the backend.
-	 * @param frame User-selected timeline frame retained for cache presentation.
 	 * @param requestedFields Optional explicit backend field projection.
 	 * @returns Query provenance safe for worker and IndexedDB structured cloning.
 	 */
 	private createQueryCacheProvenance = (
 		source: Source.Type,
 		query: Query.Type,
-		frame: MinMax,
 		requestedFields?: Array<keyof Doc.Type>,
 	): QueryCacheProvenance => {
 		const normalization = this.getQueryCacheNormalization(
@@ -1852,6 +1856,17 @@ export class Info implements InfoProps {
 			requestedFields,
 		);
 		const cachedQuery = cloneQueryForCache(query);
+		// Canonicalize only the generated source range; explicit user ranges remain
+		// unchanged in structured filters or the already-cleaned manual query.
+		const shapeQuery: Query.Type = {
+			...cachedQuery,
+			source_config: cachedQuery.source_config
+				? {
+						...cachedQuery.source_config,
+						range: QUERY_CACHE_SHAPE_RANGE,
+					}
+				: undefined,
+		};
 		return {
 			query: cachedQuery,
 			fingerprint: fingerprintSourceQuery({
@@ -1861,7 +1876,11 @@ export class Info implements InfoProps {
 				normalization,
 				backendFilter: Filter.Entity.query(cachedQuery),
 			}),
-			requestedFrame: { min: frame.min, max: frame.max },
+			shapeFingerprint: fingerprintSourceQueryShape({
+				query: cachedQuery,
+				normalization,
+				backendFilter: Filter.Entity.query(shapeQuery),
+			}),
 			normalization,
 			serverSnapshot: this.getQueryCacheServerSnapshot(source),
 		};
@@ -1880,7 +1899,6 @@ export class Info implements InfoProps {
 		cache: Pick<EventSourceQueryCacheMetadata, "state" | "provenance">,
 		match?: EventSourceQueryCacheReconciliation["match"],
 	): QueryCacheState["freshness"] => {
-		if (match === "latest") return "query-mismatch";
 		if (cache.state === "mutated") return "mutated";
 		try {
 			const currentSnapshot = this.getQueryCacheServerSnapshot(source);
@@ -1890,12 +1908,15 @@ export class Info implements InfoProps {
 			) {
 				return "unknown";
 			}
-			return sourceSnapshotsMatch(
-				cache.provenance.serverSnapshot,
-				currentSnapshot,
-			)
-				? "fresh"
-				: "source-changed";
+			if (
+				!sourceSnapshotsMatch(
+					cache.provenance.serverSnapshot,
+					currentSnapshot,
+				)
+			) {
+				return "source-changed";
+			}
+			return match === "latest" ? "query-mismatch" : "fresh";
 		} catch (error) {
 			Logger.warn(
 				`Unable to compare query cache freshness for ${source.id}: ${(error as Error).message}`,
@@ -1908,13 +1929,11 @@ export class Info implements InfoProps {
 	/**
 	 * Builds the client-only history state represented by one durable source summary.
 	 * @param summary Compact EventStore authority after build or cache activation.
-	 * @param fingerprint Fingerprint of the active cache provenance.
 	 * @param freshness Freshness classification calculated from server metadata.
 	 * @returns Runtime query-cache navigation state.
 	 */
 	private createRuntimeQueryCacheState = (
 		summary: EventSourceSummary,
-		fingerprint: string,
 		freshness: QueryCacheState["freshness"],
 	): QueryCacheState => {
 		const history = summary.cacheHistory ?? [];
@@ -1923,9 +1942,6 @@ export class Info implements InfoProps {
 			activeGeneration:
 				summary.activeCacheGeneration ??
 				(summary.status === "complete" ? summary.generation : null),
-			fingerprint,
-			historyIndex: cursor,
-			historyLength: history.length,
 			canUndo: cursor > 0,
 			canRedo: cursor >= 0 && cursor < history.length - 1,
 			freshness,
@@ -1958,7 +1974,6 @@ export class Info implements InfoProps {
 			appliedQuery: cloneQueryForCache(provenance.query),
 			queryCache: this.createRuntimeQueryCacheState(
 				activation.summary,
-				provenance.fingerprint,
 				freshness,
 			),
 			settings: {
@@ -2046,7 +2061,6 @@ export class Info implements InfoProps {
 				appliedQuery: cloneQueryForCache(provenance.query),
 				queryCache: this.createRuntimeQueryCacheState(
 					summary,
-					provenance.fingerprint,
 					"fresh",
 				),
 			};
@@ -2105,10 +2119,21 @@ export class Info implements InfoProps {
 			return null;
 		}
 		try {
+			const desiredRange = provenance.query.source_config?.range;
+			const shapeFingerprint = provenance.shapeFingerprint;
+			if (!desiredRange || !shapeFingerprint) return null;
 			const result = await socket.reconcileSourceQueryCache({
 				operationId: source.operation_id,
 				sourceId: source.id,
-				queryFingerprint: provenance.fingerprint,
+				desired: {
+					fingerprint: provenance.fingerprint,
+					shapeFingerprint,
+					range: {
+						min: String(desiredRange.min),
+						max: String(desiredRange.max),
+					},
+					serverSnapshot: provenance.serverSnapshot,
+				},
 			});
 			if (
 				!this.isOperationContextCurrent(operationEpoch, source.operation_id)
@@ -2308,7 +2333,6 @@ export class Info implements InfoProps {
 				provenance: this.createQueryCacheProvenance(
 					file,
 					query,
-					effectiveFrame,
 					refetchKeys?.[file.id],
 				),
 				rollback: {
@@ -4362,8 +4386,13 @@ export class Info implements InfoProps {
 		Doc.Entity.clearIndex();
 		DataStore.resetRenderOperation(id);
 		if (isEventStoreLodEnabled()) {
+			const coordinatorId = WindowBridge.getOrCreateCoordinatorId();
 			DataStore.openEventStoreNamespace({
-				coordinatorId: WindowBridge.getOrCreateCoordinatorId(),
+				cacheNamespaceId: resolveEventStoreCacheNamespaceId(
+					this.app.general.user?.id,
+					this.app.general.server,
+					coordinatorId,
+				),
 				operationId: id,
 			});
 		}
@@ -7033,7 +7062,10 @@ export class Info implements InfoProps {
 		await this.glyphs_reload();
 		await this.sync();
 
-		this.setInfoByKey(authenticatedUser, "general", "user");
+		this.batchUpdate((draft) => {
+			draft.general.server = Internal.Settings.server;
+			draft.general.user = authenticatedUser;
+		});
 		window.dispatchEvent(new CustomEvent("gulp-auth-restored"));
 
 		return authenticatedUser;

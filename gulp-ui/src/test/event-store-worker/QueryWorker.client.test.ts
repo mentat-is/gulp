@@ -51,7 +51,6 @@ function createCacheReconciliation(): EventSourceQueryCacheReconciliation {
 			provenance: {
 				query: { string: "", filters: [] },
 				fingerprint: "source-query-v1:test",
-				requestedFrame: { min: 0, max: 100 },
 				normalization: {
 					field: "gulp.event_code",
 					hashFunction: "fnv1a",
@@ -137,7 +136,7 @@ describe("QueryWorkerClient", () => {
 				socketUrl: "ws://gulp.test/ws",
 				token: "token",
 				wsId: "worker-client",
-				coordinatorId: "test-coordinator",
+				cacheNamespaceId: "test-user",
 			},
 			callbacks,
 		);
@@ -334,7 +333,7 @@ describe("QueryWorkerClient", () => {
 				socketUrl: "ws://gulp.test/ws",
 				token: "token",
 				wsId: "worker-cache-client",
-				coordinatorId: "test-coordinator",
+				cacheNamespaceId: "test-user",
 			},
 			{
 				onSocketState: () => undefined,
@@ -357,10 +356,16 @@ describe("QueryWorkerClient", () => {
 			controlId: initialization.controlId,
 		});
 
+		const reconciliation = createCacheReconciliation();
 		const reconciliationPromise = client.reconcileSourceQueryCache({
 			operationId: "operation-one",
 			sourceId: SOURCE_ONE,
-			queryFingerprint: "source-query-v1:test",
+			desired: {
+				fingerprint: "source-query-v1:test",
+				shapeFingerprint: "source-query-shape-v1:test",
+				range: { min: "0", max: "100" },
+				serverSnapshot: reconciliation.cache.provenance.serverSnapshot,
+			},
 		});
 		const reconciliationCommand = worker.commands.find(
 			(command) => command.type === "RECONCILE_SOURCE_QUERY_CACHE",
@@ -374,9 +379,11 @@ describe("QueryWorkerClient", () => {
 		expect(reconciliationCommand).toMatchObject({
 			operationId: "operation-one",
 			sourceId: SOURCE_ONE,
-			queryFingerprint: "source-query-v1:test",
+			desired: {
+				fingerprint: "source-query-v1:test",
+				shapeFingerprint: "source-query-shape-v1:test",
+			},
 		});
-		const reconciliation = createCacheReconciliation();
 		worker.emitWorkerEvent({
 			type: "SOURCE_QUERY_CACHE_RESULT",
 			cacheRequestId: reconciliationCommand.cacheRequestId,
@@ -449,7 +456,7 @@ describe("QueryWorkerClient", () => {
 				socketUrl: "ws://gulp.test/ws",
 				token: "token",
 				wsId: "worker-client-failure",
-				coordinatorId: "test-coordinator",
+				cacheNamespaceId: "test-user",
 			},
 			{
 				onSocketState: () => undefined,

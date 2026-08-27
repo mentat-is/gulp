@@ -196,6 +196,7 @@ class RendererBenchmarkProjectorSpy {
 				bucketPixelWidth: 1,
 				degradedLod: false,
 				loadedCount: 4,
+				frameEventCount: 4,
 				hashRange: { min: -1, max: 1 },
 				representativeHandles: new Uint32Array([1, 2, 3, 4]),
 				representativeTimestamps: new Float64Array([4, 3, 2, 1]),

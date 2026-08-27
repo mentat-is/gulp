@@ -30,6 +30,8 @@ const STAGING_CLOCK_CHECK_MASK = 2_047;
 export interface WorkerRenderEventView {
 	revision: number;
 	loadedCount: number;
+	/** Exact frame-local count for EventStore projections; absent for direct snapshots. */
+	frameEventCount?: number;
 	handles: Uint32Array;
 	timestamps: Float64Array;
 	hashes: Float64Array;
@@ -836,6 +838,7 @@ export class WorkerRenderRepository {
 		return {
 			revision: sourceProjection.sourceRevision,
 			loadedCount: sourceProjection.loadedCount,
+			frameEventCount: sourceProjection.frameEventCount,
 			handles: sourceProjection.representativeHandles,
 			timestamps: sourceProjection.representativeTimestamps,
 			hashes: sourceProjection.representativeHashes,

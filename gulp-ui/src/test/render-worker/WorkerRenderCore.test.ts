@@ -153,7 +153,6 @@ function createRenderSource(id: string, rowOrder: number): RenderSource {
 		timestamp: { min: 0, max: 1_000 },
 		total: 0,
 		loadingKind: "none",
-		cacheFreshness: "fresh",
 		offset: 0,
 		engine: "default",
 		frequency: 100,
@@ -327,7 +326,6 @@ describe("WorkerRenderCore", () => {
 	it("leaves cache warning icons to the shared accessible DOM overlay", async () => {
 		const source = {
 			...createRenderSource("cache", 0),
-			cacheFreshness: "unknown" as const,
 		};
 		await repository.applyDataPatch({
 			globalRevision: 1,
@@ -349,7 +347,7 @@ describe("WorkerRenderCore", () => {
 		expect(warningFillColors.includes("#facc15")).toBe(false);
 	});
 
-	it("labels the exact loaded count instead of the LOD representative count", async () => {
+	it("labels the exact frame count instead of loaded or representative counts", async () => {
 		const source = {
 			...createRenderSource("source-frame-count", 0),
 			timestamp: { min: 0, max: 1_000 },
@@ -374,6 +372,7 @@ describe("WorkerRenderCore", () => {
 						bucketPixelWidth: 1,
 						degradedLod: false,
 						loadedCount: 3,
+						frameEventCount: 2,
 						hashRange: { min: 1, max: 1 },
 						representativeHandles: Uint32Array.of(1),
 						representativeTimestamps: Float64Array.of(500),
@@ -406,10 +405,11 @@ describe("WorkerRenderCore", () => {
 			}
 		).mock.calls;
 		const loadedCountLabels = fillTextCalls.filter(
-			([label, , y]) => label === "3" && (y === 38 || y === 42),
+			([label, , y]) => label === "2" && (y === 38 || y === 42),
 		);
 
 		expect(loadedCountLabels).toHaveLength(3);
+		expect(fillTextCalls.some(([label]) => label === "3")).toBe(false);
 		expect(fillTextCalls.some(([label]) => label === "1")).toBe(false);
 		expect(
 			fillTextCalls.filter(([label]) => label === source.total.toString()),
@@ -421,8 +421,47 @@ describe("WorkerRenderCore", () => {
 		).toBe(true);
 	});
 
+	it("derives the frame count from a direct RAM snapshot with source offset", async () => {
+		const source = {
+			...createRenderSource("source-direct-frame-count", 0),
+			timestamp: { min: 100, max: 900 },
+			offset: 50,
+			total: 5,
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			events: [
+				{
+					sourceId: source.id,
+					baseRevision: 0,
+					revision: 1,
+					mode: "replace",
+					handles: Uint32Array.of(1, 2, 3, 4, 5),
+					timestamps: Float64Array.of(900, 700, 500, 300, 100),
+					hashes: Float64Array.of(1, 1, 1, 1, 1),
+				},
+			],
+		});
+		repository.setFrameState(
+			createFrameState([source.id], {
+				frame: { min: 350, max: 750 },
+			}),
+		);
+		const recordedText: string[] = [];
+		const renderCore = new WorkerRenderCore(
+			createRecordingContext(1_000, 96, recordedText),
+			repository,
+			{ requestAsset: jest.fn() },
+		);
+
+		renderCore.render(100, DirtyCanvas.Events);
+
+		expect(recordedText.filter((label) => label === "3")).toHaveLength(3);
+	});
+
 	for (const engine of ["default", "height", "graph"] as const) {
-		it(`renders the terminal 94,391 loaded count with the ${engine} engine`, async () => {
+		it(`renders the terminal 94,391 frame count with the ${engine} engine`, async () => {
 			const source = {
 				...createRenderSource(`source-terminal-${engine}`, 0),
 				engine,
@@ -447,6 +486,7 @@ describe("WorkerRenderCore", () => {
 							bucketPixelWidth: 1,
 							degradedLod: false,
 							loadedCount: 94_391,
+							frameEventCount: 94_391,
 							hashRange: { min: 1, max: 1 },
 							representativeHandles: Uint32Array.of(1),
 							representativeTimestamps: Float64Array.of(500),
@@ -555,6 +595,7 @@ describe("WorkerRenderCore", () => {
 						bucketPixelWidth: 1,
 						degradedLod: false,
 						loadedCount: 30_000_000,
+						frameEventCount: 30_000_000,
 						hashRange: { min: 0, max: 1 },
 						representativeHandles: new Uint32Array(0),
 						representativeTimestamps: new Float64Array(0),

@@ -20,15 +20,15 @@ export function shouldRebuildEventStoreCache(oldVersion: number): boolean {
 }
 
 /**
- * Creates the operation-isolated IndexedDB name shared by main and detached realms.
- * @param namespace Coordinator and operation identifiers owning the database.
+ * Creates the operation-isolated IndexedDB name shared by one user's browser realms.
+ * @param namespace User cache namespace and operation identifiers owning the database.
  * @returns Stable same-origin database name.
  */
 export function createEventStoreDatabaseName(
 	namespace: EventStoreNamespace,
 ): string {
 	return `${EVENT_STORE_DATABASE_PREFIX}:${encodeURIComponent(
-		namespace.coordinatorId,
+		namespace.cacheNamespaceId,
 	)}:${encodeURIComponent(namespace.operationId)}`;
 }
 
@@ -53,7 +53,7 @@ export class IndexedDbEventStoreBackend implements EventStoreBackend {
 
 	/**
 	 * Creates a lazily opened EventStore database.
-	 * @param namespace Coordinator and operation identifiers owning the data.
+	 * @param namespace User cache namespace and operation identifiers owning the data.
 	 * @param indexedDbFactory Browser factory, injectable for integration tests.
 	 * @param keyRangeFactory Key-range constructor, injectable with the factory.
 	 */

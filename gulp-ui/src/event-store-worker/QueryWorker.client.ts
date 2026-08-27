@@ -15,6 +15,7 @@ import type {
 import type {
 	EventSourceQueryCacheActivation,
 	EventSourceQueryCacheReconciliation,
+	DesiredQueryCacheLookup,
 } from "@/event-store/EventStore.types";
 import type { Source } from "@/entities/Source";
 
@@ -292,14 +293,14 @@ export class QueryWorkerClient implements QueryTransport {
 	}
 
 	/**
-	 * Selects an exact startup cache or the latest complete fallback for one source.
-	 * @param input Operation, source, and desired semantic fingerprint.
+	 * Selects the safest exact, range-covered, or latest startup cache for one source.
+	 * @param input Operation, source, and desired exact/shape/range lookup.
 	 * @returns Reconciled activation, or null when the source has no reusable cache.
 	 */
 	public reconcileSourceQueryCache(input: {
 		operationId: string;
 		sourceId: Source.Id;
-		queryFingerprint: string;
+		desired: DesiredQueryCacheLookup;
 	}): Promise<EventSourceQueryCacheReconciliation | null> {
 		return this.requestSourceQueryCache({
 			type: "RECONCILE_SOURCE_QUERY_CACHE",
@@ -370,7 +371,7 @@ export class QueryWorkerClient implements QueryTransport {
 					type: "RECONCILE_SOURCE_QUERY_CACHE";
 					operationId: string;
 					sourceId: Source.Id;
-					queryFingerprint: string;
+					desired: DesiredQueryCacheLookup;
 			  }
 			| {
 					type: "NAVIGATE_SOURCE_QUERY_CACHE";

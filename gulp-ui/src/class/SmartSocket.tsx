@@ -15,6 +15,7 @@ import { createQueryTransport } from "@/event-store-worker/QueryWorker.factory";
 import type {
 	EventSourceQueryCacheActivation,
 	EventSourceQueryCacheReconciliation,
+	DesiredQueryCacheLookup,
 } from "@/event-store/EventStore.types";
 import { renderWindowProjectionBus } from "@/render-worker/RenderWindowProjection.bus";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
@@ -26,6 +27,7 @@ import type { Source } from "@/entities/Source";
 import type { User } from "@/entities/User";
 import { WindowBridge } from "@/lib/WindowBridge";
 import { isEventStoreLodEnabled } from "@/event-store/EventStore.rollout";
+import { resolveEventStoreCacheNamespaceId } from "@/event-store/EventStore.namespace";
 import { Icon } from "@/ui/Icon";
 import { EventEmitter } from "events";
 
@@ -90,6 +92,7 @@ export namespace SmartSocket {
 			Conditional[]
 		>();
 		private readonly transport!: QueryTransport;
+		private readonly cacheNamespaceId!: string;
 		private readonly sourceSummarySubscribers = new Set<
 			(event: QuerySourceSummaryEvent) => void
 		>();
@@ -104,20 +107,39 @@ export namespace SmartSocket {
 		/**
 		 * Creates this browser realm's singleton socket facade.
 		 * @param wsId Private WebSocket routing identity.
+		 * @param authenticatedUserId Authoritative current user, when available.
+		 * @param explicitCacheNamespaceId Namespace propagated by a main realm to a detached realm.
 		 */
-		public constructor(wsId: string) {
+		public constructor(
+			wsId: string,
+			authenticatedUserId?: User.Id | null,
+			explicitCacheNamespaceId?: string | null,
+		) {
 			super();
 
-			if (SmartSocket.Class.instance) {
-				return SmartSocket.Class.instance;
+			const coordinatorId = WindowBridge.getOrCreateCoordinatorId();
+			const cacheNamespaceId =
+				explicitCacheNamespaceId ??
+				resolveEventStoreCacheNamespaceId(
+					authenticatedUserId,
+					Internal.Settings.server,
+					coordinatorId,
+				);
+			const existing = SmartSocket.Class.instance;
+			if (existing) {
+				if (existing.cacheNamespaceId === cacheNamespaceId) {
+					return existing;
+				}
+				existing.destroy();
 			}
+			this.cacheNamespaceId = cacheNamespaceId;
 
 			this.transport = createQueryTransport(
 				{
 					socketUrl: `${Internal.Settings.server}/ws`,
 					token: Internal.Settings.token,
 					wsId,
-					coordinatorId: WindowBridge.getOrCreateCoordinatorId(),
+					cacheNamespaceId,
 					// Rollback alone permits unregistered document chunks on the main thread.
 					legacyUnknownDocumentPassthrough: !isEventStoreLodEnabled(),
 				},
@@ -455,14 +477,14 @@ export namespace SmartSocket {
 		}
 
 		/**
-		 * Selects one exact startup cache or latest reusable fallback for a source.
-		 * @param input Operation, source, and desired semantic query fingerprint.
+		 * Selects the safest exact, range-covered, or latest cache for a source.
+		 * @param input Operation, source, and desired exact/shape/range lookup.
 		 * @returns Reconciled activation, or null when no cache is reusable.
 		 */
 		public reconcileSourceQueryCache(input: {
 			operationId: string;
 			sourceId: Source.Id;
-			queryFingerprint: string;
+			desired: DesiredQueryCacheLookup;
 		}): Promise<EventSourceQueryCacheReconciliation | null> {
 			return this.transport.reconcileSourceQueryCache(input);
 		}

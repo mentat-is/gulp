@@ -5,8 +5,12 @@ import { WindowBridge } from "@/lib/WindowBridge";
 import { DetachedAppProvider } from "@/context/DetachedApp.provider";
 import { Doc } from "@/entities/Doc";
 import { DataStore } from "@/store/DataStore";
+import type { Operation } from "@/entities/Operation";
 
-const mockSocketConstruct = jest.fn<void, [string]>();
+const mockSocketConstruct = jest.fn<
+	void,
+	[string, unknown?, string?]
+>();
 const mockSocketDestroy = jest.fn<void, [string]>();
 let mockOwnsIndependentDataStore = false;
 
@@ -42,7 +46,7 @@ jest.mock("@/entities/App", () => ({
 				toasts: false,
 			},
 			general: {
-				server: "",
+				server: "https://gulp.test",
 				ws_id: "",
 				glyphs_syncronized: false,
 				requests: [],
@@ -93,9 +97,13 @@ jest.mock("@/class/SmartSocket", () => {
 		public static instance: MockSmartSocket | undefined;
 		public readonly mockWsId: string;
 
-		public constructor(mockWsId: string) {
+		public constructor(
+			mockWsId: string,
+			mockUserId?: unknown,
+			mockCacheNamespaceId?: string,
+		) {
 			this.mockWsId = mockWsId;
-			mockSocketConstruct(mockWsId);
+			mockSocketConstruct(mockWsId, mockUserId, mockCacheNamespaceId);
 			MockSmartSocket.instance = this;
 		}
 
@@ -164,6 +172,9 @@ jest.mock("@/entities/Doc", () => ({
 jest.mock("@/store/DataStore", () => ({
 	DataStore: {
 		events: new Map(),
+		getRenderOperationId: jest.fn(() => null),
+		resetRenderOperation: jest.fn(),
+		openEventStoreNamespace: jest.fn(),
 		replaceNotes: jest.fn(),
 		replaceLinks: jest.fn(),
 		publishNotesSnapshotReady: jest.fn(),
@@ -217,6 +228,12 @@ const mockReplaceNotes =
 	DataStore.replaceNotes as unknown as MockCalls<[unknown[], string]>;
 const mockReplaceLinks =
 	DataStore.replaceLinks as unknown as MockCalls<[unknown[], string]>;
+const mockResetRenderOperation =
+	DataStore.resetRenderOperation as unknown as MockCalls<[Operation.Id | null]>;
+const mockOpenEventStoreNamespace =
+	DataStore.openEventStoreNamespace as unknown as MockCalls<[
+		{ cacheNamespaceId: string; operationId: Operation.Id },
+	]>;
 
 /**
  * In-memory BroadcastChannel used by the mounted provider and test coordinator.
@@ -289,6 +306,8 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 		mockDocAdd.mock.calls.splice(0);
 		mockReplaceNotes.mock.calls.splice(0);
 		mockReplaceLinks.mock.calls.splice(0);
+		mockResetRenderOperation.mock.calls.splice(0);
+		mockOpenEventStoreNamespace.mock.calls.splice(0);
 		Object.defineProperty(globalThis, "BroadcastChannel", {
 			configurable: true,
 			value: FakeBroadcastChannel,
@@ -653,6 +672,66 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 		expect(container.textContent?.includes("dialog")).toBe(true);
 	});
 
+	it("opens and closes an independent reader with the propagated user namespace", () => {
+		mockOwnsIndependentDataStore = true;
+		const operationId = "detached-operation" as Operation.Id;
+
+		act(() => {
+			root.render(
+				<DetachedAppProvider
+					initialApp={App.Base}
+					bridgeId={clientId}
+					coordinatorId={coordinatorId}
+					kind="table"
+				>
+					<div>table</div>
+				</DetachedAppProvider>,
+			);
+		});
+		act(() => {
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.DETACHED_BOOTSTRAP,
+				{
+					status: "active",
+					theme: {
+						theme: "classic-dark",
+						mode: "dark",
+						cssVariables: {},
+					},
+					context: {
+						operation: {
+							id: operationId,
+							selected: true,
+						} as Operation.Type,
+						contexts: [],
+						sources: [],
+						cacheNamespaceId: "server:test:user:detached-user",
+					},
+				},
+			);
+		});
+
+		expect(mockResetRenderOperation.mock.calls[0]).toEqual([operationId]);
+		expect(mockOpenEventStoreNamespace.mock.calls[0]).toEqual([
+			{
+				cacheNamespaceId: "server:test:user:detached-user",
+				operationId,
+			},
+		]);
+
+		act(() => {
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.MAIN_CONTEXT_STATUS,
+				{ status: "auth_lost" },
+			);
+		});
+		expect(
+			mockResetRenderOperation.mock.calls.some(
+				([selectedOperationId]) => selectedOperationId === null,
+			),
+		).toBe(true);
+	});
+
 	it("owns a private reactive SmartSocket only for assistant clients", () => {
 		act(() => {
 			root.render(
@@ -690,6 +769,12 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 						mode: "dark",
 						cssVariables: {},
 					},
+					context: {
+						operation: null,
+						contexts: [],
+						sources: [],
+						cacheNamespaceId: "server:test:user:assistant-user",
+					},
 					wsId: "main-ws-one",
 				},
 			);
@@ -698,6 +783,9 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 		expect(mockSocketConstruct).toHaveBeenCalledTimes(1);
 		const firstDetachedWsId = mockSocketConstruct.mock.calls[0][0] as string;
 		expect(firstDetachedWsId).not.toBe("main-ws-one");
+		expect(mockSocketConstruct.mock.calls[0][2]).toBe(
+			"server:test:user:assistant-user",
+		);
 
 		act(() => {
 			mainPrivateBridge.send(

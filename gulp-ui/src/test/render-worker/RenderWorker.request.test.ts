@@ -28,6 +28,7 @@ function createProjection(): RenderWindowProjection {
 				bucketPixelWidth: 1,
 				degradedLod: false,
 				loadedCount: 10,
+				frameEventCount: 10,
 				hashRange: { min: -2, max: 7 },
 				representativeHandles: Uint32Array.of(1, 2),
 				representativeTimestamps: Float64Array.of(180, 120),
@@ -69,6 +70,13 @@ describe("render-window request validation", () => {
 		expect(isRenderWindowProjection(projection)).toBe(false);
 	});
 
+	it("rejects a frame count above complete generation authority", () => {
+		const projection = createProjection();
+		projection.sources[0].frameEventCount = 11;
+
+		expect(isRenderWindowProjection(projection)).toBe(false);
+	});
+
 	it("rejects duplicate, evicted, and malformed source identities", () => {
 		const duplicate = createProjection();
 		duplicate.sources.push(duplicate.sources[0]);
@@ -94,7 +102,7 @@ describe("render-window request validation", () => {
 		};
 
 		expect(
-			isRenderWindowDataRequest({ ...request, protocolVersion: 4 }),
+			isRenderWindowDataRequest({ ...request, protocolVersion: 8 }),
 		).toBe(false);
 		expect(
 			isRenderWindowDataRequest({ ...request, operationEpoch: 4 }),

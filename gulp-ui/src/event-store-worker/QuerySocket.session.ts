@@ -15,6 +15,7 @@ import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types"
 import type {
 	EventSourceQueryCacheActivation,
 	EventSourceQueryCacheReconciliation,
+	DesiredQueryCacheLookup,
 } from "@/event-store/EventStore.types";
 import type { Source } from "@/entities/Source";
 import type { QueryTransportCallbacks } from "./QueryTransport.types";
@@ -97,7 +98,7 @@ export class QuerySocketSession {
 			},
 		});
 		this.persistence = new QueryPersistenceCoordinator(
-			initialization.coordinatorId,
+			initialization.cacheNamespaceId,
 			{
 				onSourceSummary: callbacks.onSourceSummary,
 				onStreamFailure: (event) => {
@@ -258,14 +259,14 @@ export class QuerySocketSession {
 	}
 
 	/**
-	 * Selects one exact startup cache or latest reusable fallback for a source.
-	 * @param input Operation, source, and desired semantic query fingerprint.
+	 * Selects the safest exact, range-covered, or latest cache for a source.
+	 * @param input Operation, source, and desired exact/shape/range lookup.
 	 * @returns Reconciled cache activation, or null when no cache is reusable.
 	 */
 	public reconcileSourceQueryCache(input: {
 		operationId: string;
 		sourceId: Source.Id;
-		queryFingerprint: string;
+		desired: DesiredQueryCacheLookup;
 	}): Promise<EventSourceQueryCacheReconciliation | null> {
 		return this.persistence.reconcileSourceQueryCache(input);
 	}

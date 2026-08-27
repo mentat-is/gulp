@@ -43,7 +43,7 @@ import {
 import { createRendererQueryReplayWorker } from "./RendererTest.query-replay.factory";
 import s from "./styles/RendererTest.module.css";
 
-const REPLAY_COORDINATOR_ID = "renderer-query-replay";
+const REPLAY_CACHE_NAMESPACE_ID = "renderer-query-replay";
 const REPLAY_OPERATION_ID =
 	"bbbbbbbb-0000-4000-8000-000000000001" as Operation.Id;
 const REPLAY_CONTEXT_ID =
@@ -354,7 +354,7 @@ export function RendererQueryReplayPage({
 		sourceRef.current = fixture.source;
 		DataStore.resetRenderOperation(REPLAY_OPERATION_ID);
 		DataStore.openEventStoreNamespace({
-			coordinatorId: REPLAY_COORDINATOR_ID,
+			cacheNamespaceId: REPLAY_CACHE_NAMESPACE_ID,
 			operationId: REPLAY_OPERATION_ID,
 		});
 		setInfo(((previous: App.Type) => ({
@@ -422,7 +422,7 @@ export function RendererQueryReplayPage({
 			void client
 				.start({
 					profile,
-					coordinatorId: REPLAY_COORDINATOR_ID,
+					cacheNamespaceId: REPLAY_CACHE_NAMESPACE_ID,
 					operationId: REPLAY_OPERATION_ID,
 					operationEpoch: DataStore.getRenderOperationEpoch(),
 					sourceId: REPLAY_SOURCE_ID,

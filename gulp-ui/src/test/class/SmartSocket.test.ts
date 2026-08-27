@@ -10,6 +10,7 @@ import type {
 import { renderWindowProjectionBus } from "@/render-worker/RenderWindowProjection.bus";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 import { EVENT_STORE_LOD_ROLLBACK_KEY } from "@/event-store/EventStore.rollout";
+import type { User } from "@/entities/User";
 import { TextDecoder, TextEncoder } from "util";
 
 Object.defineProperties(globalThis, {
@@ -210,6 +211,32 @@ describe("SmartSocket lifecycle", () => {
 		const second = new SmartSocket.Class("detached-two");
 		expect(second).not.toBe(first);
 		expect(SmartSocket.Class.instance).toBe(second);
+	});
+
+	it("rotates the worker singleton when the authenticated user changes", () => {
+		const first = new SmartSocket.Class(
+			"shared-websocket-id",
+			"user-one" as User.Id,
+		);
+		const firstWebSocket = FakeWebSocket.instances[0];
+		const second = new SmartSocket.Class(
+			"shared-websocket-id",
+			"user-two" as User.Id,
+		);
+
+		expect(second).not.toBe(first);
+		expect(firstWebSocket.closeCalls).toBe(1);
+		expect(SmartSocket.Class.instance).toBe(second);
+	});
+
+	it("keeps the realm singleton when only a detached websocket id differs", () => {
+		const userId = "shared-user" as User.Id;
+		const main = new SmartSocket.Class("main-websocket-id", userId);
+		const detached = new SmartSocket.Class("detached-websocket-id", userId);
+
+		expect(detached).toBe(main);
+		expect(FakeWebSocket.instances).toHaveLength(1);
+		expect(FakeWebSocket.instances[0].closeCalls).toBe(0);
 	});
 
 	it("does not enable RAM passthrough solely for an insecure origin", () => {

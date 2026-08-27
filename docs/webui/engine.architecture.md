@@ -61,7 +61,9 @@ have their own explicit fences.
 
 Before the initial backend request, each selected source is reconciled with its
 IndexedDB cache pool. An exact query-fingerprint hit activates its compact
-manifest immediately. If no exact entry exists, the most recently activated
+manifest immediately. A fresh cache with the same query shape is also reusable
+without warning when its cached range covers the desired range intersected
+with the complete source range. Otherwise the most recently activated
 complete, non-mutated cache is shown with a query-mismatch warning. A source
 with no usable cache, including one with only mutated entries, dispatches
 `/query_raw`; cached and uncached sources can therefore load together.
@@ -126,10 +128,11 @@ height/graph aggregates, and paged document indexes. The backend remains
 authoritative.
 
 Each source head selects one physical cache manifest and stores a source-local
-history cursor. A query-cache record contains query/fingerprint, requested
-range, normalization, server-source snapshot and result summary; its physical
-generation addresses the existing exact pages, LOD, and document indexes. Up to
-five complete caches are retained per source.
+history cursor. A new query-cache record contains a query, exact and
+range-independent shape fingerprints, normalization, server-source snapshot
+and result summary; its physical generation addresses the existing exact
+pages, LOD, and document indexes. The backend range remains in the query
+snapshot. Up to five complete caches are retained per source.
 
 A render window is not a page of documents. It is a bounded projection for the
 visible time range and visible source rows, plus horizontal and vertical
@@ -162,10 +165,13 @@ compares a filtered cache's `eventCount` with the source total. Range comparison
 uses nanoseconds and allows one millisecond only when one server value has no
 finer precision.
 
-An exact fingerprint and matching metadata produce `fresh`; a newly completed
-backend replacement and a source without an active cache are also `fresh`. A
-latest-cache fallback is `query-mismatch`; changed comparable server metadata
-is `source-changed`; post-query upserts are `mutated`; insufficient count/range
+An exact fingerprint or a source-local covered range with matching metadata
+produces `fresh`; a newly completed backend replacement and a source without an
+active cache are also `fresh`. Coverage uses inclusive raw-nanosecond intervals
+and requires `(desired range intersection source range)` to be contained by
+`(cached range intersection source range)`. A latest-cache fallback is
+`query-mismatch`; changed comparable server metadata takes precedence as
+`source-changed`; post-query upserts are `mutated`; insufficient count/range
 evidence is `unknown`.
 
 ## Revisions, generations, ACKs, and frames
@@ -184,7 +190,7 @@ Several counters exist because they answer different questions.
 | data sequence | Identifies the `DATA_PATCH` that applied a source revision. |
 | `globalRevision` | Aggregate telemetry; it is not terminal-render proof. |
 
-The render protocol is version 8. ACKs travel on the data port and frames travel
+The render protocol is version 9. ACKs travel on the data port and frames travel
 on the control port, so their delivery order can be inverted. Canvas therefore
 stores, for each acknowledged source revision, the data sequence that applied
 it. A terminal target is cleared only when all of these statements are true:
@@ -199,14 +205,22 @@ A stale frame received after a newer ACK cannot complete convergence. A watchdog
 requests another projection after 500 ms and backs off to at most two seconds
 until the correct frame arrives or the lifecycle changes.
 
-Version 8 also carries `RenderSource.cacheFreshness`. The values are `fresh`,
-`query-mismatch`, `source-changed`, `mutated`, and `unknown`. Source warnings
-are exposed by one DOM overlay shared by the worker and legacy backends. It
-shows the Lucide `AlertTriangle` icon only for a settled active cache with a
-non-`fresh` warning and provides a localized hover tooltip explaining that the
-displayed events came from cache. Fresh caches, sources without cache authority,
-and backend replacements still in progress show no indicator. The source menu
-continues to expose the detailed reason and actually applied query.
+Version 9 adds an exact `frameEventCount` to each source projection while
+retaining `loadedCount` as the complete-generation authority used by terminal
+convergence. The projector sums active counts from pages entirely inside the
+selected frame and inspects only partial boundary pages; tombstones are
+excluded. The result is cached per source authority, generation, revision, raw
+frame and offset so scroll and zoom do not repeat IndexedDB reads.
+
+Cache freshness is no longer duplicated in render-worker source metadata.
+Source warnings are exposed by one DOM overlay shared by the worker and legacy
+backends. It shows the Lucide `AlertTriangle` icon only for a settled active
+cache with a non-`fresh` warning and provides a localized hover tooltip
+explaining that the displayed events came from cache. Fresh caches, sources
+without cache authority, and backend replacements still in progress show no
+indicator. Warning ownership is matched by the applied query's exact source
+ID, never by the source display name. The source menu continues to expose the
+detailed reason and actually applied query.
 
 ## Behavior while a query is loading
 

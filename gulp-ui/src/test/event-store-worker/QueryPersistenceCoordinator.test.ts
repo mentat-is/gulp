@@ -165,7 +165,7 @@ function createQueryCacheProvenance(
 			},
 		},
 		fingerprint,
-		requestedFrame: { min: 0, max: 100 },
+		shapeFingerprint: `shape:${fingerprint}`,
 		normalization: {
 			field: "gulp.event_code",
 			hashFunction: "fnv1a",
@@ -178,6 +178,17 @@ function createQueryCacheProvenance(
 			timeUpdated: null,
 			millisecondPrecision: true,
 		},
+	};
+}
+
+/** Creates the desired lookup corresponding to a provenance fixture. */
+function createDesiredQueryCacheLookup(fingerprint: string) {
+	const provenance = createQueryCacheProvenance(fingerprint);
+	return {
+		fingerprint: provenance.fingerprint,
+		shapeFingerprint: provenance.shapeFingerprint!,
+		range: { min: "0", max: "100" },
+		serverSnapshot: provenance.serverSnapshot,
 	};
 }
 
@@ -291,7 +302,7 @@ describe("QueryPersistenceCoordinator", () => {
 			.reconcileSourceQueryCache({
 				operationId: "operation-one",
 				sourceId: SOURCE_ONE,
-				queryFingerprint: "lease-replacement",
+				desired: createDesiredQueryCacheLookup("lease-replacement"),
 			})
 			.finally(() => {
 				reconciliationSettled = true;
@@ -362,7 +373,7 @@ describe("QueryPersistenceCoordinator", () => {
 			await harness.coordinator.reconcileSourceQueryCache({
 				operationId: "operation-one",
 				sourceId: SOURCE_ONE,
-				queryFingerprint: "fingerprint-one",
+				desired: createDesiredQueryCacheLookup("fingerprint-one"),
 			});
 		expect(reconciliation).toMatchObject({
 			match: "exact",

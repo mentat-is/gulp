@@ -22,7 +22,7 @@ export type RendererQueryReplayStatus =
 /** Immutable synthetic QuerySocketSession replay configuration. */
 export interface RendererQueryReplayStartOptions {
 	profile: RendererQueryReplayProfile;
-	coordinatorId: string;
+	cacheNamespaceId: string;
 	operationId: string;
 	operationEpoch: number;
 	sourceId: Source.Id;

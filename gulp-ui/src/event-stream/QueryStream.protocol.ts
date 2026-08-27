@@ -4,6 +4,7 @@ import type {
 	EventSourceSummary,
 	EventSourceQueryCacheActivation,
 	EventSourceQueryCacheReconciliation,
+	DesiredQueryCacheLookup,
 } from "@/event-store/EventStore.types";
 import type { EventStoreViewportDescriptor } from "@/event-store/EventStore.viewport-projector";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
@@ -142,7 +143,8 @@ export interface QueryWorkerInitialization {
 	socketUrl: string;
 	token: string;
 	wsId: string;
-	coordinatorId: string;
+	/** Stable backend/user identity for IndexedDB, revision channels, and Web Locks. */
+	cacheNamespaceId: string;
 	legacyUnknownDocumentPassthrough?: boolean;
 }
 
@@ -285,7 +287,7 @@ export interface ReconcileSourceQueryCacheCommand {
 	cacheRequestId: string;
 	operationId: string;
 	sourceId: Source.Id;
-	queryFingerprint: string;
+	desired: DesiredQueryCacheLookup;
 }
 
 /** Moves one source-local query-cache history cursor without backend I/O. */

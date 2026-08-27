@@ -206,7 +206,6 @@ function createCacheActivation(
 			provenance: {
 				query,
 				fingerprint: `cache-fingerprint-${generation}`,
-				requestedFrame: { ...source.timestamp },
 				normalization: {
 					field: String(source.settings.field),
 					hashFunction: source.settings.hash_function,
@@ -520,26 +519,67 @@ describe("Info timeline-frame refetch", () => {
 		const reconcileInput = reconcileSourceQueryCache.mock.calls[0][0] as {
 			operationId: string;
 			sourceId: Source.Id;
-			queryFingerprint: string;
+			desired: { fingerprint: string; shapeFingerprint: string };
 		};
 		expect(reconcileInput.operationId).toBe(source.operation_id);
 		expect(reconcileInput.sourceId).toBe(source.id);
-		expect(reconcileInput.queryFingerprint.startsWith("source-query-v1:")).toBe(
+		expect(reconcileInput.desired.fingerprint.startsWith("source-query-v1:")).toBe(
 			true,
 		);
+		expect(reconcileInput.desired.shapeFingerprint.startsWith("source-query-shape-v1:")).toBe(true);
 		expect(queryFile).not.toHaveBeenCalled();
 		expect(info.events_reset_in_file).not.toHaveBeenCalled();
 		expect(getApp().target.files[0].appliedQuery).toEqual(cachedQuery);
 		expect(getApp().target.files[0].queryCache).toMatchObject({
 			activeGeneration: 4,
-			fingerprint: "cache-fingerprint-4",
-			historyIndex: 0,
-			historyLength: 1,
 			canUndo: false,
 			canRedo: false,
 			freshness: "fresh",
 			warningReason: null,
 		});
+	});
+
+	it("neutralizes only generated source scope in the shape backend filter", () => {
+		const source = createSource();
+		const { info } = createInfoHarness(source);
+		const createProvenance = (
+			info as unknown as {
+				createQueryCacheProvenance: (
+					source: Source.Type,
+					query: Query.Type,
+				) => { shapeFingerprint?: string };
+			}
+		).createQueryCacheProvenance;
+		const query: Query.Type = {
+			...createCacheQuery(source, "numeric range"),
+			filters: [
+				{
+					id: "event-code-range",
+					type: "range",
+					operator: "must",
+					field: "event.code",
+					value: "10,20",
+					enabled: true,
+				} as Query.Type["filters"][number],
+			],
+			fieldTypeMap: { "event.code": "long" },
+		};
+		const baseShape = createProvenance(source, query).shapeFingerprint;
+		const differentGeneratedRange = createProvenance(source, {
+			...query,
+			string: "different display label",
+			source_config: {
+				...query.source_config!,
+				range: { min: "1", max: "2" },
+			},
+		}).shapeFingerprint;
+		const differentlyCoercedFilter = createProvenance(source, {
+			...query,
+			fieldTypeMap: { "event.code": "keyword" },
+		}).shapeFingerprint;
+
+		expect(differentGeneratedRange).toBe(baseShape);
+		expect(differentlyCoercedFilter).not.toBe(baseShape);
 	});
 
 	it("keeps an exact startup cache fresh when query_operations omits time_updated", async () => {
@@ -653,6 +693,47 @@ describe("Info timeline-frame refetch", () => {
 		});
 	});
 
+	it("treats a covered startup cache with unchanged source metadata as fresh", async () => {
+		const source = createSource();
+		const { info, getApp, queryFile } = createInfoHarness(source);
+		const activation = createCacheActivation(source);
+		setSmartSocket({
+			reconcileSourceQueryCache: jest.fn(async () => ({
+				...activation,
+				match: "covered" as const,
+			})),
+		});
+
+		await info.refetch({ ids: source.id, cachePolicy: "initial" });
+
+		expect(queryFile).not.toHaveBeenCalled();
+		expect(getApp().target.files[0].queryCache).toMatchObject({
+			freshness: "fresh",
+			warningReason: null,
+		});
+	});
+
+	it("reports a changed source before a latest-query mismatch", async () => {
+		const source = createSource();
+		const { info, getApp } = createInfoHarness(source);
+		const activation = createCacheActivation(source, {
+			serverSnapshot: { total: source.total + 1 },
+		});
+		setSmartSocket({
+			reconcileSourceQueryCache: jest.fn(async () => ({
+				...activation,
+				match: "latest" as const,
+			})),
+		});
+
+		await info.refetch({ ids: source.id, cachePolicy: "initial" });
+
+		expect(getApp().target.files[0].queryCache).toMatchObject({
+			freshness: "source-changed",
+			warningReason: "source-changed",
+		});
+	});
+
 	it("falls back to the backend when startup reconciliation has no usable cache", async () => {
 		const source = createSource();
 		const { info, getApp, queryFile } = createInfoHarness(source);
@@ -726,6 +807,81 @@ describe("Info timeline-frame refetch", () => {
 			getApp().target.files.find((source) => source.id === missingSource.id)
 				?.appliedQuery?.text_filter,
 		).toBe("*missing source*");
+	});
+
+	it("keeps same-name cache freshness source-local when only one server total changes", async () => {
+		const changedSource = createSource(
+			"frame-refetch-rebased-source" as Source.Id,
+		);
+		const freshSource = createSource(
+			"frame-refetch-unchanged-source" as Source.Id,
+		);
+		changedSource.name = "duplicated-evidence.csv";
+		freshSource.name = "duplicated-evidence.csv";
+		const { info, getApp, queryFile } = createInfoHarness(changedSource);
+		const changedQuery = changedSource.appliedQuery!;
+		const freshQuery: Query.Type = {
+			...changedQuery,
+			source_config: {
+				...changedQuery.source_config!,
+				source_ids: [freshSource.id],
+				range: {
+					min: freshSource.nanotimestamp.min.toString(),
+					max: freshSource.nanotimestamp.max.toString(),
+				},
+			},
+		};
+		freshSource.appliedQuery = freshQuery;
+		getApp().target.files.push(freshSource);
+
+		const changedActivation = createCacheActivation(changedSource, {
+			query: changedQuery,
+			serverSnapshot: { total: changedSource.total - 1 },
+		});
+		const freshActivation = createCacheActivation(freshSource, {
+			query: freshQuery,
+			generation: 7,
+		});
+		setSmartSocket({
+			reconcileSourceQueryCache: jest.fn(async (input: unknown) => {
+				const { sourceId: requestedSourceId } = input as {
+					sourceId: Source.Id;
+				};
+				const activation =
+					requestedSourceId === changedSource.id
+						? changedActivation
+						: freshActivation;
+				return { ...activation, match: "exact" as const };
+			}),
+		});
+
+		await info.refetch({
+			ids: [changedSource.id, freshSource.id],
+			cachePolicy: "initial",
+		});
+
+		const restartedChangedSource = getApp().target.files.find(
+			(source) => source.id === changedSource.id,
+		)!;
+		const restartedFreshSource = getApp().target.files.find(
+			(source) => source.id === freshSource.id,
+		)!;
+		expect(queryFile).not.toHaveBeenCalled();
+		expect(restartedChangedSource.name).toBe(restartedFreshSource.name);
+		expect(restartedChangedSource.appliedQuery?.source_config?.source_ids).toEqual([
+			changedSource.id,
+		]);
+		expect(restartedChangedSource.queryCache).toMatchObject({
+			freshness: "source-changed",
+			warningReason: "source-changed",
+		});
+		expect(restartedFreshSource.appliedQuery?.source_config?.source_ids).toEqual([
+			freshSource.id,
+		]);
+		expect(restartedFreshSource.queryCache).toMatchObject({
+			freshness: "fresh",
+			warningReason: null,
+		});
 	});
 
 	it("does not refetch or apply a rebase when cache-pool invalidation fails", async () => {
@@ -820,9 +976,6 @@ describe("Info timeline-frame refetch", () => {
 		const source = createSource();
 		source.queryCache = {
 			activeGeneration: 2,
-			fingerprint: "cache-fingerprint-2",
-			historyIndex: 1,
-			historyLength: 3,
 			canUndo: true,
 			canRedo: true,
 			freshness: "fresh",
@@ -856,8 +1009,6 @@ describe("Info timeline-frame refetch", () => {
 		expect(getApp().target.files[0].appliedQuery).toEqual(undoQuery);
 		expect(getApp().target.files[0].queryCache).toMatchObject({
 			activeGeneration: 1,
-			historyIndex: 0,
-			historyLength: 3,
 			canUndo: false,
 			canRedo: true,
 		});
@@ -883,8 +1034,6 @@ describe("Info timeline-frame refetch", () => {
 		expect(getApp().target.files[0].appliedQuery).toEqual(redoQuery);
 		expect(getApp().target.files[0].queryCache).toMatchObject({
 			activeGeneration: 2,
-			historyIndex: 1,
-			historyLength: 3,
 			canUndo: true,
 			canRedo: true,
 		});

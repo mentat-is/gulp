@@ -1,5 +1,9 @@
 import type { Doc } from "@/entities/Doc";
-import type { QueryCacheProvenance } from "@/entities/QueryCache";
+import {
+	coversRequestedSourceRange,
+	sourceSnapshotsMatch,
+	type QueryCacheProvenance,
+} from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
 import {
 	buildEventPageHeight,
@@ -31,6 +35,7 @@ import {
 	type EncodedEventPage,
 	type EncodedEventPageHeight,
 	type EncodedEventPageLod,
+	type DesiredQueryCacheLookup,
 	type EventObsoleteGenerationMarker,
 	type EventDocumentIndexSegmentCatalogEntry,
 	type EventPageCatalogEntry,
@@ -56,6 +61,64 @@ const EVENT_GENERATION_CLEANUP_OPERATION_LIMIT = 256;
 const EVENT_INDEX_CLEANUP_OPERATION_LIMIT = 256;
 const EVENT_INDEX_STAGE_OPERATION_LIMIT = 64;
 const EVENT_INDEX_STAGE_BYTE_LIMIT = 16 * 1024 ** 2;
+
+/**
+ * Reads the persisted range-independent identity of one newly written cache record.
+ * Older v4 records deliberately remain eligible only for exact or latest matching.
+ * @param provenance Query provenance read from a cache record.
+ * @returns Canonical query-shape fingerprint, or null for a legacy v4 record.
+ */
+function getQueryCacheShapeFingerprint(
+	provenance: QueryCacheProvenance,
+): string | null {
+	return provenance.shapeFingerprint ?? null;
+}
+
+/**
+ * Compares cached and desired full-source snapshots without allowing malformed
+ * persisted nanosecond values to abort startup reconciliation.
+ * @param provenance Cached query provenance.
+ * @param desired Desired lookup carrying current server metadata.
+ * @returns True only when both snapshots describe the same source authority.
+ */
+function queryCacheSnapshotMatches(
+	provenance: QueryCacheProvenance,
+	desired: DesiredQueryCacheLookup,
+): boolean {
+	try {
+		return sourceSnapshotsMatch(
+			provenance.serverSnapshot,
+			desired.serverSnapshot,
+		);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Checks whether one fresh cache has matching non-range semantics and fully covers
+ * the desired slice of the current source.
+ * @param record Complete exact cache candidate.
+ * @param desired Desired semantic shape, range, and server metadata.
+ * @returns True when the candidate can be reused without a query mismatch.
+ */
+function queryCacheCoversDesiredLookup(
+	record: EventSourceQueryCacheRecord,
+	desired: DesiredQueryCacheLookup,
+): boolean {
+	const cachedRange = record.provenance.query.source_config?.range;
+	return (
+		cachedRange !== undefined &&
+		getQueryCacheShapeFingerprint(record.provenance) ===
+			desired.shapeFingerprint &&
+		queryCacheSnapshotMatches(record.provenance, desired) &&
+		coversRequestedSourceRange(
+			cachedRange,
+			desired.range,
+			desired.serverSnapshot,
+		)
+	);
+}
 
 type DocumentIndexSegmentCatalogEntry = EventDocumentIndexSegmentCatalogEntry;
 
@@ -142,7 +205,7 @@ export interface ActivateEventSourceQueryCacheInput {
 
 export interface ReconcileEventSourceQueryCacheInput {
 	sourceId: Source.Id;
-	queryFingerprint: string;
+	desired: DesiredQueryCacheLookup;
 }
 
 export interface AppendEventStorePagesInput {
@@ -1400,10 +1463,12 @@ export class EventStoreRepository
 	}
 
 	/**
-	 * Selects an exact reusable startup cache or the most recently activated fallback.
+	 * Selects the safest reusable startup cache before falling back to recency.
+	 * Fresh exact matches outrank fresh range-covered matches, which outrank stale
+	 * exact matches and the most recently activated remaining cache.
 	 * The chosen cache becomes the sole history entry before all alternatives are pruned.
-	 * @param input Source and desired semantic query fingerprint.
-	 * @returns Activated cache and match classification, or null when none is retained.
+	 * @param input Source and desired query identity, range, and server snapshot.
+	 * @returns Activated exact, covered, or latest cache, or null when none is reusable.
 	 */
 	public async reconcileQueryCache(
 		input: ReconcileEventSourceQueryCacheInput,
@@ -1458,11 +1523,25 @@ export class EventStoreRepository
 			await this.resetQueryCachePool(input.sourceId);
 			return null;
 		}
-		const exact = reusableByRecency.find(
-			(record) =>
-				record.provenance.fingerprint === input.queryFingerprint,
+		const exactCandidates = reusableByRecency.filter(
+			(record) => record.provenance.fingerprint === input.desired.fingerprint,
 		);
-		const chosen = exact ?? reusableByRecency[0];
+		const freshExact = exactCandidates.find((record) =>
+			queryCacheSnapshotMatches(record.provenance, input.desired),
+		);
+		const freshCovered = reusableByRecency.find((record) =>
+			queryCacheCoversDesiredLookup(record, input.desired),
+		);
+		const staleExact = exactCandidates[0];
+		const chosen =
+			freshExact ?? freshCovered ?? staleExact ?? reusableByRecency[0];
+		const match: EventSourceQueryCacheReconciliation["match"] = freshExact
+			? "exact"
+			: freshCovered
+				? "covered"
+				: staleExact
+					? "exact"
+					: "latest";
 		const reconstructed = this.createSourceHeadFromCache(chosen);
 		const base = current ?? {
 			...reconstructed,
@@ -1482,7 +1561,7 @@ export class EventStoreRepository
 			pendingCacheCleanup,
 		);
 		await this.cleanupObsoleteGenerations(input.sourceId);
-		return { ...activation, match: exact ? "exact" : "latest" };
+		return { ...activation, match };
 	}
 
 	/**

@@ -66,6 +66,24 @@ export function shouldShowCanvasCacheWarning(
 }
 
 /**
+ * Determines whether a warning-state cache belongs to the rendered source row.
+ * Cached queries are source-scoped, so their persisted source id must match the
+ * runtime source id exactly; a display name is never an identity boundary.
+ * @param source Source row carrying cache state and its applied query provenance.
+ * @returns True only when the warning belongs to this exact source id.
+ */
+export function shouldShowCanvasSourceCacheWarning(
+	source: Pick<Source.Type, "id" | "appliedQuery" | "queryCache">,
+): boolean {
+	const querySourceIds = source.appliedQuery?.source_config?.source_ids;
+	return (
+		querySourceIds?.length === 1 &&
+		querySourceIds[0] === source.id &&
+		shouldShowCanvasCacheWarning(source.queryCache)
+	);
+}
+
+/**
  * Positions one warning icon on the source-name baseline for the current scroll.
  * @param rowIndex Source index in rendered timeline order.
  * @param scrollY Current vertical Canvas scroll offset.
@@ -103,7 +121,7 @@ export function CanvasCacheWarningOverlay({
 		<TooltipProvider>
 			<div className={s.cache_warning_layer}>
 				{sources.map((source, rowIndex) =>
-					shouldShowCanvasCacheWarning(source.queryCache) ? (
+					shouldShowCanvasSourceCacheWarning(source) ? (
 						<div
 							key={source.id}
 							className={s.cache_warning_row}

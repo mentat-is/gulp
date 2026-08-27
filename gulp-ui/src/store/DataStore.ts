@@ -456,11 +456,11 @@ export class DataStore {
 
 	/**
 	 * Opens the operation-scoped IndexedDB reader shared with QueryWorker and detached realms.
-	 * @param namespace Coordinator and operation identity for the exact event cache.
+	 * @param namespace Backend/user and operation identity for the exact event cache.
 	 * @returns Nothing.
 	 */
 	public static openEventStoreNamespace(namespace: EventStoreNamespace): void {
-		const namespaceKey = `${namespace.coordinatorId}:${namespace.operationId}`;
+		const namespaceKey = `${namespace.cacheNamespaceId}:${namespace.operationId}`;
 		if (
 			DataStore.eventStoreNamespaceKey === namespaceKey &&
 			DataStore.eventStoreRepository

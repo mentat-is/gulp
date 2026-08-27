@@ -187,7 +187,6 @@ function createQueryProvenance(fingerprint: string): QueryCacheProvenance {
 			},
 		},
 		fingerprint,
-		requestedFrame: { min: 0, max: 1_000 },
 		normalization: {
 			field: "number_hash",
 			hashFunction: "fnv1a",
@@ -476,6 +475,66 @@ describe("EventStoreViewportProjector", () => {
 		expect(latest.sources[0].representativeHandles.length > 0).toBe(true);
 		expect(backend.pageLodReads).toBe(2);
 		expect(backend.exactPageReads).toBe(2);
+	});
+
+	it("counts the complete source-adjusted frame and caches partial-page reads across scrolls", async () => {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const sourceId = "projector-frame-count" as Source.Id;
+		const partialPage = createPage(
+			sourceId,
+			0,
+			[
+				createDocument("partial-800", 800, 1, sourceId),
+				createDocument("partial-tombstone", 700, 2, sourceId),
+				createDocument("partial-600", 600, 3, sourceId),
+			],
+			[1, 2, 3],
+		);
+		const tombstoneIndex = Array.from(partialPage.timestamps).indexOf(700);
+		partialPage.tombstones[tombstoneIndex] = 1;
+		partialPage.activeCount--;
+		const containedPage = createPage(
+			sourceId,
+			1,
+			[
+				createDocument("contained-700", 700, 4, sourceId),
+				createDocument("contained-680", 680, 5, sourceId),
+			],
+			[4, 5],
+		);
+		await persistSource(repository, sourceId, [partialPage, containedPage]);
+		const projector = new EventStoreViewportProjector(backend);
+		const descriptor: EventStoreViewportDescriptor = {
+			...createDescriptor(sourceId),
+			frame: { min: 700, max: 900 },
+			width: 100,
+			sources: [
+				{
+					...createDescriptor(sourceId).sources[0],
+					offset: 50,
+					engine: "height",
+				},
+			],
+		};
+
+		backend.resetReads();
+		const first = await projector.requestRenderWindow(descriptor);
+		expect(first.sources[0]).toMatchObject({
+			loadedCount: 4,
+			frameEventCount: 3,
+		});
+		expect(backend.exactPageReads).toBe(1);
+
+		backend.resetReads();
+		const scrolled = await projector.requestRenderWindow({
+			...descriptor,
+			viewportRevision: descriptor.viewportRevision + 1,
+			projectionRevision: descriptor.projectionRevision + 1,
+			scrollX: 25,
+		});
+		expect(scrolled.sources[0].frameEventCount).toBe(3);
+		expect(backend.exactPageReads).toBe(0);
 	});
 
 	it("publishes a coherent building snapshot after a newer same-generation commit", async () => {

@@ -21,6 +21,7 @@ import {
 	type EventSourceHeadManifest,
 	type EventSourceQueryCacheActivation,
 	type EventSourceQueryCacheReconciliation,
+	type DesiredQueryCacheLookup,
 	type EventSourceSummary,
 	type EventStoreNamespace,
 } from "@/event-store/EventStore.types";
@@ -73,10 +74,10 @@ interface QueryPersistenceRepository {
 		sourceId: Source.Id,
 		generation: number,
 	) => Promise<EventSourceSummary>;
-	/** Selects an exact startup cache or the latest reusable fallback. */
+	/** Selects the safest exact, range-covered, or latest startup cache. */
 	reconcileQueryCache(input: {
 		sourceId: Source.Id;
-		queryFingerprint: string;
+		desired: DesiredQueryCacheLookup;
 	}): Promise<EventSourceQueryCacheReconciliation | null>;
 	/** Activates the preceding source-local cache generation. */
 	undoQueryCache(
@@ -213,7 +214,7 @@ class QueryPersistenceError extends Error {
  * sending document payloads back to the main thread.
  */
 export class QueryPersistenceCoordinator {
-	private readonly coordinatorId: string;
+	private readonly cacheNamespaceId: string;
 	private readonly callbacks: QueryPersistenceCallbacks;
 	private readonly createOperationStore: (
 		namespace: EventStoreNamespace,
@@ -264,20 +265,20 @@ export class QueryPersistenceCoordinator {
 	private destroyed = false;
 
 	/**
-	 * Creates a coordinator for one cross-window EventStore namespace.
-	 * @param coordinatorId Main/detached browsing-context coordinator identity.
+	 * Creates a coordinator for one cross-realm EventStore namespace.
+	 * @param cacheNamespaceId Stable backend/user cache identity.
 	 * @param callbacks Summary, failure, and router lifecycle hooks.
 	 * @param options Injectable persistence backends and deterministic limits for tests.
 	 */
 	public constructor(
-		coordinatorId: string,
+		cacheNamespaceId: string,
 		callbacks: QueryPersistenceCallbacks,
 		options: QueryPersistenceCoordinatorOptions = {},
 	) {
-		if (coordinatorId.length === 0) {
-			throw new TypeError("Query persistence coordinatorId cannot be empty.");
+		if (cacheNamespaceId.length === 0) {
+			throw new TypeError("Query persistence cacheNamespaceId cannot be empty.");
 		}
-		this.coordinatorId = coordinatorId;
+		this.cacheNamespaceId = cacheNamespaceId;
 		this.callbacks = callbacks;
 		this.lockManager = options.lockManager ?? globalThis.navigator?.locks;
 		this.pendingDocumentLimit =
@@ -505,13 +506,13 @@ export class QueryPersistenceCoordinator {
 
 	/**
 	 * Selects one reusable startup cache while holding the source mutation lease.
-	 * @param input Operation, source, and desired semantic query fingerprint.
-	 * @returns Exact or latest cache activation, or null when no cache is reusable.
+	 * @param input Operation, source, and desired exact/shape/range lookup.
+	 * @returns Exact, covered, or latest cache activation, or null when none is reusable.
 	 */
 	public reconcileSourceQueryCache(input: {
 		operationId: string;
 		sourceId: Source.Id;
-		queryFingerprint: string;
+		desired: DesiredQueryCacheLookup;
 	}): Promise<EventSourceQueryCacheReconciliation | null> {
 		return this.runSourceCacheMutation(
 			input.operationId,
@@ -519,7 +520,7 @@ export class QueryPersistenceCoordinator {
 			(repository) =>
 				repository.reconcileQueryCache({
 					sourceId: input.sourceId,
-					queryFingerprint: input.queryFingerprint,
+					desired: input.desired,
 				}),
 			(result) => result?.summary ?? null,
 		);
@@ -1403,7 +1404,6 @@ export class QueryPersistenceCoordinator {
 				? {
 						...descriptor.queryCache,
 						query: cloneQueryForCache(descriptor.queryCache.query),
-						requestedFrame: { ...descriptor.queryCache.requestedFrame },
 						normalization: {
 							...descriptor.queryCache.normalization,
 							requestedFields: [
@@ -1428,7 +1428,7 @@ export class QueryPersistenceCoordinator {
 		if (operation) return operation;
 		operation = (async () => {
 			const namespace: EventStoreNamespace = {
-				coordinatorId: this.coordinatorId,
+				cacheNamespaceId: this.cacheNamespaceId,
 				operationId: operationId as Operation.Id,
 			};
 			const store = this.createOperationStore(namespace);
@@ -2285,7 +2285,7 @@ export class QueryPersistenceCoordinator {
 	private async acquireCrossRealmSourceLease(key: string): Promise<() => void> {
 		if (!this.lockManager) return () => undefined;
 		const lockName = `gulp-event-store-writer:${encodeURIComponent(
-			this.coordinatorId,
+			this.cacheNamespaceId,
 		)}:${encodeURIComponent(key)}`;
 		let releaseGate = (): void => undefined;
 		const gate = new Promise<void>((resolve) => {

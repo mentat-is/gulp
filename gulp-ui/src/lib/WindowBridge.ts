@@ -18,6 +18,7 @@ import type { Context } from '@/entities/Context'
 import type { Query } from '@/entities/Query'
 import type { Link } from '@/entities/Link'
 import type { User } from '@/entities/User'
+import { createUserEventStoreCacheNamespaceId } from '@/event-store/EventStore.namespace'
 import {
   DataStore,
   type NotesRealtimeSyncChange,
@@ -189,6 +190,8 @@ export namespace WindowBridge {
     operation: Operation.Type | null
     contexts: Array<Context.Type | DetachedNotesContextSummary>
     sources: Array<DetachedSourceSummary | DetachedNotesSourceSummary>
+    /** Stable backend/user identity used by detached EventStore readers. */
+    cacheNamespaceId: string | null
     /** Compact identity/preference subset needed by supported Dialogs. */
     user?: {
       id: User.Id
@@ -941,6 +944,12 @@ export namespace WindowBridge {
     )
 
     return {
+      cacheNamespaceId: app.general.user
+        ? createUserEventStoreCacheNamespaceId(
+          app.general.user.id,
+          app.general.server,
+        )
+        : null,
       operation: operation
         ? {
           ...operation,

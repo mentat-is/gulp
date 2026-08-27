@@ -1,5 +1,5 @@
 /** Current wire-protocol version shared by the main thread and render worker. */
-export const RENDER_PROTOCOL_VERSION = 8 as const;
+export const RENDER_PROTOCOL_VERSION = 9 as const;
 /** Horizontal graph density interval preserved by both QueryWorker and RenderCore. */
 export const RENDER_GRAPH_BUCKET_PIXEL_WIDTH = 10;
 
@@ -101,14 +101,6 @@ export interface RenderFrameState extends RenderViewportState, RenderSceneState 
 /** Optional loading decoration associated with one source. */
 export type RenderLoadingKind = "none" | "ingestion" | "loading";
 
-/** Freshness classification for the query cache currently rendered by one source. */
-export type RenderCacheFreshness =
-	| "fresh"
-	| "query-mismatch"
-	| "source-changed"
-	| "mutated"
-	| "unknown";
-
 /** Explicit hash-to-color override resolved on the main thread. */
 export interface RenderColorOverride {
 	hash: number;
@@ -127,7 +119,6 @@ export interface RenderSource {
 	timestamp: RenderTimeRange;
 	total: number;
 	loadingKind: RenderLoadingKind;
-	cacheFreshness: RenderCacheFreshness;
 	offset: number;
 	engine: RenderEngineKind;
 	frequency: number;
@@ -281,6 +272,9 @@ export interface RenderWindowSourceProjection {
 	coveredRange: RenderTimeRange;
 	bucketPixelWidth: number;
 	degradedLod: boolean;
+	/** Exact active event count inside the complete source-adjusted frame. */
+	frameEventCount: number;
+	/** Complete active-generation count retained for authority convergence. */
 	loadedCount: number;
 	hashRange: RenderNumericRange;
 	representativeHandles: Uint32Array;

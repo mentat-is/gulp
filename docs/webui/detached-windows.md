@@ -77,10 +77,11 @@ socket ID in its browser realm. Notes, Table View, Dashboard, and Dialog use
 the bridge and create no backend websocket.
 
 Same-origin realms that need exact timeline documents open bounded readers on
-the operation EventStore namespace identified by the coordinator and operation
-IDs. IndexedDB holds the shared exact pages; the bridge carries only compact UI
-projections and invalidation state. Document-stream writes and viewport render
-projection remain owned by the main application's query worker. See
+the EventStore namespace identified by canonical backend, authenticated user,
+and operation ID. IndexedDB holds the shared exact pages; the bridge carries
+only the resolved cache identity, compact UI projections, and invalidation
+state. Document-stream writes and viewport render projection remain owned by
+the main application's query worker. See
 [Query worker and event storage architecture](query-worker.md).
 
 Route parameters carry the coordinator ID, client ID, and application-specific
@@ -92,6 +93,13 @@ plugin filename.
 Each main tab owns a coordinator ID stored in `sessionStorage`. The ID scopes
 window names, recovery records, lifecycle state, and every bridge channel.
 Detached routes adopt the coordinator ID from their URL.
+
+This coordinator does not own the event cache. EventStore uses a separate
+backend-and-user `cacheNamespaceId`, which the main tab includes in context and
+bootstrap payloads. Detached readers therefore open the same IndexedDB data as
+the authenticated user even after a browser restart, while bridge channels
+remain isolated per main tab. Auth loss closes the detached reader/worker before
+another user can receive context.
 
 Coordinator ownership also includes a per-document marker. A same-tab reload
 retains the coordinator namespace. A duplicated or opener-created main tab

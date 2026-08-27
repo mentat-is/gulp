@@ -36,6 +36,55 @@ export interface WorkerRenderCoreCallbacks {
 	requestAsset: (assetKey: string, color: string) => void;
 }
 
+/**
+ * Counts values inside an inclusive range in an ascending or descending timestamp column.
+ * @param timestamps Sorted timestamp column owned by a direct render snapshot.
+ * @param minimum Inclusive raw minimum timestamp.
+ * @param maximum Inclusive raw maximum timestamp.
+ * @returns Number of timestamps inside the range.
+ */
+export function countSortedRenderTimestamps(
+	timestamps: Float64Array,
+	minimum: number,
+	maximum: number,
+): number {
+	if (timestamps.length === 0 || minimum > maximum) return 0;
+	const ascending = timestamps[0] <= timestamps[timestamps.length - 1];
+	if (ascending) {
+		let low = 0;
+		let high = timestamps.length;
+		while (low < high) {
+			const middle = (low + high) >>> 1;
+			if (timestamps[middle] < minimum) low = middle + 1;
+			else high = middle;
+		}
+		const start = low;
+		high = timestamps.length;
+		while (low < high) {
+			const middle = (low + high) >>> 1;
+			if (timestamps[middle] <= maximum) low = middle + 1;
+			else high = middle;
+		}
+		return low - start;
+	}
+
+	let low = 0;
+	let high = timestamps.length;
+	while (low < high) {
+		const middle = (low + high) >>> 1;
+		if (timestamps[middle] > maximum) low = middle + 1;
+		else high = middle;
+	}
+	const start = low;
+	high = timestamps.length;
+	while (low < high) {
+		const middle = (low + high) >>> 1;
+		if (timestamps[middle] >= minimum) low = middle + 1;
+		else high = middle;
+	}
+	return low - start;
+}
+
 interface RenderDot {
 	x: number;
 	y: number;
@@ -1517,9 +1566,7 @@ export class WorkerRenderCore {
 		this.context.fillRect(maximumX + 1, centerY - 24, 1, 47);
 		this.context.fillRect(minimumX - 1, centerY - 24, 1, 47);
 
-		const eventCount = (
-			this.repository.getEvents(source.id)?.loadedCount ?? 0
-		).toString();
+		const eventCount = this.getSourceFrameEventCount(source, state).toString();
 		const lineY = [centerY - 6, centerY + 4, centerY + 14];
 		this.context.font = '10px "GeistMono", monospace';
 		this.context.textAlign = "left";
@@ -1551,7 +1598,7 @@ export class WorkerRenderCore {
 	 * @param lineY Three label baselines.
 	 * @param total Canonical source total.
 	 * @param timestamp Boundary timestamp.
-	 * @param eventCount Loaded event count.
+	 * @param eventCount Event count inside the selected timeline frame.
 	 * @param state Current palette and locale.
 	 * @returns Nothing.
 	 */
@@ -1602,7 +1649,7 @@ export class WorkerRenderCore {
 	}
 
 	/**
-	 * Draws source name, loaded count, total, context, and localized loading suffixes.
+	 * Draws source name, frame-local count, total, context, and loading suffixes.
 	 * @param source Source metadata.
 	 * @param centerY Source row center.
 	 * @param state Current palette and localized strings.
@@ -1619,8 +1666,7 @@ export class WorkerRenderCore {
 				: source.loadingKind === "loading"
 					? state.localized.loadingSuffix
 					: "";
-		const eventCount =
-			this.repository.getEvents(source.id)?.loadedCount ?? 0;
+		const eventCount = this.getSourceFrameEventCount(source, state);
 		const contextLabel = source.contextLabel || state.localized.unknownContext;
 		const sourceLabel = `${source.name}${suffix}`;
 		const sourceLabelY = centerY + 4;
@@ -1639,6 +1685,26 @@ export class WorkerRenderCore {
 			this.context.fillStyle = line.color;
 			this.context.fillText(line.text, 10, line.y);
 		}
+	}
+
+	/**
+	 * Resolves the frame-local count from EventStore authority or a direct RAM snapshot.
+	 * @param source Source whose offset determines the raw timestamp interval.
+	 * @param state Current selected frame.
+	 * @returns Exact loaded event count inside the selected frame.
+	 */
+	private getSourceFrameEventCount(
+		source: RenderSource,
+		state: RenderFrameState,
+	): number {
+		const events = this.repository.getEvents(source.id);
+		if (!events) return 0;
+		if (events.frameEventCount !== undefined) return events.frameEventCount;
+		return countSortedRenderTimestamps(
+			events.timestamps,
+			state.frame.min - source.offset,
+			state.frame.max - source.offset,
+		);
 	}
 
 	/**

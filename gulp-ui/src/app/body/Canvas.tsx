@@ -2713,7 +2713,6 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 						contextLabel,
 						contextColor,
 						loadingKind,
-						source.queryCache.freshness,
 						rowOrder,
 					]);
 					const previousSignature =
@@ -2745,7 +2744,6 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 							source.context_id,
 						),
 						loadingKind,
-						cacheFreshness: source.queryCache.freshness,
 						gradient,
 						customPaletteColors,
 					});

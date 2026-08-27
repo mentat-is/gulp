@@ -1,5 +1,9 @@
 import type { Doc } from "@/entities/Doc";
-import type { QueryCacheProvenance } from "@/entities/QueryCache";
+import {
+	fingerprintSourceQueryShape,
+	type QueryCacheProvenance,
+	type QueryCacheServerSnapshot,
+} from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
 import { encodeEventPage } from "@/event-store/EventPage.codec";
 import type {
@@ -20,6 +24,7 @@ import {
 	type EncodedEventPage,
 	type EncodedEventPageHeight,
 	type EncodedEventPageLod,
+	type DesiredQueryCacheLookup,
 	type EventSourceManifest,
 	type EventSourceQueryCacheRecord,
 } from "@/event-store/EventStore.types";
@@ -71,8 +76,9 @@ function createPage(
 function createQueryCacheProvenance(
 	fingerprint: string,
 	range: { min: number; max: number } = { min: 0, max: 100 },
+	serverSnapshot: Partial<QueryCacheServerSnapshot> = {},
 ): QueryCacheProvenance {
-	return {
+	const provenance: QueryCacheProvenance = {
 		query: {
 			string: `Query ${fingerprint}`,
 			filters: [],
@@ -83,7 +89,6 @@ function createQueryCacheProvenance(
 			},
 		},
 		fingerprint,
-		requestedFrame: range,
 		normalization: {
 			field: "number_hash",
 			hashFunction: "fnv1a",
@@ -95,7 +100,32 @@ function createQueryCacheProvenance(
 			maxNanoseconds: String(range.max),
 			timeUpdated: 1,
 			millisecondPrecision: false,
+			...serverSnapshot,
 		},
+	};
+	provenance.shapeFingerprint = fingerprintSourceQueryShape({
+		query: provenance.query,
+		normalization: provenance.normalization,
+	});
+	return provenance;
+}
+
+/** Creates one desired startup lookup from source-scoped query provenance. */
+function createDesiredQueryCacheLookup(
+	fingerprint: string,
+	range: { min: number; max: number } = { min: 0, max: 100 },
+	serverSnapshot: Partial<QueryCacheServerSnapshot> = {},
+): DesiredQueryCacheLookup {
+	const provenance = createQueryCacheProvenance(
+		fingerprint,
+		range,
+		serverSnapshot,
+	);
+	return {
+		fingerprint,
+		shapeFingerprint: provenance.shapeFingerprint!,
+		range: { min: String(range.min), max: String(range.max) },
+		serverSnapshot: provenance.serverSnapshot,
 	};
 }
 
@@ -106,11 +136,19 @@ async function appendQueryCache(
 	fingerprint: string,
 	documentId: string,
 	timestamp: number,
+	options: {
+		range?: { min: number; max: number };
+		serverSnapshot?: Partial<QueryCacheServerSnapshot>;
+	} = {},
 ): Promise<number> {
 	const building = await repository.beginGeneration({
 		sourceId: SOURCE_ID,
 		...(generation === undefined ? {} : { generation }),
-		queryCache: createQueryCacheProvenance(fingerprint),
+		queryCache: createQueryCacheProvenance(
+			fingerprint,
+			options.range,
+			options.serverSnapshot,
+		),
 	});
 	await repository.appendPages({
 		sourceId: SOURCE_ID,
@@ -1220,15 +1258,54 @@ describe("EventStoreRepository", () => {
 			state: "exact",
 			createdAt: 1234,
 			lastActivatedAt: 1234,
-			provenance: { fingerprint: "fingerprint-one" },
+			provenance: {
+				fingerprint: "fingerprint-one",
+			},
 			manifest: { status: "complete", eventCount: 1 },
 		});
+		expect(
+			records[0].provenance.shapeFingerprint?.startsWith(
+				"source-query-shape-v1:",
+			),
+		).toBe(true);
 		expect("cacheHistory" in records[0].manifest).toBe(false);
 		expect((await repository.listQueryCaches(SOURCE_ID))[0]).toMatchObject({
 			generation: 1,
 			state: "exact",
 			eventCount: 1,
 		});
+	});
+
+	it("does not synthesize a missing shape while finalizing a v4 cache", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const provenanceWithShape = createQueryCacheProvenance("legacy-v4");
+		const { shapeFingerprint: _shapeFingerprint, ...legacyProvenance } =
+			provenanceWithShape;
+		const building = await repository.beginGeneration({
+			sourceId: SOURCE_ID,
+			queryCache: legacyProvenance,
+		});
+		await repository.appendPages({
+			sourceId: SOURCE_ID,
+			generation: building.generation,
+			pages: [
+				createPage(
+					0,
+					building.generation,
+					building.revision,
+					[createDocument("legacy-v4", 10)],
+					[1],
+				),
+			],
+		});
+		await repository.finalizeGeneration(SOURCE_ID, building.generation);
+
+		const record = await backend.get<EventSourceQueryCacheRecord>(
+			"source_query_caches",
+			[SOURCE_ID, building.generation],
+		);
+		expect(record?.provenance.shapeFingerprint).toBeUndefined();
 	});
 
 	it("undoes and redoes older physical generations through monotonic authority", async () => {
@@ -1307,16 +1384,18 @@ describe("EventStoreRepository", () => {
 
 	it("reconciles an exact cache or latest reusable fallback and prunes alternatives", async () => {
 		let now = 0;
-		const repository = new EventStoreRepository(new MemoryEventStoreBackend(), {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend, {
 			now: () => ++now,
 		});
 		await appendQueryCache(repository, undefined, "one", "one", 10);
 		await appendQueryCache(repository, undefined, "two", "two", 20);
 		await appendQueryCache(repository, undefined, "three", "three", 30);
+		backend.pageReads = 0;
 
 		const exact = await repository.reconcileQueryCache({
 			sourceId: SOURCE_ID,
-			queryFingerprint: "two",
+			desired: createDesiredQueryCacheLookup("two"),
 		});
 		expect(exact).toMatchObject({
 			match: "exact",
@@ -1328,11 +1407,15 @@ describe("EventStoreRepository", () => {
 				(cache) => cache.generation,
 			),
 		).toEqual([2]);
+		expect(backend.pageReads).toBe(0);
 
 		await appendQueryCache(repository, undefined, "latest", "latest", 40);
 		const fallback = await repository.reconcileQueryCache({
 			sourceId: SOURCE_ID,
-			queryFingerprint: "missing",
+			desired: createDesiredQueryCacheLookup("missing", {
+				min: 1_000,
+				max: 2_000,
+			}),
 		});
 		expect(fallback).toMatchObject({
 			match: "latest",
@@ -1341,6 +1424,200 @@ describe("EventStoreRepository", () => {
 		});
 		expect(await repository.getById("latest" as Doc.Id)).not.toBeNull();
 		expect(await repository.getById("two" as Doc.Id)).toBeNull();
+	});
+
+	it("ranks fresh exact, fresh covered, stale exact, then latest caches", async () => {
+		const currentSnapshot = {
+			total: 1,
+			minNanoseconds: "0",
+			maxNanoseconds: "100",
+			timeUpdated: 1,
+			millisecondPrecision: false,
+		};
+		const desiredRange = { min: 0, max: 200 };
+
+		const exactRepository = new EventStoreRepository(
+			new MemoryEventStoreBackend(),
+		);
+		await appendQueryCache(
+			exactRepository,
+			undefined,
+			"desired",
+			"exact",
+			10,
+			{ range: desiredRange, serverSnapshot: currentSnapshot },
+		);
+		await appendQueryCache(
+			exactRepository,
+			undefined,
+			"covered-newer",
+			"covered-newer",
+			20,
+			{
+				range: { min: 0, max: 100 },
+				serverSnapshot: currentSnapshot,
+			},
+		);
+		const exact = await exactRepository.reconcileQueryCache({
+			sourceId: SOURCE_ID,
+			desired: createDesiredQueryCacheLookup(
+				"desired",
+				desiredRange,
+				currentSnapshot,
+			),
+		});
+		expect(exact).toMatchObject({
+			match: "exact",
+			cache: { generation: 1 },
+			summary: { cacheHistory: [1] },
+		});
+
+		const coveredRepository = new EventStoreRepository(
+			new MemoryEventStoreBackend(),
+		);
+		await appendQueryCache(
+			coveredRepository,
+			undefined,
+			"desired",
+			"exact-stale",
+			10,
+			{
+				range: desiredRange,
+				serverSnapshot: { ...currentSnapshot, total: 2 },
+			},
+		);
+		await appendQueryCache(
+			coveredRepository,
+			undefined,
+			"covered",
+			"covered",
+			20,
+			{
+				range: { min: 0, max: 100 },
+				serverSnapshot: currentSnapshot,
+			},
+		);
+		await appendQueryCache(
+			coveredRepository,
+			undefined,
+			"latest",
+			"latest",
+			30,
+			{
+				range: { min: 300, max: 400 },
+				serverSnapshot: currentSnapshot,
+			},
+		);
+		const covered = await coveredRepository.reconcileQueryCache({
+			sourceId: SOURCE_ID,
+			desired: createDesiredQueryCacheLookup(
+				"desired",
+				desiredRange,
+				currentSnapshot,
+			),
+		});
+		expect(covered).toMatchObject({
+			match: "covered",
+			cache: { generation: 2 },
+			summary: { cacheHistory: [2] },
+		});
+		expect(
+			(await coveredRepository.listQueryCaches(SOURCE_ID)).map(
+				(cache) => cache.generation,
+			),
+		).toEqual([2]);
+
+		const staleExactRepository = new EventStoreRepository(
+			new MemoryEventStoreBackend(),
+		);
+		await appendQueryCache(
+			staleExactRepository,
+			undefined,
+			"desired",
+			"exact-stale",
+			10,
+			{
+				range: desiredRange,
+				serverSnapshot: { ...currentSnapshot, total: 2 },
+			},
+		);
+		await appendQueryCache(
+			staleExactRepository,
+			undefined,
+			"latest",
+			"latest",
+			20,
+			{
+				range: { min: 300, max: 400 },
+				serverSnapshot: currentSnapshot,
+			},
+		);
+		const staleExact = await staleExactRepository.reconcileQueryCache({
+			sourceId: SOURCE_ID,
+			desired: createDesiredQueryCacheLookup(
+				"desired",
+				desiredRange,
+				currentSnapshot,
+			),
+		});
+		expect(staleExact).toMatchObject({
+			match: "exact",
+			cache: { generation: 1 },
+			summary: { cacheHistory: [1] },
+		});
+	});
+
+	it("does not cover-match a v4 cache that has no persisted query shape", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const serverSnapshot = {
+			total: 1,
+			minNanoseconds: "0",
+			maxNanoseconds: "100",
+			timeUpdated: 1,
+			millisecondPrecision: false,
+		};
+		await appendQueryCache(
+			repository,
+			undefined,
+			"legacy-full-fingerprint",
+			"legacy-covered",
+			10,
+			{
+				range: { min: 0, max: 100 },
+				serverSnapshot,
+			},
+		);
+		const record = await backend.get<EventSourceQueryCacheRecord>(
+			"source_query_caches",
+			[SOURCE_ID, 1],
+		);
+		if (!record) throw new Error("Expected a persisted query cache record.");
+		const { shapeFingerprint: _shapeFingerprint, ...legacyProvenance } =
+			record.provenance;
+		await backend.commit([
+			{
+				type: "put",
+				store: "source_query_caches",
+				key: [SOURCE_ID, 1],
+				value: { ...record, provenance: legacyProvenance },
+			},
+		]);
+
+		const reconciled = await repository.reconcileQueryCache({
+			sourceId: SOURCE_ID,
+			desired: createDesiredQueryCacheLookup(
+				"different-full-fingerprint",
+				{ min: 0, max: 200 },
+				serverSnapshot,
+			),
+		});
+
+		expect(reconciled).toMatchObject({
+			match: "latest",
+			cache: { generation: 1 },
+		});
+		expect(reconciled?.cache.provenance.shapeFingerprint).toBeUndefined();
 	});
 
 	it("marks an upserted active cache mutated and refuses it at startup", async () => {
@@ -1357,10 +1634,10 @@ describe("EventStoreRepository", () => {
 			{ generation: 1, state: "mutated", eventCount: 1 },
 		]);
 
-		expect(
-			await repository.reconcileQueryCache({
-				sourceId: SOURCE_ID,
-				queryFingerprint: "original",
+			expect(
+				await repository.reconcileQueryCache({
+					sourceId: SOURCE_ID,
+					desired: createDesiredQueryCacheLookup("original"),
 			}),
 		).toBeNull();
 		expect(await repository.getSourceSummary(SOURCE_ID)).toMatchObject({
@@ -1438,7 +1715,7 @@ describe("EventStoreRepository", () => {
 		const reopened = new EventStoreRepository(backend);
 		const reconciled = await reopened.reconcileQueryCache({
 			sourceId: SOURCE_ID,
-			queryFingerprint: "stable",
+			desired: createDesiredQueryCacheLookup("stable"),
 		});
 		expect(reconciled).toMatchObject({
 			match: "exact",

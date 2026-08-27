@@ -130,6 +130,11 @@ interface CachedHeightMaximum {
 	pageRevisions: ReadonlyMap<number, number>;
 }
 
+interface CachedFrameEventCount {
+	key: string;
+	count: number;
+}
+
 interface HeightMaximumStatistics {
 	maximumCount: number;
 	minimumBucketTimestamp: number;
@@ -144,15 +149,19 @@ export interface EventStoreViewportProjectorDiagnostics {
 
 /**
  * Produces viewport-resolution render replacements directly from persisted exact and
- * LOD pages. The projector keeps no source-wide cache or document object collection.
+ * LOD pages. It keeps only bounded per-source aggregate caches, never document objects.
  */
 export class EventStoreViewportProjector {
 	private readonly backend: EventStoreBackend;
 	private readonly heightMaximumBySource = new Map<string, CachedHeightMaximum>();
+	private readonly frameEventCountBySource = new Map<
+		string,
+		CachedFrameEventCount
+	>();
 	private maximumHeightWorkingBuckets = 0;
 
 	/**
-	 * Creates a stateless projector over one operation-scoped backend.
+	 * Creates a projector with bounded aggregate caches over one operation-scoped backend.
 	 * @param backend Persistence backend shared with EventStoreRepository.
 	 */
 	public constructor(backend: EventStoreBackend) {
@@ -183,6 +192,7 @@ export class EventStoreViewportProjector {
 		this.assertProjectionCurrent(isCurrent);
 		for (const sourceId of descriptor.evictedSourceIds ?? []) {
 			this.heightMaximumBySource.delete(sourceId);
+			this.frameEventCountBySource.delete(sourceId);
 		}
 		const bucketPixelWidth = this.calculateBucketPixelWidth(descriptor);
 		const sources: RenderWindowSourceProjection[] = [];
@@ -335,6 +345,12 @@ export class EventStoreViewportProjector {
 				bucketPixelWidth,
 			);
 		}
+		const frameEventCount = await this.countFrameEvents(
+			manifest,
+			descriptor.frame,
+			source.offset,
+			isCurrent,
+		);
 
 		let representatives: RepresentativeCandidate[] = [];
 		let height: HeightAggregateProjection = {
@@ -392,6 +408,7 @@ export class EventStoreViewportProjector {
 			bucketPixelWidth,
 			degradedLod: bucketPixelWidth > 1,
 			loadedCount: manifest.eventCount,
+			frameEventCount,
 			hashRange: { min: manifest.hashMin, max: manifest.hashMax },
 			representativeHandles: Uint32Array.from(
 				representatives,
@@ -411,6 +428,97 @@ export class EventStoreViewportProjector {
 			graphTimestamps: graph.timestamps,
 			graphCounts: graph.counts,
 		};
+	}
+
+	/**
+	 * Counts active events inside the complete selected frame for one source.
+	 * Fully covered pages use their catalog count; only boundary pages read exact data.
+	 * @param manifest Stable source authority used by the current projection.
+	 * @param frame Selected rendered frame in milliseconds.
+	 * @param offset Source render offset applied to raw event timestamps.
+	 * @param isCurrent Guard rejecting superseded projection work.
+	 * @returns Exact active event count inside the source-adjusted frame.
+	 */
+	private async countFrameEvents(
+		manifest: EventSourceHeadManifest,
+		frame: RenderTimeRange,
+		offset: number,
+		isCurrent: EventStoreProjectionGuard,
+	): Promise<number> {
+		const minimum = Math.min(frame.min - offset, frame.max - offset);
+		const maximum = Math.max(frame.min - offset, frame.max - offset);
+		const cacheKey = JSON.stringify([
+			manifest.authorityRevision,
+			manifest.generation,
+			manifest.revision,
+			minimum,
+			maximum,
+			offset,
+		]);
+		const cached = this.frameEventCountBySource.get(manifest.sourceId);
+		if (cached?.key === cacheKey) return cached.count;
+
+		if (
+			manifest.eventCount === 0 ||
+			manifest.maxTimestamp < minimum ||
+			manifest.minTimestamp > maximum
+		) {
+			this.frameEventCountBySource.set(manifest.sourceId, {
+				key: cacheKey,
+				count: 0,
+			});
+			return 0;
+		}
+		if (
+			manifest.minTimestamp >= minimum &&
+			manifest.maxTimestamp <= maximum
+		) {
+			this.frameEventCountBySource.set(manifest.sourceId, {
+				key: cacheKey,
+				count: manifest.eventCount,
+			});
+			return manifest.eventCount;
+		}
+
+		let count = 0;
+		for (const catalog of manifest.pages) {
+			this.assertProjectionCurrent(isCurrent);
+			if (
+				catalog.activeCount === 0 ||
+				catalog.maxTimestamp < minimum ||
+				catalog.minTimestamp > maximum
+			) {
+				continue;
+			}
+			if (
+				catalog.minTimestamp >= minimum &&
+				catalog.maxTimestamp <= maximum
+			) {
+				count += catalog.activeCount;
+				continue;
+			}
+
+			const page = await this.loadExactPage(
+				manifest.sourceId,
+				manifest.generation,
+				catalog.pageId,
+			);
+			this.assertProjectionCurrent(isCurrent);
+			this.assertExactPageRevision(page, catalog);
+			for (let offsetIndex = 0; offsetIndex < page.count; offsetIndex++) {
+				if ((offsetIndex & PROJECTION_GUARD_CHECK_MASK) === 0) {
+					this.assertProjectionCurrent(isCurrent);
+				}
+				if (page.tombstones[offsetIndex] !== 0) continue;
+				const timestamp = page.timestamps[offsetIndex];
+				if (timestamp >= minimum && timestamp <= maximum) count++;
+			}
+		}
+		this.frameEventCountBySource.set(manifest.sourceId, {
+			key: cacheKey,
+			count,
+		});
+		return count;
 	}
 
 	/**
@@ -1500,6 +1608,7 @@ export class EventStoreViewportProjector {
 			bucketPixelWidth,
 			degradedLod: bucketPixelWidth > 1,
 			loadedCount: 0,
+			frameEventCount: 0,
 			hashRange: { min: 0, max: 0 },
 			representativeHandles: new Uint32Array(0),
 			representativeTimestamps: new Float64Array(0),

@@ -11,10 +11,10 @@ describe("IndexedDbEventStoreBackend", () => {
 	it("creates an operation-scoped and separator-safe database name", () => {
 		expect(
 			createEventStoreDatabaseName({
-				coordinatorId: "coordinator:one",
+				cacheNamespaceId: "user:one",
 				operationId: "operation/two" as Operation.Id,
 			}),
-		).toBe("gulp-event-store:coordinator%3Aone:operation%2Ftwo");
+		).toBe("gulp-event-store:user%3Aone:operation%2Ftwo");
 	});
 
 	it("rebuilds older caches for the version-four query-cache-pool schema", () => {
@@ -36,7 +36,7 @@ describe("IndexedDbEventStoreBackend", () => {
 	it("rejects reads when IndexedDB is unavailable or the backend is closed", async () => {
 		const backend = new IndexedDbEventStoreBackend(
 			{
-				coordinatorId: "coordinator",
+				cacheNamespaceId: "user:test",
 				operationId: "operation" as Operation.Id,
 			},
 			null as unknown as IDBFactory,

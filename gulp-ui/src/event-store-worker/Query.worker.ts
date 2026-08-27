@@ -173,7 +173,7 @@ async function handleCommand(command: QueryWorkerCommand): Promise<void> {
 				const result = await requireSession().reconcileSourceQueryCache({
 					operationId: command.operationId,
 					sourceId: command.sourceId,
-					queryFingerprint: command.queryFingerprint,
+					desired: command.desired,
 				});
 				postWorkerEvent({
 					type: "SOURCE_QUERY_CACHE_RESULT",

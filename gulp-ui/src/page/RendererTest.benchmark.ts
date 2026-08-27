@@ -27,7 +27,7 @@ export const RENDERER_BENCHMARK_TARGETS = [
 	30_000_000,
 ] as const;
 export const DEFAULT_RENDERER_BENCHMARK_TARGET = RENDERER_BENCHMARK_TARGETS[0];
-export const RENDERER_BENCHMARK_COORDINATOR_ID = "renderer-test";
+export const RENDERER_BENCHMARK_CACHE_NAMESPACE_ID = "renderer-test";
 
 /** Raw typed-array bytes stored by one document-index locator entry. */
 const DOCUMENT_INDEX_BYTES_PER_EVENT = 6 * Uint32Array.BYTES_PER_ELEMENT;
@@ -996,7 +996,7 @@ export function createRendererBenchmarkNamespace(
 	operationId: Operation.Id,
 ): EventStoreNamespace {
 	return {
-		coordinatorId: RENDERER_BENCHMARK_COORDINATOR_ID,
+		cacheNamespaceId: RENDERER_BENCHMARK_CACHE_NAMESPACE_ID,
 		operationId,
 	};
 }

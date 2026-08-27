@@ -92,7 +92,9 @@ export function isRenderWindowSourceProjection(
 		!Number.isFinite(value.bucketPixelWidth) ||
 		value.bucketPixelWidth <= 0 ||
 		typeof value.degradedLod !== "boolean" ||
+		!isNonNegativeSafeInteger(value.frameEventCount) ||
 		!isNonNegativeSafeInteger(value.loadedCount) ||
+		value.frameEventCount > value.loadedCount ||
 		typeof value.heightMaximumCount !== "number" ||
 		!Number.isFinite(value.heightMaximumCount) ||
 		value.heightMaximumCount < 0 ||
