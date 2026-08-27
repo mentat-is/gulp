@@ -5,6 +5,8 @@ import type { Root } from "react-dom/client";
 import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import type { Operation } from "@/entities/Operation";
+import type { Filter } from "@/entities/Filter";
+import type { Query } from "@/entities/Query";
 import type { Source } from "@/entities/Source";
 import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import { FilterFileBanner } from "@/banners/FilterFile.banner";
@@ -45,12 +47,16 @@ const mockApp = {
 } as unknown as App.Type;
 
 let mockCapturedOptions: Record<string, string> | undefined;
+let mockCapturedFilters: Filter.Item[] | undefined;
+let mockSerializedQuery: Query.Type | undefined;
+let mockPersistedQuery: Query.Type | null = null;
+let mockEventKeys = async (): Promise<Record<string, string>> => ({
+	"event.sequence": "long",
+	message: "text",
+});
 const mockInfo = {
-	getQuery: (): null => null,
-	event_keys: async (): Promise<Record<string, string>> => ({
-		"event.sequence": "long",
-		message: "text",
-	}),
+	getQuery: (): Query.Type | null => mockPersistedQuery,
+	event_keys: (): Promise<Record<string, string>> => mockEventKeys(),
 	getLastQueries: async (): Promise<unknown[]> => [],
 };
 
@@ -86,7 +92,10 @@ jest.mock("@/entities/Filter", () => ({
 	Filter: {
 		EMPTY_OPTIONS: {},
 		Entity: {
-			query: (): { bool: { must: unknown[] } } => ({ bool: { must: [] } }),
+			query: (query: Query.Type): { bool: { must: unknown[] } } => {
+				mockSerializedQuery = query;
+				return { bool: { must: [] } };
+			},
 			describe: (): string => "filter",
 		},
 	},
@@ -114,7 +123,14 @@ jest.mock("@/components/QueryBuilder", () => ({
 		Query: {
 			String: (): null => null,
 			Add: (): null => null,
-			Filters: ({ options }: { options: Record<string, string> }): null => {
+			Filters: ({
+				filters,
+				options,
+			}: {
+				filters: Filter.Item[];
+				options: Record<string, string>;
+			}): null => {
+				mockCapturedFilters = filters;
 				mockCapturedOptions = options;
 				return null;
 			},
@@ -188,6 +204,13 @@ describe("FilterFileBanner field catalog wiring", () => {
 
 	beforeEach(() => {
 		mockCapturedOptions = undefined;
+		mockCapturedFilters = undefined;
+		mockSerializedQuery = undefined;
+		mockPersistedQuery = null;
+		mockEventKeys = async (): Promise<Record<string, string>> => ({
+			"event.sequence": "long",
+			message: "text",
+		});
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -207,6 +230,39 @@ describe("FilterFileBanner field catalog wiring", () => {
 		expect(mockCapturedOptions).toEqual({
 			"event.sequence": "long",
 			message: "text",
+		});
+	});
+
+	it("restores persisted field types together with Navigator filters", async () => {
+		mockPersistedQuery = {
+			string: "event.original:*failed*",
+			filters: [
+				{
+					id: "navigator-event-filter" as Filter.Id,
+					type: "wildcard",
+					operator: "must",
+					field: "event.original",
+					value: "*failed*",
+					enabled: true,
+					case_insensitive: true,
+				},
+			],
+			fieldTypeMap: { "event.original": "wildcard" },
+		};
+		mockEventKeys = () => new Promise<Record<string, string>>(() => undefined);
+
+		await act(async () => {
+			root.render(<FilterFileBanner sources={[mockSource]} />);
+		});
+		await flushRequests();
+
+		expect(mockCapturedOptions).toEqual({ "event.original": "wildcard" });
+		expect(mockCapturedFilters?.[0]).toMatchObject({
+			field: "event.original",
+			type: "wildcard",
+		});
+		expect(mockSerializedQuery?.fieldTypeMap).toEqual({
+			"event.original": "wildcard",
 		});
 	});
 });

@@ -121,6 +121,26 @@ describe("filter condition policy", () => {
 });
 
 describe("filter clause generation", () => {
+	it("preserves wildcard queries for compatible mapped fields", () => {
+		expect(
+			Filter.Entity.buildItemClause(
+				createFilter({
+					type: "wildcard",
+					field: "event.original",
+					value: "*failed*",
+				}),
+				{ "event.original": "wildcard" },
+			),
+		).toEqual({
+			wildcard: {
+				"event.original": {
+					value: "*failed*",
+					case_insensitive: true,
+				},
+			},
+		});
+	});
+
 	it("uses term queries for equality and incompatible legacy conditions", () => {
 		expect(
 			Filter.Entity.buildItemClause(

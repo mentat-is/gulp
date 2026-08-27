@@ -146,10 +146,16 @@ export function FilterFileBanner({
 	 * Otherwise, generates the OpenSearch query via Filter.Entity.query().
 	 */
 	const getManualContentFromQuery = useCallback(
-		(q: Query.Type): string => {
+		(
+			q: Query.Type,
+			resolvedFieldTypeMap: Filter.Options = fieldTypeMap,
+		): string => {
 			if (q.raw) return JSON.stringify(q.raw, null, 2);
 			return JSON.stringify(
-				Filter.Entity.query({ ...q, fieldTypeMap }),
+				Filter.Entity.query({
+					...q,
+					fieldTypeMap: resolvedFieldTypeMap,
+				}),
 				null,
 				2,
 			);
@@ -273,9 +279,17 @@ export function FilterFileBanner({
 					...startingQuery,
 					source_config: cleanBase.source_config,
 				};
+				const restoredFieldTypeMap =
+					startingQuery.fieldTypeMap ?? Filter.EMPTY_OPTIONS;
+				setFieldTypeMap(restoredFieldTypeMap);
 				setQuery(updatedStartingQuery);
 				setIsManual(!!startingQuery.isManual);
-				setManualContent(getManualContentFromQuery(updatedStartingQuery));
+				setManualContent(
+					getManualContentFromQuery(
+						updatedStartingQuery,
+						restoredFieldTypeMap,
+					),
+				);
 				prevFileIds.current = files
 					.map((f) => f.id)
 					.sort()

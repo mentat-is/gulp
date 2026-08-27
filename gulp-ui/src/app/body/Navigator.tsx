@@ -308,14 +308,18 @@ export function Navigator({
 							{
 								field: "event.original",
 								value: trimmedValue,
+								type: "wildcard",
 							},
 						);
-
 						if (existingFilterIndex !== -1) {
 							query.filters[existingFilterIndex] = newFilter;
 						} else {
 							query.filters.push(newFilter);
 						}
+						query.fieldTypeMap = {
+							...query.fieldTypeMap,
+							"event.original": "wildcard",
+						};
 						Info.setQuery(source, query);
 						hasChanges = true;
 					}
