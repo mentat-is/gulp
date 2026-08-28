@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "Cofnij pamięć podręczną zapytania",
     "targetMenu.unpin": "Odpiąć",
     "targetMenu.uploadRule": "Prześlij regułę",
+    "timelineMenu.refetchAll": "Pobierz wszystko ponownie",
+    "timelineMenu.resetAllFilters": "Zresetuj wszystkie filtry",
     "timeline.selectedFrameTooSmall": "Wybrana ramka jest za mała",
     "userDetails.expires": "Wygasa",
     "userDetails.lastLogin": "Ostatnie logowanie",

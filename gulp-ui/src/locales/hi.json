@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "पिछला क्वेरी कैश लागू करें",
     "targetMenu.unpin": "अनपिन करें",
     "targetMenu.uploadRule": "नियम अपलोड करें",
+    "timelineMenu.refetchAll": "सभी पुनः प्राप्त करें",
+    "timelineMenu.resetAllFilters": "सभी फ़िल्टर रीसेट करें",
     "timeline.selectedFrameTooSmall": "चयनित फ़्रेम बहुत छोटा है",
     "userDetails.expires": "समाप्त होता है",
     "userDetails.lastLogin": "अंतिम लॉगिन",

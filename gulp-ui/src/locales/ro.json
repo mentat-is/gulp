@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "Anulați memoria cache a interogării",
     "targetMenu.unpin": "Anulați fixarea",
     "targetMenu.uploadRule": "Regulă de încărcare",
+    "timelineMenu.refetchAll": "Refă toate",
+    "timelineMenu.resetAllFilters": "Resetează toate filtrele",
     "timeline.selectedFrameTooSmall": "Cadrul selectat este prea mic",
     "userDetails.expires": "Expiră",
     "userDetails.lastLogin": "Ultima autentificare",

@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "Отменить кеш запроса",
     "targetMenu.unpin": "Открепить",
     "targetMenu.uploadRule": "Правило загрузки",
+    "timelineMenu.refetchAll": "Обновить все",
+    "timelineMenu.resetAllFilters": "Сбросить все фильтры",
     "timeline.selectedFrameTooSmall": "Выбранный кадр слишком мал",
     "userDetails.expires": "Истекает",
     "userDetails.lastLogin": "Последний вход",

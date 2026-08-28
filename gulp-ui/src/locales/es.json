@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "Deshacer caché de consulta",
     "targetMenu.unpin": "Desprender",
     "targetMenu.uploadRule": "Subir regla",
+    "timelineMenu.refetchAll": "Volver a buscar todo",
+    "timelineMenu.resetAllFilters": "Restablecer todos los filtros",
     "timeline.selectedFrameTooSmall": "El marco seleccionado es demasiado pequeño",
     "userDetails.expires": "Expira",
     "userDetails.lastLogin": "Último inicio de sesión",

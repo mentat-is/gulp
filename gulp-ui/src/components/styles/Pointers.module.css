@@ -42,7 +42,11 @@
 }
 
 .pointer {
-  transform: translate(-2px, -3px);
+  /* MousePointer2 starts at (4.037, 4.688) in its 24px viewBox. These
+     14px-scaled offsets place that path vertex exactly on the click hotspot. */
+  --pointer-hotspot-offset-x: -2.355px;
+  --pointer-hotspot-offset-y: -2.735px;
+  transform: translate(var(--pointer-hotspot-offset-x), var(--pointer-hotspot-offset-y));
 }
 
 .pointer p {
@@ -70,7 +74,8 @@
 }
 
 .right .pointer {
-  transform: translate(-12px, -3px);
+  /* Mirroring moves the path vertex to 14px - 2.355px. */
+  --pointer-hotspot-offset-x: -11.645px;
 }
 
 .right .pointer p {

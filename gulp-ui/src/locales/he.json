@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "בטל מטמון שאילתה",
     "targetMenu.unpin": "בטל את ההצמדה",
     "targetMenu.uploadRule": "כלל העלאה",
+    "timelineMenu.refetchAll": "אחזר הכול מחדש",
+    "timelineMenu.resetAllFilters": "אפס את כל המסננים",
     "timeline.selectedFrameTooSmall": "המסגרת שנבחרה קטנה מדי",
     "userDetails.expires": "פג תוקף",
     "userDetails.lastLogin": "התחברות אחרונה",

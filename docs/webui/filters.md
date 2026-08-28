@@ -90,6 +90,17 @@ Source context menu filter actions:
 - Reset filters;
 - Undo last filters change when cached data exists.
 
+Right-clicking an empty area below the source rows opens the global timeline
+menu. Its actions always target every user-selected source, including sources
+currently excluded by the timeline text filter or hidden-empty-source setting:
+
+- **Refetch all** reconciles the existing source caches exactly like the first
+  render after source selection and queries the backend only where no reusable
+  cache is available;
+- **Reset all filters** clears each selected source query and performs one bulk
+  authoritative refetch. The reset does not activate a latest-cache fallback,
+  because that cache may still contain the filters being removed.
+
 ## Table View Filters
 
 The Table View window supports its own filter panel. In synced mode, it follows

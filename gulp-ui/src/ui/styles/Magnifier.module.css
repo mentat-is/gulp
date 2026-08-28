@@ -2,7 +2,7 @@
   position: absolute;
   border: 1px solid var(--gray-alpha-400);
   border-radius: 6px;
-  transform: translate(-50%, calc(-50% + 24px));
+  transform: translate(-50%, -50%);
   pointer-events: none;
   opacity: 0.9;
   overflow: hidden;

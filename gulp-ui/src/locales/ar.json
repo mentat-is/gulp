@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "التراجع إلى ذاكرة التخزين المؤقت السابقة للاستعلام",
     "targetMenu.unpin": "إزالة التثبيت",
     "targetMenu.uploadRule": "تحميل القاعدة",
+    "timelineMenu.refetchAll": "إعادة جلب الكل",
+    "timelineMenu.resetAllFilters": "إعادة تعيين جميع عوامل التصفية",
     "timeline.selectedFrameTooSmall": "الإطار المحدد صغير جدًا",
     "userDetails.expires": "ينتهي",
     "userDetails.lastLogin": "آخر تسجيل دخول",

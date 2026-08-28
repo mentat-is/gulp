@@ -42,6 +42,7 @@ export const useMagnifier = (
   const pendingMouseFrameRef = useRef<number | null>(null)
   const magnifierRequestSequenceRef = useRef<number>(0)
   const displayedBitmapRef = useRef<ImageBitmap | null>(null)
+  const displayedMousePositionRef = useRef<MousePosition | null>(null)
   const isAltPressedRef = useRef<boolean>(isAltPressed)
   isAltPressedRef.current = isAltPressed
 
@@ -57,16 +58,17 @@ export const useMagnifier = (
     const magnifierCtx = magnifier.getContext('2d')
     if (!magnifierCtx) return
 
+    const framePosition = mousePosition
     const sourceSize = magnifierSize / magnificationFactor
-    const sourceX = Math.max(0, mousePosition.x - sourceSize / 2)
-    const sourceY = Math.max(0, mousePosition.y - sourceSize / 2)
+    const sourceX = Math.max(0, framePosition.x - sourceSize / 2)
+    const sourceY = Math.max(0, framePosition.y - sourceSize / 2)
     const destinationSize = magnifierSize * magnificationFactor
 
     if (frameProvider) {
       const requestSequence = ++magnifierRequestSequenceRef.current
       const bitmap = await frameProvider({
-        x: mousePosition.x,
-        y: mousePosition.y,
+        x: framePosition.x,
+        y: framePosition.y,
         sourceSize,
         destinationSize,
       })
@@ -88,6 +90,7 @@ export const useMagnifier = (
       )
       displayedBitmapRef.current?.close()
       displayedBitmapRef.current = bitmap
+      displayedMousePositionRef.current = framePosition
       return
     }
 
@@ -104,6 +107,7 @@ export const useMagnifier = (
       destinationSize,
       destinationSize,
     )
+    displayedMousePositionRef.current = framePosition
   }, [
     canvas_ref,
     frameProvider,
@@ -115,6 +119,14 @@ export const useMagnifier = (
   useEffect(() => {
     isAltPressed && drawMagnifier()
   }, [isAltPressed, mousePosition, dependencies, drawMagnifier])
+
+  useEffect(() => {
+    if (isAltPressed) return
+    magnifierRequestSequenceRef.current++
+    displayedMousePositionRef.current = null
+    displayedBitmapRef.current?.close()
+    displayedBitmapRef.current = null
+  }, [isAltPressed])
 
   useEffect(() => {
     return () => {
@@ -169,6 +181,15 @@ export const useMagnifier = (
   }, [scheduleMousePositionCommit])
 
   /**
+   * Returns the Canvas coordinate represented at the center of the visible frame.
+   * @returns Last successfully painted magnifier center, or null before one is ready.
+   */
+  const getDisplayedMousePosition = useCallback(
+    (): MousePosition | null => displayedMousePositionRef.current,
+    [],
+  )
+
+  /**
    * Toggles the magnifier when the configured modifier key is pressed.
    * @param event Keyboard event emitted by the canvas wrapper.
    * @returns Nothing.
@@ -190,5 +211,6 @@ export const useMagnifier = (
     magnifier_ref,
     isAltPressed,
     mousePosition,
+    getDisplayedMousePosition,
   }
 }

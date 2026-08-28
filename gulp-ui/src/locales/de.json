@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "Zum vorherigen Abfrage-Cache zurückkehren",
     "targetMenu.unpin": "Lösen",
     "targetMenu.uploadRule": "Upload-Regel",
+    "timelineMenu.refetchAll": "Alle erneut abrufen",
+    "timelineMenu.resetAllFilters": "Alle Filter zurücksetzen",
     "timeline.selectedFrameTooSmall": "Ausgewählter Rahmen zu klein",
     "userDetails.expires": "Läuft ab",
     "userDetails.lastLogin": "Letzte Anmeldung",

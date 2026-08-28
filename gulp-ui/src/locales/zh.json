@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "撤消查询缓存",
     "targetMenu.unpin": "取消固定",
     "targetMenu.uploadRule": "上传规则",
+    "timelineMenu.refetchAll": "重新获取全部",
+    "timelineMenu.resetAllFilters": "重置所有筛选器",
     "timeline.selectedFrameTooSmall": "所选框架太小",
     "userDetails.expires": "过期",
     "userDetails.lastLogin": "上次登录",

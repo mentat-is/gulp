@@ -4,6 +4,7 @@ import {
 	isCanvasEventLookupSourceCurrent,
 	isCanvasPixelWithinEventSourceRange,
 	isEventInCanvasHitArea,
+	resolveCanvasInteractionPosition,
 	shouldPreferCanvasEventWhileMagnifying,
 } from "@/app/body/CanvasEventLookup";
 
@@ -22,6 +23,29 @@ describe("Canvas exact event lookup transform", () => {
 	it("uses the magnifier as explicit exact-event click-through intent", () => {
 		expect(shouldPreferCanvasEventWhileMagnifying(false)).toBe(false);
 		expect(shouldPreferCanvasEventWhileMagnifying(true)).toBe(true);
+	});
+
+	it("uses the center of the frame actually painted in the magnifier", () => {
+		const pointerPosition = { x: 400, y: 120 };
+		const displayedMagnifierPosition = { x: 396, y: 118 };
+
+		expect(
+			resolveCanvasInteractionPosition(
+				pointerPosition,
+				displayedMagnifierPosition,
+				true,
+			),
+		).toBe(displayedMagnifierPosition);
+		expect(
+			resolveCanvasInteractionPosition(pointerPosition, null, true),
+		).toBe(pointerPosition);
+		expect(
+			resolveCanvasInteractionPosition(
+				pointerPosition,
+				displayedMagnifierPosition,
+				false,
+			),
+		).toBe(pointerPosition);
 	});
 
 	it("inverts every timestamp to a range containing exactly its rounded pixel", () => {

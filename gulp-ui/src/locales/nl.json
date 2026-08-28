@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "Terug naar vorige querycache",
     "targetMenu.unpin": "Losmaken",
     "targetMenu.uploadRule": "Uploadregel",
+    "timelineMenu.refetchAll": "Alles ophalen",
+    "timelineMenu.resetAllFilters": "Alle filters resetten",
     "timeline.selectedFrameTooSmall": "Geselecteerd frame te klein",
     "userDetails.expires": "Verloopt",
     "userDetails.lastLogin": "Laatste login",

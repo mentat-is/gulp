@@ -1,4 +1,7 @@
 import {
+	getCanvasPointerPosition,
+	getCanvasSourceRowIndex,
+	getCanvasSurfaceGeometry,
 	getCanvasViewportSourceIds,
 	getCanvasViewportSourceRange,
 } from "@/app/body/CanvasViewport";
@@ -19,6 +22,73 @@ function createSource(id: string): Source.Type {
 }
 
 describe("Canvas viewport source range", () => {
+	it("keeps client pointer coordinates fractional and relative to the canvas content", () => {
+		expect(
+			getCanvasPointerPosition(110.75, 96.5, {
+				left: 10.25,
+				top: 48.75,
+				width: 200,
+				height: 100,
+				coordinateWidth: 200,
+				coordinateHeight: 100,
+			}),
+		).toEqual({ x: 100.5, y: 47.75 });
+	});
+
+	it("compensates ancestor scaling when mapping client pixels into the canvas", () => {
+		expect(
+			getCanvasPointerPosition(108, 54, {
+				left: 10,
+				top: 5,
+				width: 196,
+				height: 98,
+				coordinateWidth: 200,
+				coordinateHeight: 100,
+			}),
+		).toEqual({ x: 100, y: 50 });
+	});
+
+	it("captures transformed bounds alongside the logical canvas size", () => {
+		const bounds = {
+			left: 10,
+			top: 5,
+			width: 196,
+			height: 98,
+		} as DOMRect;
+		expect(
+			getCanvasSurfaceGeometry({
+				clientWidth: 200,
+				clientHeight: 100,
+				getBoundingClientRect: () => bounds,
+			}),
+		).toEqual({
+			left: 10,
+			top: 5,
+			width: 196,
+			height: 98,
+			coordinateWidth: 200,
+			coordinateHeight: 100,
+		});
+	});
+
+	it("keeps the painted separator pixel assigned to its owning source", () => {
+		expect(getCanvasSourceRowIndex(47.999, 0, 2)).toBe(0);
+		expect(getCanvasSourceRowIndex(48, 0, 2)).toBe(0);
+		expect(getCanvasSourceRowIndex(48.999, 0, 2)).toBe(0);
+		expect(getCanvasSourceRowIndex(49, 0, 2)).toBe(1);
+		expect(getCanvasSourceRowIndex(47.999, 0, 1)).toBe(0);
+		expect(getCanvasSourceRowIndex(48.999, 0, 1)).toBe(0);
+		expect(getCanvasSourceRowIndex(49, 0, 1)).toBeNull();
+	});
+
+	it("applies fractional vertical scroll before resolving source boundaries", () => {
+		expect(getCanvasSourceRowIndex(73.749, -25.75, 2)).toBe(0);
+		expect(getCanvasSourceRowIndex(73.75, -25.75, 2)).toBe(0);
+		expect(getCanvasSourceRowIndex(74.749, -25.75, 2)).toBe(0);
+		expect(getCanvasSourceRowIndex(74.75, -25.75, 2)).toBe(1);
+		expect(getCanvasSourceRowIndex(25.749, -25.75, 2)).toBeNull();
+	});
+
 	it("includes two 48-pixel rows of overscan above and below", () => {
 		expect(getCanvasViewportSourceRange(20, 96, 96)).toEqual({
 			firstIndex: 0,

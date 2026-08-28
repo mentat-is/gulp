@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "復原查詢快取",
     "targetMenu.unpin": "取消固定",
     "targetMenu.uploadRule": "上傳規則",
+    "timelineMenu.refetchAll": "重新擷取全部",
+    "timelineMenu.resetAllFilters": "重設所有篩選條件",
     "timeline.selectedFrameTooSmall": "所選框架太小",
     "userDetails.expires": "到期",
     "userDetails.lastLogin": "上次登入",

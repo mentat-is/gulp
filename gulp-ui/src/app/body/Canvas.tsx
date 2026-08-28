@@ -41,13 +41,13 @@ import { Logger, LoggerHandler } from "@/dto/Logger.class";
 import { useDrugs } from "@/decorator/use";
 import { ContextMenu, ContextMenuTrigger } from "@/ui/ContextMenu";
 import { TargetMenu } from "./Target.menu";
+import { TimelineMenu } from "./Timeline.menu";
 import { cn } from "@/ui/utils";
 import { Pointers } from "@/components/Pointers";
 import {
 	PointerPositionStore,
 	projectLocalPointerTimestamp,
 } from "@/components/PointerPosition.store";
-import { XY } from "@/dto/XY.dto";
 import { Highlights } from "@/overlays/Highlights";
 import { Stack } from "@/ui/Stack";
 import { Spinner } from "@/ui/Spinner";
@@ -94,7 +94,12 @@ import {
 	type RenderViewportState,
 	type RenderWorkerFontSource,
 } from "@/render-worker/RenderWorker.types";
-import { getCanvasViewportSourceIds } from "./CanvasViewport";
+import {
+	getCanvasPointerPosition,
+	getCanvasSourceRowIndex,
+	getCanvasSurfaceGeometry,
+	getCanvasViewportSourceIds,
+} from "./CanvasViewport";
 import {
 	CanvasInputCoordinator,
 	CanvasScaleCommitGuard,
@@ -119,6 +124,7 @@ import {
 	getCanvasEventTimestampRange,
 	isCanvasEventLookupSourceCurrent,
 	isCanvasPixelWithinEventSourceRange,
+	resolveCanvasInteractionPosition,
 	shouldPreferCanvasEventWhileMagnifying,
 	type CanvasEventLookupGeometry,
 } from "./CanvasEventLookup";
@@ -483,8 +489,14 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		},
 		[],
 	);
-	const { toggler, move, magnifier_ref, isAltPressed, mousePosition } =
-		useMagnifier(
+	const {
+		toggler,
+		move,
+		magnifier_ref,
+		isAltPressed,
+		mousePosition,
+		getDisplayedMousePosition,
+	} = useMagnifier(
 			canvas_ref,
 			[
 				app.target.files,
@@ -1084,21 +1096,36 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			return;
 		}
 
-		const rect = wrapper_ref.current?.getBoundingClientRect();
-		const canvasRect = canvas_ref.current.getBoundingClientRect();
-		if (!rect) return;
+		inputCoordinator.queuePointer({
+			clientX: event.clientX,
+			clientY: event.clientY,
+			inside: true,
+			inputTimestamp: performance.now(),
+		});
+		inputCoordinator.flushNow();
+
+		const canvasGeometry = getCanvasSurfaceGeometry(canvas_ref.current);
 		if (
-			event.clientX < rect.left ||
-			event.clientX > rect.right ||
-			event.clientY < rect.top ||
-			event.clientY > rect.bottom
+			event.clientX < canvasGeometry.left ||
+			event.clientX > canvasGeometry.left + canvasGeometry.width ||
+			event.clientY < canvasGeometry.top ||
+			event.clientY > canvasGeometry.top + canvasGeometry.height
 		) {
 			return;
 		}
 
-		const { top, left } = canvasRect;
-		const canvasHitX = Math.round(event.clientX - left);
-		const canvasHitY = Math.round(event.clientY - top);
+		const currentCanvasPointer = getCanvasPointerPosition(
+			event.clientX,
+			event.clientY,
+			canvasGeometry,
+		);
+		const canvasPointer = resolveCanvasInteractionPosition(
+			currentCanvasPointer,
+			getDisplayedMousePosition(),
+			isAltPressed,
+		);
+		const canvasHitX = canvasPointer.x;
+		const canvasHitY = canvasPointer.y;
 		const interactionOperationEpoch = DataStore.getRenderOperationEpoch();
 		const preferExactEvent = shouldPreferCanvasEventWhileMagnifying(isAltPressed);
 
@@ -1269,17 +1296,17 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 
 		if (!preferExactEvent && (await resolveOverlayClick())) return;
 
-		const click: XY = {
-			x: canvasHitX,
-			y: Math.round(event.clientY - top + scrollYRef.current),
-		};
 		const clickScrollY = scrollYRef.current;
-		const index = Math.floor(click.y / 48);
 
 		const files = Source.Entity.rendered(Info.app);
-		const file = files[index];
+		const sourceRowIndex = getCanvasSourceRowIndex(
+			canvasHitY,
+			clickScrollY,
+			files.length,
+		);
+		const file = sourceRowIndex === null ? undefined : files[sourceRowIndex];
 
-		if (!file) {
+		if (sourceRowIndex === null || !file) {
 			if (preferExactEvent) await resolveOverlayClick();
 			return;
 		}
@@ -1292,7 +1319,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		const lookupGeometry = captureEventLookupGeometry(file);
 		if (
 			!isCanvasPixelWithinEventSourceRange(
-				click.x,
+				canvasHitX,
 				sourceSummary?.minTimestamp ?? file.timestamp.min,
 				sourceSummary?.maxTimestamp ?? file.timestamp.max,
 				lookupGeometry,
@@ -1305,7 +1332,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 
 		const lookupViewportRevision = workerViewportRevisionRef.current;
 		let lookup = await queryEventPageByClickX(
-			click.x,
+			canvasHitX,
 			file,
 			lookupGeometry,
 			interactionOperationEpoch,
@@ -1314,7 +1341,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		if (lookup === undefined) return;
 		if (lookup === null) {
 			lookup = await queryEventPageByClickX(
-				click.x - 1,
+				canvasHitX - 1,
 				file,
 				lookupGeometry,
 				interactionOperationEpoch,
@@ -1324,7 +1351,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		if (lookup === undefined) return;
 		if (lookup === null) {
 			lookup = await queryEventPageByClickX(
-				click.x + 1,
+				canvasHitX + 1,
 				file,
 				lookupGeometry,
 				interactionOperationEpoch,
@@ -1334,13 +1361,13 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		if (
 			lookup === undefined ||
 			scrollYRef.current !== clickScrollY ||
-			Source.Entity.rendered(Info.app)[index]?.id !== file.id
+			Source.Entity.rendered(Info.app)[sourceRowIndex]?.id !== file.id
 		) {
 			return;
 		}
 
 		const events = lookup?.page.events ?? [];
-		LoggerHandler.canvasClick(file, events, click.x);
+		LoggerHandler.canvasClick(file, events, canvasHitX);
 
 		if (lookup && lookup.page.total > 0) {
 			if (lookup.page.total > 1) {
@@ -1377,7 +1404,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	}, [handleClick]);
 
 	/**
-	 * Refreshes cached Canvas geometry outside high-frequency pointer and wheel loops.
+	 * Refreshes cached wrapper geometry outside high-frequency loops.
 	 * @returns Current wrapper rectangle, or null before the wrapper mounts.
 	 */
 	const refreshCanvasGeometry = useCallback((): DOMRect | null => {
@@ -1393,7 +1420,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	}, []);
 
 	/**
-	 * Invalidates cached wrapper position after ancestor scrolling or window layout changes.
+	 * Invalidates the cached wrapper position after scrolling or layout changes.
 	 * @returns Nothing.
 	 */
 	const invalidateCanvasGeometry = useCallback((): void => {
@@ -2252,14 +2279,14 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			if (batch.wheel) {
 				let zoomDeltaY = batch.wheel.zoomDeltaY;
 				let cursorX = 0;
-				let canvasWidth =
-					workerCanvasSizeRef.current?.width ??
-					render_surface_ref.current?.clientWidth ??
-					1;
 				if (zoomDeltaY !== 0 && batch.wheel.zoomPoint) {
-					const rect = wrapperRectRef.current ?? refreshCanvasGeometry();
-					if (rect) {
-						cursorX = batch.wheel.zoomPoint.clientX - rect.left;
+					const pointerSurface = canvas_ref.current;
+					if (pointerSurface) {
+						cursorX = getCanvasPointerPosition(
+							batch.wheel.zoomPoint.clientX,
+							batch.wheel.zoomPoint.clientY,
+							getCanvasSurfaceGeometry(pointerSurface),
+						).x;
 					} else {
 						zoomDeltaY = 0;
 					}
@@ -2302,13 +2329,20 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			}
 
 			if (batch.pointer) {
-				const rect = wrapperRectRef.current ?? refreshCanvasGeometry();
-				const pointerX = batch.pointer.inside && rect
-					? batch.pointer.clientX - rect.left
-					: -1000;
-				const pointerY = batch.pointer.inside && rect
-					? batch.pointer.clientY - rect.top
-					: -1000;
+				const pointerSurface = canvas_ref.current;
+				const pointerSurfaceGeometry = pointerSurface
+					? getCanvasSurfaceGeometry(pointerSurface)
+					: null;
+				const pointerPosition =
+					batch.pointer.inside && pointerSurfaceGeometry
+						? getCanvasPointerPosition(
+								batch.pointer.clientX,
+								batch.pointer.clientY,
+								pointerSurfaceGeometry,
+							)
+						: { x: -1000, y: -1000 };
+				const pointerX = pointerPosition.x;
+				const pointerY = pointerPosition.y;
 				mouseXRef.current = pointerX;
 				mouseYRef.current = pointerY;
 				// Timestamp projection uses the stable render world, while label
@@ -2325,7 +2359,9 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 							x: pointerX,
 							y: pointerY,
 							timestamp: pointerPositionStore.getSnapshot().timestamp,
-							isRightSide: pointerX > (rect?.width ?? canvasWidth) / 2,
+							isRightSide:
+								pointerX >
+								(pointerSurfaceGeometry?.coordinateWidth ?? canvasWidth) / 2,
 						},
 						{
 							frame: Info.app.timeline.frame,
@@ -2498,7 +2534,6 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			getWorkerViewportSignature,
 			move,
 			pointerPositionStore,
-			refreshCanvasGeometry,
 			scaleCommitGuard,
 			workerProjectionScheduler,
 		],
@@ -3717,40 +3752,63 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	]);
 
 	/**
-	 * Resolves the source row under a native context-menu event.
+	 * Resolves the source row under a native context-menu event. An empty row
+	 * selection is retained as the global timeline-menu target.
 	 * @param event Native pointer event emitted by the primary canvas.
 	 * @returns Nothing.
 	 */
 	const handleContextMenu = useCallback(
 		(event: MouseEvent) => {
-			if (!timeline.current) {
+			const canvas = canvas_ref.current;
+			if (!canvas) {
 				return;
 			}
+			inputCoordinator.queuePointer({
+				clientX: event.clientX,
+				clientY: event.clientY,
+				inside: true,
+				inputTimestamp: performance.now(),
+			});
+			inputCoordinator.flushNow();
 
-			const index = Math.floor(
-				(event.clientY +
-					scrollYRef.current -
-					timeline.current.getBoundingClientRect().top) /
-					48,
+			const currentPointerPosition = getCanvasPointerPosition(
+				event.clientX,
+				event.clientY,
+				getCanvasSurfaceGeometry(canvas),
 			);
-
+			const pointerPosition = resolveCanvasInteractionPosition(
+				currentPointerPosition,
+				getDisplayedMousePosition(),
+				isAltPressed,
+			);
 			const files = Source.Entity.rendered(Info.app);
-			const file = files[index] ?? null;
+			const sourceRowIndex = getCanvasSourceRowIndex(
+				pointerPosition.y,
+				scrollYRef.current,
+				files.length,
+			);
+			const file = sourceRowIndex === null ? null : files[sourceRowIndex];
 
 			setTarget(file);
 		},
 		[
+			getDisplayedMousePosition,
+			inputCoordinator,
+			isAltPressed,
 			setTarget,
-			timeline,
 			app.timeline.filter,
 			app.target.files,
 			app.hidden.sourcesWithNoEvents,
 		],
 	);
 
+	/**
+	 * Selects the source-local or global content for the current timeline target.
+	 * @returns Context menu matching the row under the latest right click.
+	 */
 	const Menu = useCallback(() => {
 		if (!target) {
-			return null;
+			return <TimelineMenu />;
 		}
 
 		return <TargetMenu source={target} />;

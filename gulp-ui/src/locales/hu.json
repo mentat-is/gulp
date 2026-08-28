@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "Visszatérés az előző lekérdezési gyorsítótárhoz",
     "targetMenu.unpin": "Kibont",
     "targetMenu.uploadRule": "Feltöltési szabály",
+    "timelineMenu.refetchAll": "Összes frissítése",
+    "timelineMenu.resetAllFilters": "Összes szűrő visszaállítása",
     "timeline.selectedFrameTooSmall": "A kiválasztott keret túl kicsi",
     "userDetails.expires": "Lejár",
     "userDetails.lastLogin": "Utolsó bejelentkezés",

@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "Vrátit se k předchozí mezipaměti dotazu",
     "targetMenu.unpin": "Odepnout",
     "targetMenu.uploadRule": "Pravidlo nahrávání",
+    "timelineMenu.refetchAll": "Znovu načíst vše",
+    "timelineMenu.resetAllFilters": "Obnovit všechny filtry",
     "timeline.selectedFrameTooSmall": "Vybraný rámeček je příliš malý",
     "userDetails.expires": "Vyprší",
     "userDetails.lastLogin": "Poslední přihlášení",

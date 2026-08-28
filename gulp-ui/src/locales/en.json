@@ -817,6 +817,8 @@
     "targetMenu.undoQueryCache": "Undo query cache",
     "targetMenu.unpin": "Unpin",
     "targetMenu.uploadRule": "Upload rule",
+    "timelineMenu.refetchAll": "Refetch all",
+    "timelineMenu.resetAllFilters": "Reset all filters",
     "timeline.selectedFrameTooSmall": "Selected frame too small",
     "userDetails.expires": "Expires",
     "userDetails.lastLogin": "Last login",

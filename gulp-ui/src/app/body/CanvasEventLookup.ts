@@ -1,4 +1,5 @@
 import type { Engine } from "@/class/Engine.dto";
+import type { XY } from "@/dto/XY.dto";
 
 /** Geometry and source semantics captured at the start of one exact Canvas lookup. */
 export interface CanvasEventLookupGeometry {
@@ -38,6 +39,23 @@ export function shouldPreferCanvasEventWhileMagnifying(
 	magnifierActive: boolean,
 ): boolean {
 	return magnifierActive;
+}
+
+/**
+ * Resolves the Canvas point represented by the interaction surface the user sees.
+ * @param pointerPosition Current Canvas pointer coordinate.
+ * @param displayedMagnifierPosition Center coordinate of the last painted lens frame.
+ * @param magnifierActive Whether the magnifier is currently visible.
+ * @returns Painted magnifier center when available, otherwise the current pointer.
+ */
+export function resolveCanvasInteractionPosition(
+	pointerPosition: XY,
+	displayedMagnifierPosition: XY | null,
+	magnifierActive: boolean,
+): XY {
+	return magnifierActive && displayedMagnifierPosition
+		? displayedMagnifierPosition
+		: pointerPosition;
 }
 
 /**

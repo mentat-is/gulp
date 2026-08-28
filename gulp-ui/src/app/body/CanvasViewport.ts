@@ -1,4 +1,5 @@
 import type { Source } from "@/entities/Source";
+import type { XY } from "@/dto/XY.dto";
 
 export const CANVAS_SOURCE_ROW_HEIGHT = 48;
 /** Two source rows retained above and below the visible viewport. */
@@ -8,6 +9,94 @@ export const CANVAS_SOURCE_OVERSCAN = CANVAS_SOURCE_ROW_HEIGHT * 2;
 export interface CanvasViewportSourceRange {
 	firstIndex: number;
 	lastIndex: number;
+}
+
+/** Canvas bounds and logical size required to translate viewport client coordinates. */
+export interface CanvasSurfaceGeometry
+	extends Pick<DOMRectReadOnly, "left" | "top" | "width" | "height"> {
+	coordinateWidth: number;
+	coordinateHeight: number;
+}
+
+/** Minimal Canvas element contract required to capture transform-aware geometry. */
+export interface CanvasSurfaceElement {
+	clientWidth: number;
+	clientHeight: number;
+	getBoundingClientRect: () => DOMRect;
+}
+
+/**
+ * Captures visual bounds and untransformed Canvas coordinate dimensions together.
+ * @param surface Canvas element whose ancestor may be CSS-transformed.
+ * @returns Geometry that maps viewport client pixels into Canvas logical pixels.
+ */
+export function getCanvasSurfaceGeometry(
+	surface: CanvasSurfaceElement,
+): CanvasSurfaceGeometry {
+	const bounds = surface.getBoundingClientRect();
+	return {
+		left: bounds.left,
+		top: bounds.top,
+		width: bounds.width,
+		height: bounds.height,
+		coordinateWidth: surface.clientWidth || bounds.width,
+		coordinateHeight: surface.clientHeight || bounds.height,
+	};
+}
+
+/**
+ * Converts one client-space pointer coordinate into primary-Canvas CSS pixels.
+ * @param clientX Horizontal native event coordinate in the viewport.
+ * @param clientY Vertical native event coordinate in the viewport.
+ * @param surface Primary Canvas visual bounds and logical coordinate dimensions.
+ * @returns Fractional, transform-aware Canvas-relative pointer coordinate.
+ */
+export function getCanvasPointerPosition(
+	clientX: number,
+	clientY: number,
+	surface: CanvasSurfaceGeometry,
+): XY {
+	const scaleX = surface.width > 0 ? surface.coordinateWidth / surface.width : 1;
+	const scaleY =
+		surface.height > 0 ? surface.coordinateHeight / surface.height : 1;
+	return {
+		x: (clientX - surface.left) * scaleX,
+		y: (clientY - surface.top) * scaleY,
+	};
+}
+
+/**
+ * Resolves the rendered source row beneath a Canvas-relative pointer hotspot.
+ * @param viewportY Fractional vertical pointer coordinate in primary-Canvas pixels.
+ * @param scrollY Current vertical Canvas scroll offset.
+ * @param sourceCount Number of source rows in the rendered source order.
+ * @returns Zero-based source row index, or null outside the rendered rows.
+ */
+export function getCanvasSourceRowIndex(
+	viewportY: number,
+	scrollY: number,
+	sourceCount: number,
+): number | null {
+	if (
+		!Number.isFinite(viewportY) ||
+		!Number.isFinite(scrollY) ||
+		sourceCount <= 0
+	) {
+		return null;
+	}
+
+	const sourceY = viewportY + scrollY;
+	if (sourceY < 0) return null;
+
+	const lowerRowIndex = Math.floor(sourceY / CANVAS_SOURCE_ROW_HEIGHT);
+	const rowOffset = sourceY - lowerRowIndex * CANVAS_SOURCE_ROW_HEIGHT;
+	// Each row paints its one-pixel bottom separator. Keep that visible pixel
+	// associated with the source that owns it instead of the following row.
+	const rowIndex =
+		lowerRowIndex > 0 && rowOffset < 1
+			? lowerRowIndex - 1
+			: lowerRowIndex;
+	return rowIndex >= 0 && rowIndex < sourceCount ? rowIndex : null;
 }
 
 /**

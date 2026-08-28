@@ -808,6 +808,8 @@
     "targetMenu.undoQueryCache": "Ångra frågecache",
     "targetMenu.unpin": "Lossa",
     "targetMenu.uploadRule": "Uppladdningsregel",
+    "timelineMenu.refetchAll": "Hämta alla igen",
+    "timelineMenu.resetAllFilters": "Återställ alla filter",
     "timeline.selectedFrameTooSmall": "Den valda ramen är för liten",
     "userDetails.expires": "Går ut",
     "userDetails.lastLogin": "Senaste inloggning",

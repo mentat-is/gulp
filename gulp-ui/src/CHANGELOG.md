@@ -7,6 +7,10 @@
 
 ## UI/UX and Rendering
 
+- `Global timeline source actions`: Right-clicking outside source rows now opens
+  a source-menu-styled context menu that can reuse caches while refetching or
+  authoritatively reset filters in bulk for every selected source, including
+  sources hidden from the Canvas.
 - `Cache freshness`: Added localized query summaries and freshness reasons to the source menu. A shared DOM `AlertTriangle` with a cache-origin tooltip now marks only the exact source ID owning a settled active warning; same-name sources, valid caches, and newly fetched backend results remain unmarked.
 - `Frame-local counts`: Canvas source labels now show the exact event count inside the selected timeframe even when the active IndexedDB generation covers a wider range.
 
