@@ -238,7 +238,11 @@ export namespace WindowBridge {
       groupKind: 'events' | 'links' | 'notes'
     }
 
-  export const DETACHED_DIALOG_NAVIGATION_WINDOW_SIZE = 11
+  /** Total EventStore window prefetched around the active dialog event. */
+  export const DIALOG_NAVIGATION_CACHE_WINDOW_SIZE = 51
+
+  /** Odd number of indicators rendered with the active event at the center. */
+  export const DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE = 11
 
   export interface DetachedDialogNavigationItem {
     id: Doc.Id

@@ -656,6 +656,15 @@ of a dataset-sized event collection:
 - `queryPixelBucket(sourceId, timeRange, limit, cursor?)`;
 - source summary reads.
 
+Main and detached event dialogs request up to 25 neighbors on each side, giving
+the facade a bounded 51-event interaction cache window. The navigation component
+projects only 11 centered slots from that result, so prefetch capacity does not
+control visual layout or source-edge padding. The retained window is reused
+while it contains the selected event and at least the five visible neighbors on
+each non-terminal side. A new centered read is issued only when the visible
+strip reaches a retained-window edge, or when a document/source revision
+invalidates the window.
+
 `queryPixelBucket` returns exact events, the total matching count, a stable
 cursor, and the source revision. Its page size is capped at 100. This API is
 used for Canvas clicks and the paginated group dialog, including a pixel that

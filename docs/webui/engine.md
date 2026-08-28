@@ -111,6 +111,10 @@ membership and the marker become visible in the same ordered render update.
 The source menu's **Show first event** and **Show last event** actions, together
 with the Home and End shortcuts in an event dialog, compare active-query and
 included note targets and open the actual oldest or newest event of the source.
+Event dialogs prefetch a 51-event neighbor window for responsive repeated
+navigation while rendering an independent 11-slot strip. The selected event
+occupies the middle slot even at the first or last source boundary, where fixed
+placeholders fill the unavailable side.
 
 Included note targets are intentionally separate from the IndexedDB query-cache
 pool. A new replacement query for the source, successful source-local Undo/Redo,

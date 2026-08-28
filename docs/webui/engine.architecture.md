@@ -207,7 +207,10 @@ detached event dialogs, so the included event remains reachable after navigation
 moves to an adjacent query event. Source first/last navigation reads the bounded
 query edge and compares it with the small in-memory supplemental collection; the
 outer timestamp wins, while the query event remains authoritative for equal
-timestamps.
+timestamps. Dialog navigation keeps its bounded 51-event prefetch window
+separate from the 11-slot visual projection. Both main and detached projections
+place the selected event at the middle index; source-boundary gaps are explicit,
+non-shrinking placeholders rather than missing flex items.
 
 Supplemental events are cleared on operation reset, source removal, a new
 source replacement query, and successful Undo/Redo activation. A failed

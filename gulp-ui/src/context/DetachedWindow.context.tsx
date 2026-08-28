@@ -37,6 +37,10 @@ import {
 	EVENT_MAIN_CACHE_SIZE,
 	type EventNeighborWindow,
 } from "@/event-store";
+import {
+	findDialogNavigationEventIndex,
+	hasDialogNavigationCoverage,
+} from "@/dialogs/navigationCache";
 
 type DetachedWindowKind = WindowBridge.DetachedClientKind;
 type RoutedDetachedWindowKind = DetachedWindowKind;
@@ -249,7 +253,13 @@ function createDialogNavigation(
 	neighborWindow: EventNeighborWindow | null,
 ): WindowBridge.DetachedDialogNavigation {
 	const sourceEvents = neighborWindow?.events ?? [event];
-	const currentDescendingIndex = neighborWindow?.currentIndex ?? 0;
+	const resolvedCurrentIndex = findDialogNavigationEventIndex(
+		neighborWindow,
+		event._id,
+	);
+	const currentDescendingIndex = neighborWindow
+		? resolvedCurrentIndex
+		: 0;
 
 	const noteEventIds = new Set(
 		DataStore.notes
@@ -263,10 +273,10 @@ function createDialogNavigation(
 	});
 
 	const halfWindow = Math.floor(
-		WindowBridge.DETACHED_DIALOG_NAVIGATION_WINDOW_SIZE / 2,
+		WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE / 2,
 	);
 	const items = Array.from(
-		{ length: WindowBridge.DETACHED_DIALOG_NAVIGATION_WINDOW_SIZE },
+		{ length: WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE },
 		(_, index): WindowBridge.DetachedDialogNavigationItem | null => {
 			const offset = index - halfWindow;
 			const sourceEvent =
@@ -575,6 +585,7 @@ function _({ children }: { children: ReactNode }) {
 		useRef<WindowBridge.DialogChangedPayload | null>(null);
 	const dialogRelatedEventsRef = useRef<readonly Doc.Type[]>([]);
 	const dialogNeighborWindowRef = useRef<EventNeighborWindow | null>(null);
+	const dialogNeighborWindowOperationEpochRef = useRef(0);
 	const dialogHydrationSequenceRef = useRef(0);
 	const dialogSourcePresentationSignatureRef = useRef("");
 	const recoveredPersistedWindowsRef = useRef(false);
@@ -1085,10 +1096,12 @@ function _({ children }: { children: ReactNode }) {
 	 * Hydrates only the bounded EventStore records needed by a detached dialog.
 	 * Stale reads are ignored across descriptor and operation changes.
 	 * @param dialog Dialog descriptor to hydrate, defaulting to the active dialog.
+	 * @param forceNeighborRefresh Whether an event mutation invalidated the retained window.
 	 * @returns Promise settled after the bounded projection has been refreshed.
 	 */
 	const hydrateDialogProjection = useCallback(async (
 		dialog = dialogDescriptorRef.current,
+		forceNeighborRefresh = false,
 	): Promise<void> => {
 		const hydrationSequence = ++dialogHydrationSequenceRef.current;
 		if (!dialog) {
@@ -1112,14 +1125,25 @@ function _({ children }: { children: ReactNode }) {
 			.filter((documentId) => !descriptorEventIds.has(documentId))
 			.slice(0, relatedLimit);
 		const halfWindow = Math.floor(
-			WindowBridge.DETACHED_DIALOG_NAVIGATION_WINDOW_SIZE / 2,
+			WindowBridge.DIALOG_NAVIGATION_CACHE_WINDOW_SIZE / 2,
 		);
+		const retainedNeighborWindow =
+			dialog.kind === "event" &&
+			!forceNeighborRefresh &&
+			dialogNeighborWindowOperationEpochRef.current === operationEpoch &&
+			hasDialogNavigationCoverage(
+				dialogNeighborWindowRef.current,
+				dialog.event,
+				DataStore.getSourceRevision(dialog.event["gulp.source_id"]),
+			)
+				? dialogNeighborWindowRef.current
+				: null;
 
 		try {
 			const [relatedEvents, neighborWindow] = await Promise.all([
 				DataStore.Events.getByIds(relatedDocumentIds),
 				dialog.kind === "event"
-					? DataStore.Events.getNeighbors(
+					? retainedNeighborWindow ?? DataStore.Events.getNeighbors(
 							dialog.event["gulp.source_id"],
 							dialog.event._id,
 							halfWindow,
@@ -1137,6 +1161,7 @@ function _({ children }: { children: ReactNode }) {
 
 			dialogRelatedEventsRef.current = relatedEvents;
 			dialogNeighborWindowRef.current = neighborWindow;
+			dialogNeighborWindowOperationEpochRef.current = operationEpoch;
 			projectDialog(appRef.current, dialog);
 			scheduleDetachedState(["context", "dialog"]);
 		} catch (error) {
@@ -1306,6 +1331,12 @@ function _({ children }: { children: ReactNode }) {
 		[openRoutedDetachedWindow],
 	);
 
+	/**
+	 * Opens or updates the detached Dialog and retains a covered neighbor window.
+	 * @param nextDialog Serializable event or group descriptor to display.
+	 * @param features Browser window features used when a popup must be created.
+	 * @returns True when the detached window is available.
+	 */
 	const openDialogWindow = useCallback(
 		(
 			nextDialog: WindowBridge.DetachedDialogDescriptor,
@@ -1314,7 +1345,18 @@ function _({ children }: { children: ReactNode }) {
 			pruneClients();
 			dialogDescriptorRef.current = nextDialog;
 			dialogRelatedEventsRef.current = [];
-			dialogNeighborWindowRef.current = null;
+			const operationEpoch = DataStore.getRenderOperationEpoch();
+			const canReuseNeighborWindow =
+				nextDialog.kind === "event" &&
+				dialogNeighborWindowOperationEpochRef.current === operationEpoch &&
+				hasDialogNavigationCoverage(
+					dialogNeighborWindowRef.current,
+					nextDialog.event,
+					DataStore.getSourceRevision(nextDialog.event["gulp.source_id"]),
+				);
+			if (!canReuseNeighborWindow) {
+				dialogNeighborWindowRef.current = null;
+			}
 			void hydrateDialogProjection(nextDialog);
 			const key = "dialog";
 			const existing = windowsRef.current[key];
@@ -1848,12 +1890,12 @@ function _({ children }: { children: ReactNode }) {
 				return;
 			}
 			if (change.type === "source-events") {
-				void hydrateDialogProjection();
+				void hydrateDialogProjection(undefined, true);
 				scheduleDetachedState(["context", "dialog"]);
 				return;
 			}
 			if (change.type === "supplemental-events") {
-				void hydrateDialogProjection();
+				void hydrateDialogProjection(undefined, true);
 				scheduleDetachedState(["context", "dialog"]);
 			}
 		});

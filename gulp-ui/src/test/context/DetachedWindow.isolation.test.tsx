@@ -597,8 +597,14 @@ describe("DetachedWindow coordinator client isolation", () => {
 				([sourceId, documentId, before, after]) =>
 					sourceId === SOURCE_ID &&
 					documentId === firstEvent._id &&
-					before === 5 &&
-					after === 5,
+					before ===
+						Math.floor(
+							WindowBridge.DIALOG_NAVIGATION_CACHE_WINDOW_SIZE / 2,
+						) &&
+					after ===
+						Math.floor(
+							WindowBridge.DIALOG_NAVIGATION_CACHE_WINDOW_SIZE / 2,
+						),
 			),
 		).toBe(true);
 		expect(hydratedPayload?.events.map((event) => event._id)).toEqual([
@@ -606,8 +612,13 @@ describe("DetachedWindow coordinator client isolation", () => {
 			relatedEvent._id,
 		]);
 		expect(navigation?.items).toHaveLength(
-			WindowBridge.DETACHED_DIALOG_NAVIGATION_WINDOW_SIZE,
+			WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE,
 		);
+		expect(
+			navigation?.items[
+				Math.floor(WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE / 2)
+			]?.id,
+		).toBe(firstEvent._id);
 		expect(
 			navigation?.items.map((item) => item?.id ?? null),
 		).toEqual(
@@ -720,6 +731,27 @@ describe("DetachedWindow coordinator client isolation", () => {
 			),
 		).toBe(true);
 		expect(notesMessages).toEqual([]);
+
+		const neighborReadCount = getNeighborsCalls.length;
+		dialogMessages.length = 0;
+		act(() => {
+			coordinator!.openDialogWindow(
+				{ kind: "event", event: sourceEvents[5] },
+				"width=640,height=640",
+			);
+		});
+		await flushEventStoreReads();
+		expect(getNeighborsCalls).toHaveLength(neighborReadCount);
+		const reusedNavigationMessage = dialogMessages.toReversed().find(
+			(message) => message.type === WindowBridge.MessageType.DIALOG_CHANGED,
+		);
+		expect(
+			(
+				reusedNavigationMessage?.payload as WindowBridge.DialogChangedPayload
+			).navigation?.items[
+				Math.floor(WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE / 2)
+			]?.id,
+		).toBe(sourceEvents[5]._id);
 
 		const secondEvent = {
 			...firstEvent,

@@ -4,7 +4,6 @@ import { Banner as UIBanner } from "@/ui/Banner";
 import {
 	type CSSProperties,
 	type MouseEvent as ReactMouseEvent,
-	Fragment,
 	useEffect,
 	useMemo,
 	useState,
@@ -1908,261 +1907,260 @@ export function DisplayEventDialog({
 			callback={onClose}
 			className={s.dialog}
 		>
-			{json ? (
-				<Fragment>
-					<Navigation event={event} />
-					<div className={s.header}>
-						<div className={s.titleContainer}>
-							<div className={s.iconWrapper}>
-								<Icon
-									name="Triangle"
-									size={18}
-								/>
-							</div>
-							<h2 className={s.title}>{t("common.event")}</h2>
-						</div>
-						<div className={s.buttonGroup}>
+			<Navigation event={event} />
+			<div className={s.header}>
+				<div className={s.titleContainer}>
+					<div className={s.iconWrapper}>
+						<Icon
+							name="Triangle"
+							size={18}
+						/>
+					</div>
+					<h2 className={s.title}>{t("common.event")}</h2>
+				</div>
+				<div className={s.buttonGroup}>
+					<Button
+						variant="tertiary"
+						className={s.menuAction}
+						icon="StickyNote"
+						onClick={handleCreateNote}
+						title={t("eventDialog.createNewNote")}
+					></Button>
+					<Button
+						onClick={handleToggleFlag}
+						variant="secondary"
+						icon={isFlagged ? "FlagOff" : "Flag"}
+						disabled={isFlagButtonDisabled}
+						title={t("eventDialog.flagEvent")}
+					/>
+					<Button
+						onClick={handleFocusTimeline}
+						variant="secondary"
+						icon="Crosshair"
+						title={t("eventDialog.focusTimeline")}
+					/>
+					<Popover.Root>
+						<Popover.Trigger asChild>
+							<Button
+								variant="secondary"
+								icon="List"
+								title={t("common.actions")}
+							/>
+						</Popover.Trigger>
+						<Popover.Content
+							className={s.actionMenu}
+							container={currentDocument.body}
+							align="end"
+						>
 							<Button
 								variant="tertiary"
 								className={s.menuAction}
-								icon="StickyNote"
-								onClick={handleCreateNote}
-								title={t("eventDialog.createNewNote")}
-							></Button>
-							<Button
-								onClick={handleToggleFlag}
-								variant="secondary"
-								icon={isFlagged ? "FlagOff" : "Flag"}
-								disabled={isFlagButtonDisabled}
-								title={t("eventDialog.flagEvent")}
-							/>
-							<Button
-								onClick={handleFocusTimeline}
-								variant="secondary"
-								icon="Crosshair"
-								title={t("eventDialog.focusTimeline")}
-							/>
-							<Popover.Root>
-								<Popover.Trigger asChild>
-									<Button
-										variant="secondary"
-										icon="List"
-										title={t("common.actions")}
-									/>
-								</Popover.Trigger>
-								<Popover.Content
-									className={s.actionMenu}
-									container={currentDocument.body}
-									align="end"
-								>
-									<Button
-										variant="tertiary"
-										className={s.menuAction}
-										icon="GitPullRequestCreate"
-										onClick={handleCreateLink}
-									>
-										{t("eventDialog.createAndConnectLink")}
-									</Button>
-									<Button
-										variant="tertiary"
-										className={s.menuAction}
-										icon="GitPullRequestCreateArrow"
-										onClick={handleConnectLink}
-									>
-										{t("eventDialog.connectLink")}
-									</Button>
-									<Button
-										variant="tertiary"
-										className={s.menuAction}
-										icon="PrismColor"
-										onClick={() => handleEnrich()}
-									>
-										{t("targetMenu.enrich")}
-									</Button>
-									{hasSendDataExtension && (
-										<Button
-											variant="tertiary"
-											className={s.menuAction}
-											icon="Send"
-											onClick={handleSendData}
-										>
-											{t("eventDialog.sendIoc")}
-										</Button>
-									)}
-									{eventActionPlugins.map((plugin) => (
-										<Extension.Component
-											className={s.pluginMenuAction}
-											key={plugin.filename}
-											name={plugin.filename}
-											props={{ doc: event, event }}
-										/>
-									))}
-									<Button
-										variant="tertiary"
-										className={s.menuAction}
-										icon="Download"
-										onClick={handleDownloadJson}
-									>
-										{t("eventDialog.downloadJson")}
-									</Button>
-								</Popover.Content>
-							</Popover.Root>
-							<Button
-								variant="secondary"
-								icon="X"
-								title={t("common.closeDialog")}
-								onClick={handleCloseDialog}
-							/>
-						</div>
-					</div>
-
-					{(transformedFields.length > 0 || suppressedFields.length > 0) && (
-						<div className={s.transformBar}>
-							<Icon
-								name="Utensils"
-								size={12}
-								color="var(--gray-700)"
-							/>
-							<span className={s.transformBarLabel}>Transformed:</span>
-							{transformedFields.map((field) => (
-								<button
-									key={`on-${field}`}
-									type="button"
-									className={cn(s.transformChip, s.transformChipOn)}
-									onClick={() => toggleTransformField(field)}
-									title="Showing transformed value — click to show raw"
-								>
-									<Icon name="Eye" size={10} />
-									<code>{field}</code>
-								</button>
-							))}
-							{suppressedFields.map((field) => (
-								<button
-									key={`off-${field}`}
-									type="button"
-									className={cn(s.transformChip, s.transformChipOff)}
-									onClick={() => toggleTransformField(field)}
-									title="Showing raw value — click to show transformed"
-								>
-									<Icon name="EyeOff" size={10} />
-									<code>{field}</code>
-								</button>
-							))}
-						</div>
-					)}
-					<div className={s.eventViewer}>
-						<Button
-							className={s.copyJsonButton}
-							variant="secondary"
-							onClick={handleCopyJson}
-							icon="Copy"
-							title={t("eventDialog.copyJson")}
-						/>
-						{highlights}
-					</div>
-
-					<Tabs
-						defaultValue="notes"
-						className={s.collabTabs}
-						style={
-							{
-								"--collab-panel-height": `${collabPanelHeight}px`,
-							} as CSSProperties
-						}
-					>
-						<div
-							className={s.collabResizeHandle}
-							onMouseDown={handleCollabResizeStart}
-							role="separator"
-							aria-orientation="horizontal"
-						/>
-						<div className={s.collabTabsHeader}>
-							<TabsList className={s.triggers}>
-								<TabsTrigger value="notes">
-									<Icon
-										name="StickyNote"
-										size={14}
-									/>{" "}
-									{t("notes.title")}
-								</TabsTrigger>
-								<TabsTrigger value="links">
-									<Icon
-										name="GitPullRequestCreate"
-										size={14}
-									/>{" "}
-									{t("eventDialog.links")}
-								</TabsTrigger>
-							</TabsList>
-						</div>
-						<div className={s.collabPanel}>
-							<TabsContent
-								value="notes"
-								className={s.collabContent}
+								icon="GitPullRequestCreate"
+								onClick={handleCreateLink}
 							>
-								{notes.length > 0 ? (
-									<Collab.List
-										notes={notes}
-										links={[]}
-										container={currentDocument.body}
-									/>
-								) : (
-									<div className={s.emptyState}>{t("eventDialog.noNotes")}</div>
-								)}
-							</TabsContent>
-							<TabsContent
-								value="links"
-								className={s.collabContent}
+								{t("eventDialog.createAndConnectLink")}
+							</Button>
+							<Button
+								variant="tertiary"
+								className={s.menuAction}
+								icon="GitPullRequestCreateArrow"
+								onClick={handleConnectLink}
 							>
-								{linkTableRows.length > 0 ? (
-									<Table
-										className={s.collabTable}
-										values={linkTableRows}
-										columns={linkTableColumns}
-										includeIndex={false}
-										actions={linkTableActions}
-									/>
-								) : (
-									<div className={s.emptyState}>{t("eventDialog.noLinks")}</div>
-								)}
-							</TabsContent>
-						</div>
-					</Tabs>
-					{linkedEventsPopup && (
-						<DisplayGroupDialog
-							events={linkedEventsPopup.events}
-							anchor={linkedEventsPopup.anchor}
-							groupKind="links"
-							onClose={() => setLinkedEventsPopup(null)}
-							preserveTimelineTarget
-						/>
-					)}
-				</Fragment>
-			) : detailError ? (
-				<Stack
-					style={{ width: "100%", height: "100%" }}
-					flex
-					ai="center"
-					jc="center"
-					dir="column"
-					gap={12}
-				>
-					<Icon
-						name="CircleAlert"
-						size={40}
-						style={{ color: "var(--red-500)" }}
-					/>
-					<p>{t("eventDialog.eventUnavailable")}</p>
+								{t("eventDialog.connectLink")}
+							</Button>
+							<Button
+								variant="tertiary"
+								className={s.menuAction}
+								icon="PrismColor"
+								onClick={() => handleEnrich()}
+							>
+								{t("targetMenu.enrich")}
+							</Button>
+							{hasSendDataExtension && (
+								<Button
+									variant="tertiary"
+									className={s.menuAction}
+									icon="Send"
+									onClick={handleSendData}
+								>
+									{t("eventDialog.sendIoc")}
+								</Button>
+							)}
+							{eventActionPlugins.map((plugin) => (
+								<Extension.Component
+									className={s.pluginMenuAction}
+									key={plugin.filename}
+									name={plugin.filename}
+									props={{ doc: event, event }}
+								/>
+							))}
+							<Button
+								variant="tertiary"
+								className={s.menuAction}
+								icon="Download"
+								onClick={handleDownloadJson}
+							>
+								{t("eventDialog.downloadJson")}
+							</Button>
+						</Popover.Content>
+					</Popover.Root>
 					<Button
 						variant="secondary"
-						icon="RotateCw"
-						onClick={retryDetail}
+						icon="X"
+						title={t("common.closeDialog")}
+						onClick={handleCloseDialog}
+					/>
+				</div>
+			</div>
+
+			{(transformedFields.length > 0 || suppressedFields.length > 0) && (
+				<div className={s.transformBar}>
+					<Icon
+						name="Utensils"
+						size={12}
+						color="var(--gray-700)"
+					/>
+					<span className={s.transformBarLabel}>Transformed:</span>
+					{transformedFields.map((field) => (
+						<button
+							key={`on-${field}`}
+							type="button"
+							className={cn(s.transformChip, s.transformChipOn)}
+							onClick={() => toggleTransformField(field)}
+							title="Showing transformed value — click to show raw"
+						>
+							<Icon name="Eye" size={10} />
+							<code>{field}</code>
+						</button>
+					))}
+					{suppressedFields.map((field) => (
+						<button
+							key={`off-${field}`}
+							type="button"
+							className={cn(s.transformChip, s.transformChipOff)}
+							onClick={() => toggleTransformField(field)}
+							title="Showing raw value — click to show transformed"
+						>
+							<Icon name="EyeOff" size={10} />
+							<code>{field}</code>
+						</button>
+					))}
+				</div>
+			)}
+			<div className={s.eventViewer}>
+				<Button
+					className={s.copyJsonButton}
+					variant="secondary"
+					onClick={handleCopyJson}
+					icon="Copy"
+					title={t("eventDialog.copyJson")}
+					disabled={!json}
+				/>
+				{json ? (
+					highlights
+				) : detailError ? (
+					<Stack
+						style={{ width: "100%", height: "100%" }}
+						flex
+						ai="center"
+						jc="center"
+						dir="column"
+						gap={12}
 					>
-						{t("common.refresh")}
-					</Button>
-				</Stack>
-			) : detailLoading ? (
-				<LoadingSkeleton />
-			) : null}
+						<Icon
+							name="CircleAlert"
+							size={40}
+							style={{ color: "var(--red-500)" }}
+						/>
+						<p>{t("eventDialog.eventUnavailable")}</p>
+						<Button
+							variant="secondary"
+							icon="RotateCw"
+							onClick={retryDetail}
+						>
+							{t("common.refresh")}
+						</Button>
+					</Stack>
+				) : detailLoading ? (
+					<LoadingSkeleton />
+				) : null}
+			</div>
+
+			<Tabs
+				defaultValue="notes"
+				className={s.collabTabs}
+				style={
+					{
+						"--collab-panel-height": `${collabPanelHeight}px`,
+					} as CSSProperties
+				}
+			>
+				<div
+					className={s.collabResizeHandle}
+					onMouseDown={handleCollabResizeStart}
+					role="separator"
+					aria-orientation="horizontal"
+				/>
+				<div className={s.collabTabsHeader}>
+					<TabsList className={s.triggers}>
+						<TabsTrigger value="notes">
+							<Icon
+								name="StickyNote"
+								size={14}
+							/>{" "}
+							{t("notes.title")}
+						</TabsTrigger>
+						<TabsTrigger value="links">
+							<Icon
+								name="GitPullRequestCreate"
+								size={14}
+							/>{" "}
+							{t("eventDialog.links")}
+						</TabsTrigger>
+					</TabsList>
+				</div>
+				<div className={s.collabPanel}>
+					<TabsContent
+						value="notes"
+						className={s.collabContent}
+					>
+						{notes.length > 0 ? (
+							<Collab.List
+								notes={notes}
+								links={[]}
+								container={currentDocument.body}
+							/>
+						) : (
+							<div className={s.emptyState}>{t("eventDialog.noNotes")}</div>
+						)}
+					</TabsContent>
+					<TabsContent
+						value="links"
+						className={s.collabContent}
+					>
+						{linkTableRows.length > 0 ? (
+							<Table
+								className={s.collabTable}
+								values={linkTableRows}
+								columns={linkTableColumns}
+								includeIndex={false}
+								actions={linkTableActions}
+							/>
+						) : (
+							<div className={s.emptyState}>{t("eventDialog.noLinks")}</div>
+						)}
+					</TabsContent>
+				</div>
+			</Tabs>
+			{linkedEventsPopup && (
+				<DisplayGroupDialog
+					events={linkedEventsPopup.events}
+					anchor={linkedEventsPopup.anchor}
+					groupKind="links"
+					onClose={() => setLinkedEventsPopup(null)}
+					preserveTimelineTarget
+				/>
+			)}
 		</Dialog>
 	);
 }

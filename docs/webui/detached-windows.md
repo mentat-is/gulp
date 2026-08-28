@@ -276,10 +276,15 @@ preflight beside each relevant request.
 Dialog navigation carries indicator metadata only. Complete event JSON remains
 outside bridge messages and is requested by the detached Dialog when the
 selected event changes. Returning to a recently viewed event uses the local
-detail cache. The detached Dialog route owns a definite viewport-height
-container, without an inherited flex-grow value, so its navigation keeps its
-fixed height while Tree, Raw, and Table detail views retain their flex layout in
-standalone browser windows.
+detail cache. Navigation, stable actions, and the collaboration panel remain
+mounted while a newly selected detail is loading; only the detail viewer enters
+its loading or error state. The main coordinator retains the bounded neighbor
+window across covered selections and sends a newly centered compact projection
+without another EventStore neighbor read. Source, supplemental-event, operation,
+and uncovered-window changes invalidate that retained window. The detached
+Dialog route owns a definite viewport-height container, without an inherited
+flex-grow value, so its navigation keeps its fixed height while Tree, Raw, and
+Table detail views retain their flex layout in standalone browser windows.
 
 Safe realtime note edits patch visible data locally. Changes that can alter
 membership or ordering request one refresh. Create and delete notifications

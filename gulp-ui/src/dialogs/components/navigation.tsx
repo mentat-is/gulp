@@ -10,6 +10,11 @@ import { Button } from '@/ui/Button'
 import { Locale } from '@/locales'
 import { WindowBridge } from '@/lib/WindowBridge'
 import { DataStore } from '@/store/DataStore'
+import type { EventNeighborWindow } from '@/event-store/EventStore.reader'
+import {
+  findDialogNavigationEventIndex,
+  hasDialogNavigationCoverage,
+} from '@/dialogs/navigationCache'
 
 export namespace Navigation {
   export interface Props {
@@ -17,7 +22,11 @@ export namespace Navigation {
   }
 }
 
-const WINDOW_SIZE = WindowBridge.DETACHED_DIALOG_NAVIGATION_WINDOW_SIZE
+const CACHE_WINDOW_RADIUS = Math.floor(
+  WindowBridge.DIALOG_NAVIGATION_CACHE_WINDOW_SIZE / 2
+)
+const VISIBLE_WINDOW_SIZE =
+  WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE
 
 interface NavigationEntry {
   event: Doc.Type
@@ -26,6 +35,16 @@ interface NavigationEntry {
   hasLinks?: boolean
 }
 
+interface NavigationCache {
+  sourceId: Source.Id
+  documentsRevision: number
+  neighborWindow: EventNeighborWindow
+}
+
+/**
+ * Renders the centered Event Dialog navigation strip from a bounded retained
+ * neighbor window.
+ */
 export function Navigation({ event }: Navigation.Props) {
   const {
     app,
@@ -44,7 +63,9 @@ export function Navigation({ event }: Navigation.Props) {
 
   const file = Source.Entity.id(app, event['gulp.source_id'])
   const sourceId = file?.id
-  const [allEvents, setAllEvents] = useState<Doc.Type[]>([])
+  const [navigationCache, setNavigationCache] =
+    useState<NavigationCache | null>(null)
+  const navigationCacheRef = useRef<NavigationCache | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const documentRevision = useSyncExternalStore(
     DataStore.subscribeDocuments,
@@ -54,7 +75,24 @@ export function Navigation({ event }: Navigation.Props) {
 
   useEffect(() => {
     if (detachedNavigation || !sourceId) {
-      setAllEvents([])
+      navigationCacheRef.current = null
+      setNavigationCache(null)
+      setIsLoading(false)
+      return
+    }
+
+    const retainedWindow =
+      navigationCacheRef.current?.sourceId === sourceId &&
+      navigationCacheRef.current.documentsRevision === documentRevision
+        ? navigationCacheRef.current.neighborWindow
+        : null
+    if (
+      hasDialogNavigationCoverage(
+        retainedWindow,
+        event,
+        DataStore.getSourceRevision(sourceId)
+      )
+    ) {
       setIsLoading(false)
       return
     }
@@ -64,24 +102,24 @@ export function Navigation({ event }: Navigation.Props) {
     void DataStore.Events.getNeighbors(
       sourceId,
       event._id,
-      Math.floor(WINDOW_SIZE / 2),
-      Math.floor(WINDOW_SIZE / 2)
+      CACHE_WINDOW_RADIUS,
+      CACHE_WINDOW_RADIUS
     )
       .then((result) => {
         if (canceled) return
-        // EventStore ordering is newest-first; the navigation strip is oldest-first.
-        const unique: Doc.Type[] = []
-        const seen = new Set<Doc.Id>()
-        for (let index = result.events.length - 1; index >= 0; index--) {
-          const candidate = result.events[index]
-          if (!candidate || seen.has(candidate._id)) continue
-          seen.add(candidate._id)
-          unique.push(candidate)
+        const nextCache = {
+          sourceId,
+          documentsRevision: documentRevision,
+          neighborWindow: result,
         }
-        setAllEvents(unique)
+        navigationCacheRef.current = nextCache
+        setNavigationCache(nextCache)
       })
       .catch(() => {
-        if (!canceled) setAllEvents([])
+        if (!canceled) {
+          navigationCacheRef.current = null
+          setNavigationCache(null)
+        }
       })
       .finally(() => {
         if (!canceled) setIsLoading(false)
@@ -91,16 +129,19 @@ export function Navigation({ event }: Navigation.Props) {
       canceled = true
     }
   }, [
-    app.timeline.renderVersion,
     detachedNavigation,
     documentRevision,
     event._id,
     sourceId,
   ])
 
-  const currentIndex = allEvents.findIndex((e) => e && e._id === event._id)
+  const neighborWindow = navigationCache?.neighborWindow ?? null
+  const currentIndex = findDialogNavigationEventIndex(
+    neighborWindow,
+    event._id
+  )
 
-  /** Strictly centered window: always WINDOW_SIZE elements with current at center */
+  /** Projects the fixed visible strip with the selected event at its center. */
   const windowEvents = useMemo<Array<NavigationEntry | null>>(() => {
     if (detachedNavigation) {
       return detachedNavigation.items.map((item) =>
@@ -121,21 +162,17 @@ export function Navigation({ event }: Navigation.Props) {
       )
     }
 
-    const half = Math.floor(WINDOW_SIZE / 2)
-    return Array.from({ length: WINDOW_SIZE }, (_, i) => {
+    const half = Math.floor(VISIBLE_WINDOW_SIZE / 2)
+    return Array.from({ length: VISIBLE_WINDOW_SIZE }, (_, i) => {
       if (currentIndex === -1) return null
-      const targetIndex = currentIndex + (i - half)
+      const targetIndex = currentIndex - (i - half)
       const targetEvent =
-        targetIndex >= 0 && targetIndex < allEvents.length
-          ? allEvents[targetIndex]
+        targetIndex >= 0 && targetIndex < (neighborWindow?.events.length ?? 0)
+          ? neighborWindow?.events[targetIndex]
           : null
       return targetEvent ? { event: targetEvent } : null
     })
-  }, [
-    allEvents,
-    currentIndex,
-    detachedNavigation,
-  ])
+  }, [currentIndex, detachedNavigation, neighborWindow])
 
   /**
    * Opens the event dialog for a specific event from the navigation strip.
@@ -168,24 +205,27 @@ export function Navigation({ event }: Navigation.Props) {
       return
     }
     if (currentIndex === -1) return
-    const nextIndex = currentIndex + direction
-    if (nextIndex >= 0 && nextIndex < allEvents.length) {
-      spawnDialog(<DisplayEventDialog event={allEvents[nextIndex]} />)
+    const nextIndex = currentIndex - direction
+    const nextEvent = neighborWindow?.events[nextIndex]
+    if (nextEvent) {
+      spawnDialog(<DisplayEventDialog event={nextEvent} />)
     }
   }, [
-    allEvents,
     currentIndex,
     detachedNavigation,
+    neighborWindow,
     selectDetachedDialogEvent,
     spawnDialog,
   ])
 
   const hasPreviousEvent = detachedNavigation
     ? detachedNavigation.previousEventId !== null
-    : !isLoading && currentIndex > 0
+    : !isLoading &&
+      currentIndex >= 0 &&
+      currentIndex < (neighborWindow?.events.length ?? 0) - 1
   const hasNextEvent = detachedNavigation
     ? detachedNavigation.nextEventId !== null
-    : !isLoading && currentIndex >= 0 && currentIndex < allEvents.length - 1
+    : !isLoading && currentIndex > 0
 
   return (
     <Stack

@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { App } from "@/entities/App";
 import type { Doc } from "@/entities/Doc";
 import type { Source } from "@/entities/Source";
-import type { WindowBridge } from "@/lib/WindowBridge";
+import { WindowBridge } from "@/lib/WindowBridge";
 import { Navigation } from "@/dialogs/components/navigation";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -64,6 +64,7 @@ jest.mock("@/store/DataStore", () => ({
 	DataStore: {
 		subscribeDocuments: () => () => undefined,
 		getDocumentsSnapshot: () => 0,
+		getSourceRevision: () => 0,
 		Events: {
 			getNeighbors: (
 				sourceId: Source.Id,
@@ -159,6 +160,16 @@ function createEvent(id: string, timestamp: number): Doc.Type {
 		gulp_timestamp: timestamp,
 		number_hash: timestamp,
 	} as Doc.Type;
+}
+
+/** Returns the fixed-width indicator strip between the navigation arrows. */
+function getNavigationStrip(container: HTMLElement): HTMLElement {
+	const navigation = container.firstElementChild;
+	const strip = navigation?.children[1];
+	if (!(strip instanceof HTMLElement)) {
+		throw new Error("Missing navigation indicator strip.");
+	}
+	return strip;
 }
 
 describe("Event Dialog navigation", () => {
@@ -263,10 +274,101 @@ describe("Event Dialog navigation", () => {
 		expect(mockGetNeighbors).toHaveBeenCalled();
 		expect(mockGetNeighbors.mock.calls.at(-1)?.[0]).toBe(SOURCE_ID);
 		expect(mockGetNeighbors.mock.calls.at(-1)?.[1]).toBe(current._id);
-		expect(mockGetNeighbors.mock.calls.at(-1)?.[2]).toBe(5);
-		expect(mockGetNeighbors.mock.calls.at(-1)?.[3]).toBe(5);
+		const cacheRadius = Math.floor(
+			WindowBridge.DIALOG_NAVIGATION_CACHE_WINDOW_SIZE / 2,
+		);
+		expect(mockGetNeighbors.mock.calls.at(-1)?.[2]).toBe(cacheRadius);
+		expect(mockGetNeighbors.mock.calls.at(-1)?.[3]).toBe(cacheRadius);
+		const strip = getNavigationStrip(container);
+		const visibleCenter = Math.floor(
+			WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE / 2,
+		);
+		expect(strip.children).toHaveLength(
+			WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE,
+		);
+		expect(strip.children[visibleCenter].getAttribute("data-event-id")).toBe(
+			current._id,
+		);
 		expect(mockGetEvents).not.toHaveBeenCalled();
 		expect(mockSpawnDialog).toHaveBeenCalledTimes(1);
 		expect(mockSelectDetachedDialogEvent).not.toHaveBeenCalled();
 	});
+
+	it("reuses the prefetched window until the visible strip reaches its edge", async () => {
+		const events = Array.from({ length: 51 }, (_, index) =>
+			createEvent(`event-${index}`, 51 - index),
+		);
+		mockDetached = false;
+		mockNeighborResult = {
+			events,
+			currentIndex: 25,
+			sourceRevision: 1,
+		};
+
+		await act(async () => {
+			root.render(<Navigation event={events[25]} />);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		expect(mockGetNeighbors).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			root.render(<Navigation event={events[5]} />);
+			await Promise.resolve();
+		});
+		expect(mockGetNeighbors).toHaveBeenCalledTimes(1);
+		expect(
+			getNavigationStrip(container).children[5].getAttribute("data-event-id"),
+		).toBe(events[5]._id);
+
+		mockNeighborResult = {
+			events: events.slice(0, 30),
+			currentIndex: 4,
+			sourceRevision: 1,
+		};
+		await act(async () => {
+			root.render(<Navigation event={events[4]} />);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		expect(mockGetNeighbors).toHaveBeenCalledTimes(2);
+		expect(mockGetNeighbors.mock.calls.at(-1)?.[1]).toBe(events[4]._id);
+	});
+
+	for (const [edge, currentIndex] of [
+		["first", 2],
+		["last", 0],
+	] as const) {
+		it(`keeps the ${edge} source event in the visual center`, async () => {
+			const events = [
+				createEvent("newest", 3),
+				createEvent("middle", 2),
+				createEvent("oldest", 1),
+			];
+			const current = events[currentIndex];
+			mockDetached = false;
+			mockNeighborResult = {
+				events,
+				currentIndex,
+				sourceRevision: 1,
+			};
+
+			await act(async () => {
+				root.render(<Navigation event={current} />);
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+
+			const strip = getNavigationStrip(container);
+			const visibleCenter = Math.floor(
+				WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE / 2,
+			);
+			expect(strip.children).toHaveLength(
+				WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE,
+			);
+			expect(
+				strip.children[visibleCenter].getAttribute("data-event-id"),
+			).toBe(current._id);
+		});
+	}
 });

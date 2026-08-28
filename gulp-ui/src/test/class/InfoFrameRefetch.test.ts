@@ -130,6 +130,27 @@ const sourceTimestamp = {
 };
 
 /**
+ * Creates one source-local timeline document for edge-navigation assertions.
+ * @param id Stable document identifier.
+ * @param timestamp Timeline timestamp used to select the source edge.
+ * @param ownerSourceId Source that owns the document.
+ * @returns Complete minimal timeline document.
+ */
+function createTimelineDocument(
+	id: string,
+	timestamp: number,
+	ownerSourceId: Source.Id = sourceId,
+): Doc.Type {
+	return {
+		_id: id as Doc.Id,
+		gulp_timestamp: timestamp,
+		"gulp.source_id": ownerSourceId,
+		"gulp.event_code": 1,
+		number_hash: timestamp,
+	};
+}
+
+/**
  * Creates a selected source with a two-second positive render offset.
  * @param id Optional source identity for multi-source startup coverage.
  * @returns Source fixture for the refetch test.
@@ -409,6 +430,68 @@ describe("Info timeline-frame refetch", () => {
 		setSmartSocket(undefined);
 		DataStore.resetRenderOperation();
 		requestStore.reset();
+	});
+
+	it("selects supplemental events beyond both active-query source edges", async () => {
+		const source = createSource();
+		const { info } = createInfoHarness(source);
+		DataStore.replaceSourceEvents(source.id, [
+			createTimelineDocument("query-newest", 300),
+			createTimelineDocument("query-oldest", 100),
+		]);
+		const supplementalNewest = createTimelineDocument(
+			"supplemental-newest",
+			400,
+		);
+		const supplementalOldest = createTimelineDocument(
+			"supplemental-oldest",
+			50,
+		);
+		DataStore.upsertSupplementalEvents([
+			supplementalNewest,
+			createTimelineDocument("supplemental-interior", 200),
+			supplementalOldest,
+		]);
+
+		expect(await info.getTimelineSourceEdge(source.id, false)).toBe(
+			supplementalOldest,
+		);
+		expect(await info.getTimelineSourceEdge(source.id, true)).toBe(
+			supplementalNewest,
+		);
+	});
+
+	it("keeps active-query edges when supplemental events are inside them", async () => {
+		const source = createSource();
+		const { info } = createInfoHarness(source);
+		const queryNewest = createTimelineDocument("query-newest", 300);
+		const queryOldest = createTimelineDocument("query-oldest", 100);
+		DataStore.replaceSourceEvents(source.id, [queryNewest, queryOldest]);
+		DataStore.upsertSupplementalEvents([
+			createTimelineDocument("supplemental-interior", 200),
+		]);
+
+		expect(await info.getTimelineSourceEdge(source.id, false)).toBe(
+			queryOldest,
+		);
+		expect(await info.getTimelineSourceEdge(source.id, true)).toBe(
+			queryNewest,
+		);
+	});
+
+	it("selects a supplemental edge when the active query is empty", async () => {
+		const source = createSource();
+		const { info } = createInfoHarness(source);
+		const supplemental = createTimelineDocument("supplemental-only", 200);
+		DataStore.replaceSourceEvents(source.id, []);
+		DataStore.upsertSupplementalEvents([supplemental]);
+
+		expect(await info.getTimelineSourceEdge(source.id, false)).toBe(
+			supplemental,
+		);
+		expect(await info.getTimelineSourceEdge(source.id, true)).toBe(
+			supplemental,
+		);
 	});
 
 	it("allows long frames to reach a ten-millisecond visible duration", () => {
