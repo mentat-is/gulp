@@ -67,6 +67,7 @@ import { EventJsonTransforms } from "@/lib/EventJsonTransforms";
 import { resolveEventRenderColor } from "@/utils";
 import { useEventDetail } from "./useEventDetail";
 import { useEventDetailViewPreference } from "./useEventDetailView";
+import type { WindowBridge } from "@/lib/WindowBridge";
 
 // --- UTILITIES ---
 
@@ -1166,8 +1167,15 @@ export function DisplayEventDialog({
 }) {
 	if (!event) return null;
 
-	const { Info, app, spawnBanner, spawnDialog, currentDocument } =
-		Application.use();
+	const {
+		Info,
+		app,
+		spawnBanner,
+		spawnDialog,
+		currentDocument,
+		detachedEventDetail,
+		requestMainEventAction,
+	} = Application.use();
 	const { extensions } = Extension.use();
 	const { t } = Locale.use();
 
@@ -1233,6 +1241,18 @@ export function DisplayEventDialog({
 	});
 	const detailError = detailRequestError !== null;
 
+	/**
+	 * Delegates a mutating Event workflow to the main document when this Dialog
+	 * is independently rendered.
+	 * @param action Serializable workflow descriptor resolved by the main coordinator.
+	 * @returns True when the detached request was accepted; otherwise false.
+	 */
+	const requestEventActionInMain = useCallback(
+		(action: WindowBridge.EventActionRequest): boolean =>
+			requestMainEventAction({ eventId: event._id, action }),
+		[event._id, requestMainEventAction],
+	);
+
 	// --- EFFECTS ---
 
 	// Sync with timeline focus
@@ -1270,6 +1290,13 @@ export function DisplayEventDialog({
 	useEffect(() => setEventActionTarget(null), [event._id]);
 	useEffect(() => setLinkedEventsPopup(null), [event._id]);
 	useEffect(() => setHiddenTransformFields(new Set()), [event._id]);
+
+	useEffect(() => {
+		if (detachedEventDetail?._id !== event._id) return;
+		setJSON(
+			detachedEventDetail as unknown as Record<string, unknown>,
+		);
+	}, [detachedEventDetail, event._id, setJSON]);
 
 	useEffect(
 		() => EventJsonTransforms.subscribe(() => setTransformsVersion((v) => v + 1)),
@@ -1417,6 +1444,14 @@ export function DisplayEventDialog({
 
 	const handleEnrich = useCallback(
 		(enrichmentField?: { key: string; value: string }) => {
+			if (
+				requestEventActionInMain({
+					kind: "enrich",
+					field: enrichmentField,
+				})
+			) {
+				return;
+			}
 			spawnBanner(
 				<Enrichment.Banner
 					event={event}
@@ -1427,29 +1462,48 @@ export function DisplayEventDialog({
 				/>,
 			);
 		},
-		[spawnBanner, event, json],
+		[spawnBanner, event, requestEventActionInMain, setJSON],
 	);
 
-	const handleCreateNote = useCallback(() => {
-		spawnBanner(<NoteFunctionality.Create.Banner event={event} />);
-	}, [spawnBanner, event]);
+	const handleCreateNote = useCallback(
+		(initialText?: string) => {
+			if (
+				requestEventActionInMain({
+					kind: "note-create",
+					initialText,
+				})
+			) {
+				return;
+			}
+			spawnBanner(
+				<NoteFunctionality.Create.Banner
+					event={event}
+					note={initialText ? ({ text: initialText } as Note.Type) : undefined}
+				/>,
+			);
+		},
+		[event, requestEventActionInMain, spawnBanner],
+	);
 
 	const handleCreateLink = useCallback(() => {
+		if (requestEventActionInMain({ kind: "link-create" })) return;
 		spawnBanner(
 			<LinkFunctionality.Create.Banner
 				event={event}
 				initialDocIds={[event._id]}
 			/>,
 		);
-	}, [spawnBanner, event]);
+	}, [spawnBanner, event, requestEventActionInMain]);
 
 	const handleSendData = useCallback(() => {
+		if (requestEventActionInMain({ kind: "send-data" })) return;
 		spawnBanner(<SendData.Banner event={event} />);
-	}, [spawnBanner, event]);
+	}, [spawnBanner, event, requestEventActionInMain]);
 
 	const handleConnectLink = useCallback(() => {
+		if (requestEventActionInMain({ kind: "link-connect" })) return;
 		spawnBanner(<LinkFunctionality.Connect.Banner event={event} />);
-	}, [spawnBanner, event]);
+	}, [spawnBanner, event, requestEventActionInMain]);
 
 	/**
 	 * Opens every event connected to the provided link.
@@ -1485,6 +1539,14 @@ export function DisplayEventDialog({
 	 */
 	const handleOpenLinkActionBanner = useCallback(
 		(link: Link.Type) => {
+			if (
+				requestEventActionInMain({
+					kind: "link-manage",
+					linkId: link.id,
+				})
+			) {
+				return;
+			}
 			spawnBanner(
 				<LinkEventActionBanner
 					event={event}
@@ -1492,7 +1554,7 @@ export function DisplayEventDialog({
 				/>,
 			);
 		},
-		[event, spawnBanner],
+		[event, requestEventActionInMain, spawnBanner],
 	);
 
 	/**
@@ -1503,6 +1565,15 @@ export function DisplayEventDialog({
 		(target: EventActionTarget | null) => {
 			if (!target?.field) {
 				toast(t("eventDialog.invalidFilterSelection"));
+				return;
+			}
+			if (
+				requestEventActionInMain({
+					kind: "filter",
+					field: target.field,
+					value: target.value,
+				})
+			) {
 				return;
 			}
 
@@ -1529,7 +1600,7 @@ export function DisplayEventDialog({
 				/>,
 			);
 		},
-		[Info, app, event, spawnBanner, t],
+		[Info, app, event, requestEventActionInMain, spawnBanner, t],
 	);
 
 	// --- UI COMPONENTS: Sub-renders ---
@@ -1682,14 +1753,7 @@ export function DisplayEventDialog({
 				<ContextMenuContent container={currentDocument.body}>
 					<ContextMenuItem
 						disabled={!eventActionText}
-						onClick={() =>
-							spawnBanner(
-								<NoteFunctionality.Create.Banner
-									event={event}
-									note={{ text: eventActionText } as Note.Type}
-								/>,
-							)
-						}
+						onClick={() => handleCreateNote(eventActionText)}
 						icon="StickyNote"
 					>
 						{t("eventDialog.createNewNote")}
@@ -1755,6 +1819,7 @@ export function DisplayEventDialog({
 		eventActionTarget,
 		spawnBanner,
 		event,
+		handleCreateNote,
 		applyActionTargetAsFileFilter,
 		handleDownloadLogFile,
 		handleEnrich,
@@ -1923,7 +1988,7 @@ export function DisplayEventDialog({
 						variant="tertiary"
 						className={s.menuAction}
 						icon="StickyNote"
-						onClick={handleCreateNote}
+						onClick={() => handleCreateNote()}
 						title={t("eventDialog.createNewNote")}
 					></Button>
 					<Button
@@ -2203,7 +2268,7 @@ function LoadingSkeleton() {
  * Banner that lets the user choose whether to disconnect the current event
  * from a link or delete the link entirely.
  */
-function LinkEventActionBanner({
+export function LinkEventActionBanner({
 	event,
 	link,
 }: {

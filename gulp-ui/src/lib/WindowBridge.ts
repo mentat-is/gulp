@@ -62,6 +62,8 @@ export namespace WindowBridge {
     ASSISTANT_CONNECTION_CHANGED = 'ASSISTANT_CONNECTION_CHANGED',
     /** Main → Dialog: Serializable dialog content changed */
     DIALOG_CHANGED = 'DIALOG_CHANGED',
+    /** Main → Dialog: Refreshed full JSON for one event detail */
+    EVENT_DETAIL_CHANGED = 'EVENT_DETAIL_CHANGED',
     /** Main → Detached: Theme changed */
     THEME_CHANGE = 'THEME_CHANGE',
     /** Main → Detached: Authoritative selected-source notes snapshot */
@@ -80,6 +82,8 @@ export namespace WindowBridge {
     TIMELINE_ZOOM_REQUEST = 'TIMELINE_ZOOM_REQUEST',
     /** Detached → Main: Open the main query/filter workflow */
     OPEN_FILTER_REQUEST = 'OPEN_FILTER_REQUEST',
+    /** Detached Dialog → Main: Open and execute an Event action workflow */
+    OPEN_EVENT_ACTION_REQUEST = 'OPEN_EVENT_ACTION_REQUEST',
     /** Detached → Main: A detached API request lost authentication */
     AUTH_LOST = 'AUTH_LOST',
     /** Detached ↔ Main: AI chat history was updated in IndexedDB */
@@ -276,6 +280,11 @@ export namespace WindowBridge {
     navigation: DetachedDialogNavigation | null
   }
 
+  /** Full single-event detail returned by a main-owned mutation. */
+  export interface EventDetailChangedPayload {
+    event: Doc.Type
+  }
+
   /**
    * Rebuilds a detached dialog descriptor from the canonical events included in
    * its payload. Group ordering is preserved and descriptor events that are not
@@ -395,6 +404,45 @@ export namespace WindowBridge {
     name?: string
   }
 
+  /**
+   * Serializable Event action descriptors accepted from an independently
+   * rendered detached Dialog. The main document resolves every entity by ID
+   * before mounting the corresponding workflow.
+   */
+  export type EventActionRequest =
+    | {
+      kind: 'enrich'
+      field?: { key: string; value: string }
+    }
+    | {
+      kind: 'note-create'
+      initialText?: string
+    }
+    | {
+      kind: 'note-edit' | 'note-delete'
+      noteId: Note.Id
+    }
+    | {
+      kind: 'link-create' | 'link-connect'
+    }
+    | {
+      kind: 'link-manage' | 'link-edit' | 'link-delete'
+      linkId: Link.Id
+    }
+    | {
+      kind: 'filter'
+      field: string
+      value: string
+    }
+    | {
+      kind: 'send-data'
+    }
+
+  export interface OpenEventActionRequestPayload {
+    eventId: Doc.Id
+    action: EventActionRequest
+  }
+
   export interface MainContextStatusPayload {
     status: MainContextStatus
     /** True only when a main-document unload requires a fresh bootstrap. */
@@ -427,6 +475,7 @@ export namespace WindowBridge {
     [MessageType.EVENT_TARGET_CHANGED]: EventTargetChangedPayload
     [MessageType.ASSISTANT_CONNECTION_CHANGED]: AssistantConnectionChangedPayload
     [MessageType.DIALOG_CHANGED]: DialogChangedPayload
+    [MessageType.EVENT_DETAIL_CHANGED]: EventDetailChangedPayload
     [MessageType.THEME_CHANGE]: ThemeChangePayload
     [MessageType.NOTES_CHANGED]: NotesChangedPayload
     [MessageType.NOTES_DELTA]: NotesDeltaPayload
@@ -436,6 +485,7 @@ export namespace WindowBridge {
     [MessageType.FOCUS_TIMELINE_REQUEST]: FocusTimelineRequestPayload
     [MessageType.TIMELINE_ZOOM_REQUEST]: TimelineZoomRequestPayload
     [MessageType.OPEN_FILTER_REQUEST]: OpenFilterRequestPayload
+    [MessageType.OPEN_EVENT_ACTION_REQUEST]: OpenEventActionRequestPayload
     [MessageType.AUTH_LOST]: Record<string, never>
     [MessageType.AI_HISTORY_UPDATED]: Record<string, never>
     [MessageType.DOCK_DIALOG]: Record<string, never>

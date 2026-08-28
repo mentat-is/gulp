@@ -13,6 +13,12 @@ const mockSocketConstruct = jest.fn<
 >();
 const mockSocketDestroy = jest.fn<void, [string]>();
 let mockOwnsIndependentDataStore = false;
+let mockApplicationContextValue: {
+	detachedEventDetail: Doc.Type | null;
+	requestMainEventAction: (
+		payload: WindowBridge.OpenEventActionRequestPayload,
+	) => boolean;
+} | null = null;
 
 jest.mock("@/entities/App", () => ({
 	App: {
@@ -65,7 +71,16 @@ jest.mock("@/entities/App", () => ({
 jest.mock("@/context/Application.context", () => ({
 	Application: {
 		Context: {
-			Provider: ({ children }: { children: ReactNode }) => children,
+			Provider: ({
+				children,
+				value,
+			}: {
+				children: ReactNode;
+				value: typeof mockApplicationContextValue;
+			}) => {
+				mockApplicationContextValue = value;
+				return children;
+			},
 		},
 	},
 }));
@@ -302,6 +317,7 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 		mockSocketConstruct.mock.calls.splice(0);
 		mockSocketDestroy.mock.calls.splice(0);
 		mockOwnsIndependentDataStore = false;
+		mockApplicationContextValue = null;
 		mockDocClearIndex.mock.calls.splice(0);
 		mockDocAdd.mock.calls.splice(0);
 		mockReplaceNotes.mock.calls.splice(0);
@@ -670,6 +686,81 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 		expect(mockReplaceNotes.mock.calls[0]).toEqual([[], "deferred"]);
 		expect(mockReplaceLinks.mock.calls[0]).toEqual([[], "deferred"]);
 		expect(container.textContent?.includes("dialog")).toBe(true);
+	});
+
+	it("sends Event actions privately and applies refreshed detail results", () => {
+		const event = {
+			_id: "dialog-action-event",
+			"gulp.source_id": "dialog-source",
+			gulp_timestamp: 100,
+		} as Doc.Type;
+
+		act(() => {
+			root.render(
+				<DetachedAppProvider
+					initialApp={App.Base}
+					bridgeId={clientId}
+					coordinatorId={coordinatorId}
+					kind="dialog"
+				>
+					<div>dialog action</div>
+				</DetachedAppProvider>,
+			);
+		});
+		act(() => {
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.DETACHED_BOOTSTRAP,
+				{
+					status: "active",
+					theme: {
+						theme: "classic-dark",
+						mode: "dark",
+						cssVariables: {},
+					},
+					dialog: {
+						dialog: { kind: "event", event },
+						events: [event],
+						notes: [],
+						links: [],
+						eventColors: {},
+						navigation: null,
+					},
+				},
+			);
+		});
+
+		const actionPayload: WindowBridge.OpenEventActionRequestPayload = {
+			eventId: event._id,
+			action: { kind: "filter", field: "host.name", value: "server" },
+		};
+		act(() => {
+			expect(
+				mockApplicationContextValue?.requestMainEventAction(actionPayload),
+			).toBe(true);
+		});
+		expect(
+			privateMessages.some(
+				(message) =>
+					message.type ===
+						WindowBridge.MessageType.OPEN_EVENT_ACTION_REQUEST &&
+					message.senderId === clientId &&
+					message.payload === actionPayload,
+			),
+		).toBe(true);
+
+		const enrichedEvent = {
+			...event,
+			"enriched.field": "value",
+		} as Doc.Type;
+		act(() => {
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.EVENT_DETAIL_CHANGED,
+				{ event: enrichedEvent },
+			);
+		});
+		expect(mockApplicationContextValue?.detachedEventDetail).toEqual(
+			enrichedEvent,
+		);
 	});
 
 	it("opens and closes an independent reader with the propagated user namespace", () => {

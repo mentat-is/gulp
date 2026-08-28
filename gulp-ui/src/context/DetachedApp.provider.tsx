@@ -271,6 +271,8 @@ export function DetachedAppProvider({
 		useState<Partial<Record<Doc.Id, string>>>({});
 	const [detachedDialogNavigation, setDetachedDialogNavigation] =
 		useState<WindowBridge.DetachedDialogNavigation | null>(null);
+	const [detachedEventDetail, setDetachedEventDetail] =
+		useState<Doc.Type | null>(null);
 	const [awaitingBootstrap, setAwaitingBootstrap] = useState(true);
 	const awaitingBootstrapRef = useRef(awaitingBootstrap);
 	awaitingBootstrapRef.current = awaitingBootstrap;
@@ -501,6 +503,9 @@ export function DetachedAppProvider({
 					? payload.dialog.event
 					: null;
 			const selectedEventId = selectedEvent?._id ?? null;
+			setDetachedEventDetail((currentDetail) =>
+				currentDetail?._id === selectedEventId ? currentDetail : null,
+			);
 			suppressOutboundEventIdRef.current = selectedEventId;
 			setDetachedSelectedEventId(selectedEventId);
 			setDetachedDialog(payload.dialog);
@@ -776,6 +781,15 @@ export function DetachedAppProvider({
 					applyDialogChanged(
 						message.payload as WindowBridge.DialogChangedPayload,
 					);
+					break;
+				case WindowBridge.MessageType.EVENT_DETAIL_CHANGED:
+					if (kind === "dialog") {
+						setDetachedEventDetail(
+							(
+								message.payload as WindowBridge.EventDetailChangedPayload
+							).event,
+						);
+					}
 					break;
 				case WindowBridge.MessageType.THEME_CHANGE: {
 					const themeChanged = applyTheme(
@@ -1156,6 +1170,24 @@ export function DetachedAppProvider({
 		[kind],
 	);
 
+	/**
+	 * Sends a serializable Event action to the owning main document.
+	 * @param payload Event identity and workflow descriptor to execute.
+	 * @returns True when this active detached Dialog accepted the request.
+	 */
+	const requestMainEventAction = useCallback(
+		(payload: WindowBridge.OpenEventActionRequestPayload): boolean => {
+			if (kind !== "dialog" || detachedStatusRef.current !== "active") {
+				return false;
+			}
+			const bridge = privateBridgeRef.current ?? controlBridgeRef.current;
+			if (!bridge) return false;
+			bridge.send(WindowBridge.MessageType.OPEN_EVENT_ACTION_REQUEST, payload);
+			return true;
+		},
+		[kind],
+	);
+
 	// Suppress re-sending an event that was just replayed by the coordinator.
 	useEffect(() => {
 		if (!syncTimelineTargetToMain || detachedStatus !== "active") return;
@@ -1195,6 +1227,7 @@ export function DetachedAppProvider({
 		setDetachedDialog(null);
 		setDetachedDialogEventColors({});
 		setDetachedDialogNavigation(null);
+		setDetachedEventDetail(null);
 		if (ownsIndependentDataStore) {
 			Doc.Entity.clearIndex();
 			DataStore.resetRenderOperation(null);
@@ -1268,6 +1301,8 @@ export function DetachedAppProvider({
 			detachedDialog,
 			detachedDialogEventColors,
 			detachedDialogNavigation,
+			detachedEventDetail,
+			requestMainEventAction,
 			selectDetachedDialogEvent,
 			setDetachedTableSync,
 			setDetachedNotesRenderedSync,
@@ -1283,11 +1318,13 @@ export function DetachedAppProvider({
 			detachedDialog,
 			detachedDialogEventColors,
 			detachedDialogNavigation,
+			detachedEventDetail,
 			detachedTableSourceCommand,
 			dialog,
 			highlightsOverlay,
 			instance,
 			kind,
+			requestMainEventAction,
 			setDetachedTableSync,
 			setDetachedNotesRenderedSync,
 			setDockedState,

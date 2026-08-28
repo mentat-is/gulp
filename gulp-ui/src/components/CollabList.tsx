@@ -80,7 +80,7 @@ export namespace Collab {
       prevProps.item.type === nextProps.item.type;
   });
   export function List({ notes, links, container, className, ...props }: Collab.List.Props) {
-    const { spawnBanner } = Application.use();
+    const { requestMainEventAction, spawnBanner } = Application.use();
     const { t } = Locale.use();
     const collabItems = useMemo(() => [...notes, ...links], [notes, links]);
     const hasItems = notes.length > 0 || links.length > 0;
@@ -97,11 +97,27 @@ export namespace Collab {
       setTargetId(getFirstCollabItemId(collabItems));
     }, [collabItems, targetId]);
 
+    /**
+     * Opens the selected collaboration edit workflow in its authoritative realm.
+     * @returns Promise resolved after the local fallback event lookup completes.
+     */
     const handleEditClick = useCallback(async (): Promise<void> => {
       if (!target) return;
       const documentId = target.type === 'note'
         ? target.doc._id
         : target.doc_id_from;
+      const actionHandledInMain = requestMainEventAction(
+        target.type === 'note'
+          ? {
+            eventId: documentId,
+            action: { kind: 'note-edit', noteId: target.id },
+          }
+          : {
+            eventId: documentId,
+            action: { kind: 'link-edit', linkId: target.id },
+          },
+      );
+      if (actionHandledInMain) return;
       const sourceId = target.type === 'note'
         ? Note.Entity.sourceId(target)
         : undefined;
@@ -111,14 +127,30 @@ export namespace Collab {
         ? <NoteFunctionality.Create.Banner event={event} note={target} />
         : <LinkFunctionality.Create.Banner event={event} link={target as unknown as Link.Type} />;
       spawnBanner(banner);
-    }, [target, spawnBanner]);
+    }, [requestMainEventAction, target, spawnBanner]);
+    /** Opens the selected collaboration delete workflow in its authoritative realm. */
     const handleDeleteClick = useCallback(() => {
       if (!target) return;
+      const documentId = target.type === 'note'
+        ? target.doc._id
+        : target.doc_id_from;
+      const actionHandledInMain = requestMainEventAction(
+        target.type === 'note'
+          ? {
+            eventId: documentId,
+            action: { kind: 'note-delete', noteId: target.id },
+          }
+          : {
+            eventId: documentId,
+            action: { kind: 'link-delete', linkId: target.id },
+          },
+      );
+      if (actionHandledInMain) return;
       const banner = target.type === 'note'
         ? <Note.Delete.Banner note={target} />
         : <Link.Delete.Banner link={target as unknown as Link.Type} />;
       spawnBanner(banner);
-    }, [target, spawnBanner]);
+    }, [requestMainEventAction, target, spawnBanner]);
     const handleValueChange = useCallback((v: string) => {
       setTargetId(v);
     }, []);

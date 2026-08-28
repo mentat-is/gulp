@@ -11,6 +11,15 @@ import { DisplayEventDialog } from "@/dialogs/Event.dialog";
 const SOURCE_ID = "event-dialog-source" as Source.Id;
 const mockSetTimelineTarget = jest.fn();
 const mockSpawnDialog = jest.fn();
+const mockSpawnBanner = jest.fn();
+const mockMainEventActionRequests: unknown[] = [];
+let mockShouldDelegateEventAction = false;
+const mockRequestMainEventAction = (payload: unknown): boolean => {
+	mockMainEventActionRequests.push(payload);
+	return mockShouldDelegateEventAction;
+};
+const mockSetEventJson = jest.fn();
+let mockDetachedEventDetail: Doc.Type | null = null;
 let mockNavigationMounts = 0;
 let mockNavigationUnmounts = 0;
 
@@ -27,9 +36,11 @@ jest.mock("@/context/Application.context", () => ({
 				setTimelineTarget: mockSetTimelineTarget,
 			},
 			app: mockApp,
-			spawnBanner: jest.fn(),
+			spawnBanner: mockSpawnBanner,
 			spawnDialog: mockSpawnDialog,
 			currentDocument: globalThis.document,
+			detachedEventDetail: mockDetachedEventDetail,
+			requestMainEventAction: mockRequestMainEventAction,
 		}),
 	},
 }));
@@ -150,7 +161,7 @@ jest.mock("@/dialogs/useEventDetail", () => ({
 		json: null,
 		loading: true,
 		error: null,
-		setJson: jest.fn(),
+		setJson: mockSetEventJson,
 		retry: jest.fn(),
 	}),
 }));
@@ -221,6 +232,11 @@ describe("Event Dialog rendering", () => {
 		mockNavigationUnmounts = 0;
 		mockSetTimelineTarget.mock.calls.splice(0);
 		mockSpawnDialog.mock.calls.splice(0);
+		mockSpawnBanner.mock.calls.splice(0);
+		mockMainEventActionRequests.splice(0);
+		mockShouldDelegateEventAction = false;
+		mockSetEventJson.mock.calls.splice(0);
+		mockDetachedEventDetail = null;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -247,5 +263,53 @@ describe("Event Dialog rendering", () => {
 				.querySelector("[data-navigation-event]")
 				?.getAttribute("data-navigation-event"),
 		).toBe(secondEvent._id);
+	});
+
+	it("delegates mutating toolbar actions when the Dialog is detached", () => {
+		const event = createEvent("detached-action-event");
+		mockShouldDelegateEventAction = true;
+
+		act(() => root.render(<DisplayEventDialog event={event} />));
+		const noteButton = container.querySelector<HTMLButtonElement>(
+			'button[title="eventDialog.createNewNote"]',
+		);
+		if (!noteButton) throw new Error("Note action button was not rendered");
+		act(() => noteButton.click());
+
+		expect(mockMainEventActionRequests).toEqual([{
+			eventId: event._id,
+			action: { kind: "note-create", initialText: undefined },
+		}]);
+		expect(mockSpawnBanner).not.toHaveBeenCalled();
+	});
+
+	it("keeps the existing local banner path when the Dialog is docked", () => {
+		const event = createEvent("docked-action-event");
+
+		act(() => root.render(<DisplayEventDialog event={event} />));
+		const noteButton = container.querySelector<HTMLButtonElement>(
+			'button[title="eventDialog.createNewNote"]',
+		);
+		if (!noteButton) throw new Error("Note action button was not rendered");
+		act(() => noteButton.click());
+
+		expect(mockMainEventActionRequests).toHaveLength(1);
+		expect(mockSpawnBanner).toHaveBeenCalledTimes(1);
+	});
+
+	it("applies a refreshed detached enrichment result without remounting", () => {
+		const event = createEvent("detached-enriched-event");
+		mockDetachedEventDetail = {
+			...event,
+			"enriched.field": "value",
+		} as Doc.Type;
+
+		act(() => root.render(<DisplayEventDialog event={event} />));
+
+		expect(mockSetEventJson).toHaveBeenCalledWith(
+			mockDetachedEventDetail as unknown as Record<string, unknown>,
+		);
+		expect(mockNavigationMounts).toBe(1);
+		expect(mockNavigationUnmounts).toBe(0);
 	});
 });

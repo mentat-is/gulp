@@ -39,6 +39,7 @@ import {
 } from "../dialogs/Group.dialog";
 import { Locale } from "@/locales";
 import { DetachedWindow } from "@/context/DetachedWindow.context";
+import { OpenerDetachedDialog } from "@/components/OpenerDetachedDialog";
 
 function createDetachedDialogDescriptor(
 	dialog: React.ReactNode,
@@ -150,6 +151,7 @@ export function OperationView() {
 }
 
 export function OperationTimeline() {
+	const application = Application.use();
 	const {
 		Info,
 		app,
@@ -160,7 +162,7 @@ export function OperationTimeline() {
 		setDialogsDocked,
 		spawnBanner,
 		toggleHintOpen,
-	} = Application.use();
+	} = application;
 	const { t } = Locale.use();
 	const { extensions } = Extension.use();
 	const detachedWindows = DetachedWindow.use();
@@ -196,9 +198,8 @@ export function OperationTimeline() {
 		}
 
 		if (!detachedDialogDescriptor) {
-			// Custom React dialogs cannot be serialized into an independent
-			// browser context, so keep them safely docked.
-			setDialogsDocked(true);
+			// Opener-rendered plugin dialogs use their own popup lifecycle below.
+			detachedWindows.closeDialogWindow();
 			return;
 		}
 
@@ -443,6 +444,18 @@ export function OperationTimeline() {
 				) : null}
 			</Stack>
 			{hintOpen ? <Hint.Dialog onClose={() => setHintOpen(false)} /> : null}
+			{!dialogsDocked && dialog && !detachedDialogDescriptor ? (
+				<OpenerDetachedDialog
+					application={application}
+					features={`width=${Math.max(app.timeline.dialogSize, 480)},height=${Math.max(window.innerHeight - 160, 640)},left=${Math.max(window.innerWidth - Math.max(app.timeline.dialogSize, 480) - 48, 48)},top=60`}
+					name={`GulpPluginDialog-${detachedWindows.coordinatorId}`}
+					title={t("operationView.eventDetailsTitle")}
+					onBlocked={() => setDialogsDocked(true)}
+					onClosed={() => setDialogsDocked(true)}
+				>
+					{dialog}
+				</OpenerDetachedDialog>
+			) : null}
 		</Stack>
 	);
 }

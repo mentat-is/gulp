@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, isValidElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import type { App } from "@/entities/App";
@@ -24,13 +24,22 @@ const SOURCE_ID = "detached-isolation-source" as Source.Id;
 let mockApp: App.Type;
 const mockDocsById = new Map<Doc.Id, Doc.Type>();
 const mockSetDialogsDocked = jest.fn();
-const mockSpawnBanner = jest.fn();
+const mockSpawnBanner = jest.fn<void, [ReactNode]>();
+const mockFilterCondition = { id: "detached-filter" };
+const mockMainQuery = {
+	string: "",
+	text_filter: "",
+	raw: {},
+	isManual: false,
+	filters: [] as unknown[],
+};
 const mockInfo = {
 	app: null as App.Type | null,
 	setInfoByKey: jest.fn(),
 	setTimelineFrame: jest.fn(),
 	setTimelineScale: jest.fn(),
 	setTimelineTarget: jest.fn(),
+	getQuery: (_source: Source.Type): typeof mockMainQuery => mockMainQuery,
 };
 
 jest.mock("@/context/Application.context", () => ({
@@ -61,7 +70,8 @@ jest.mock("@/entities/Operation", () => ({
 jest.mock("@/entities/Source", () => ({
 	Source: {
 		Entity: {
-			id: (): null => null,
+			id: (app: App.Type, id: Source.Id): Source.Type | undefined =>
+				app.target.files.find((source) => source.id === id),
 		},
 	},
 }));
@@ -69,6 +79,7 @@ jest.mock("@/entities/Source", () => ({
 jest.mock("@/entities/Doc", () => ({
 	Doc: {
 		Entity: {
+			operationId: (): Operation.Id => OPERATION_ID,
 			id: (_app: App.Type, id: Doc.Id): Doc.Type | undefined =>
 				mockDocsById.get(id),
 			ids: (_app: App.Type, ids: Doc.Id[]): Doc.Type[] =>
@@ -87,10 +98,43 @@ jest.mock("@/ui/Note", () => ({
 
 jest.mock("@/dialogs/Event.dialog", () => ({
 	DisplayEventDialog: (): null => null,
+	LinkEventActionBanner: (): null => null,
 }));
 
 jest.mock("@/banners/FilterFile.banner", () => ({
 	FilterFileBanner: (): null => null,
+}));
+
+jest.mock("@/banners/Enrichment.banner", () => ({
+	Enrichment: { Banner: (): null => null },
+}));
+
+jest.mock("@/banners/Collab.functionality", () => ({
+	NoteFunctionality: { Create: { Banner: (): null => null } },
+	LinkFunctionality: {
+		Create: { Banner: (): null => null },
+		Connect: { Banner: (): null => null },
+	},
+}));
+
+jest.mock("@/banners/SendData.banner", () => ({
+	SendData: { Banner: (): null => null },
+}));
+
+jest.mock("@/entities/Filter", () => ({
+	Filter: {
+		Entity: {
+			createCondition: () => ({ id: "detached-filter" }),
+		},
+	},
+}));
+
+jest.mock("@/entities/Link", () => ({
+	Link: { Delete: { Banner: (): null => null } },
+}));
+
+jest.mock("@/entities/Note", () => ({
+	Note: { Delete: { Banner: (): null => null } },
 }));
 
 jest.mock("@/utils", () => {
@@ -774,5 +818,119 @@ describe("DetachedWindow coordinator client isolation", () => {
 		expect(notesMessages).toEqual([]);
 		DataStore.Events.getByIds = originalGetByIds;
 		DataStore.Events.getNeighbors = originalGetNeighbors;
+	});
+
+	it("executes registered detached Event actions in the main application", async () => {
+		if (!coordinator) throw new Error("Coordinator was not captured");
+		const event = {
+			_id: "main-owned-action-event" as Doc.Id,
+			"gulp.source_id": SOURCE_ID,
+			"gulp.event_code": 1,
+			gulp_timestamp: 10,
+			number_hash: 1,
+		} as Doc.Type;
+		mockDocsById.set(event._id, event);
+		documentIdentityRegistry.indexDocuments(SOURCE_ID, [event]);
+		DataStore.replaceSourceEvents(SOURCE_ID, [event]);
+
+		const dialogWindow = newlyOpenedWindow(() => {
+			coordinator!.openDialogWindow(
+				{ kind: "event", event },
+				"width=640,height=640",
+			);
+		});
+		const dialogMessages = registerOpenedClient(dialogWindow, "dialog");
+		await flushEventStoreReads();
+		const dialogUrl = new URL(dialogWindow.url);
+		const dialogClientId = dialogUrl.searchParams.get("bridgeId");
+		const coordinatorId = dialogUrl.searchParams.get("coordinatorId");
+		if (!dialogClientId || !coordinatorId) {
+			throw new Error("Dialog route lacks bridge identity");
+		}
+		const dialogActionSender = retain(
+			WindowBridge.createClient(
+				dialogClientId,
+				dialogClientId,
+				() => {},
+				coordinatorId,
+			),
+		);
+
+		act(() => {
+			dialogActionSender.send(
+				WindowBridge.MessageType.OPEN_EVENT_ACTION_REQUEST,
+				{
+					eventId: event._id,
+					action: { kind: "note-create", initialText: "seed" },
+				},
+			);
+		});
+		await flushEventStoreReads();
+
+		expect(mockSpawnBanner).toHaveBeenCalledTimes(1);
+		const mountedBanner = mockSpawnBanner.mock.calls[0]?.[0];
+		expect(isValidElement(mountedBanner)).toBe(true);
+		expect(
+			(mountedBanner as unknown as { props: { event?: Doc.Type } }).props.event,
+		).toBe(event);
+
+		act(() => {
+			dialogActionSender.send(
+				WindowBridge.MessageType.OPEN_EVENT_ACTION_REQUEST,
+				{
+					eventId: event._id,
+					action: {
+						kind: "filter",
+						field: "host.name",
+						value: "server",
+					},
+				},
+			);
+		});
+		await flushEventStoreReads();
+
+		expect(mockSpawnBanner).toHaveBeenCalledTimes(2);
+		const filterBanner = mockSpawnBanner.mock.calls[1]?.[0];
+		expect(isValidElement(filterBanner)).toBe(true);
+		const filterBannerProps = (filterBanner as unknown as {
+			props: {
+				sources: Source.Type[];
+				query: { filters: unknown[] };
+			};
+		}).props;
+		expect(filterBannerProps.sources[0]?.id).toBe(SOURCE_ID);
+		expect(filterBannerProps.query.filters).toEqual([mockFilterCondition]);
+
+		act(() => {
+			dialogActionSender.send(
+				WindowBridge.MessageType.OPEN_EVENT_ACTION_REQUEST,
+				{
+					eventId: event._id,
+					action: { kind: "enrich" },
+				},
+			);
+		});
+		await flushEventStoreReads();
+		expect(mockSpawnBanner).toHaveBeenCalledTimes(3);
+		const enrichmentBanner = mockSpawnBanner.mock.calls[2]?.[0];
+		expect(isValidElement(enrichmentBanner)).toBe(true);
+		const enrichedEvent = {
+			...event,
+			"enriched.field": "value",
+		} as Doc.Type;
+		act(() => {
+			(enrichmentBanner as unknown as {
+				props: { onEnrichment: (nextEvent: Doc.Type) => void };
+			}).props.onEnrichment(enrichedEvent);
+		});
+		expect(
+			dialogMessages.some(
+				(message) =>
+					message.type === WindowBridge.MessageType.EVENT_DETAIL_CHANGED &&
+					(message.payload as WindowBridge.EventDetailChangedPayload).event ===
+						enrichedEvent,
+			),
+		).toBe(true);
+		expect(window.focus).toHaveBeenCalledTimes(3);
 	});
 });

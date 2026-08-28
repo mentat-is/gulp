@@ -649,7 +649,7 @@ export function Navigator({
 				size="md"
 			/>
 
-			{/* Detached windows now use separate React roots via createRoot. */}
+			{/* Event/Group use routed roots; arbitrary plugin dialogs use an opener portal. */}
 		</Stack>
 	);
 }

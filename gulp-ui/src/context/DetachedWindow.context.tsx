@@ -26,6 +26,7 @@ import { NotePoint } from "@/ui/Note";
 import { DisplayEventDialog } from "@/dialogs/Event.dialog";
 import { scrollStore } from "@/store/scroll.store";
 import { FilterFileBanner } from "@/banners/FilterFile.banner";
+import { createMainEventActionBanner } from "@/context/DetachedEventAction";
 import {
 	getPersistedDetachedWindowRecord,
 	persistDetachedWindow,
@@ -516,6 +517,47 @@ function isDialogRenderChangeRelevant(
 }
 
 /**
+ * Checks whether an Event action still targets the dialog or the main timeline
+ * selection that the dialog most recently requested.
+ * @param eventId Requested event identifier.
+ * @param dialog Current detached dialog descriptor.
+ * @param selectedEventId Current main timeline target identifier.
+ * @returns True when the action belongs to the active detached workflow.
+ */
+function isDetachedDialogActionTarget(
+	eventId: Doc.Id,
+	dialog: WindowBridge.DetachedDialogDescriptor | null,
+	selectedEventId?: Doc.Id,
+): boolean {
+	if (selectedEventId === eventId) return true;
+	if (!dialog) return false;
+	return dialog.kind === "event"
+		? dialog.event._id === eventId
+		: dialog.events.some((event) => event._id === eventId);
+}
+
+/**
+ * Performs the minimal runtime validation required before consuming an
+ * untrusted cross-window Event action payload.
+ * @param payload Candidate bridge payload.
+ * @returns True when the payload contains a document ID and action kind.
+ */
+function isOpenEventActionRequestPayload(
+	payload: unknown,
+): payload is WindowBridge.OpenEventActionRequestPayload {
+	if (!payload || typeof payload !== "object") return false;
+	const candidate = payload as {
+		eventId?: unknown;
+		action?: { kind?: unknown };
+	};
+	return (
+		typeof candidate.eventId === "string" &&
+		Boolean(candidate.action) &&
+		typeof candidate.action?.kind === "string"
+	);
+}
+
+/**
  * Builds the small source-settings signature that can affect dialog event
  * colors. Sample caches and unrelated source metadata are intentionally omitted.
  */
@@ -684,6 +726,81 @@ function _({ children }: { children: ReactNode }) {
 			routeOperationIdRef.current
 		);
 	}, []);
+
+	/**
+	 * Resolves and mounts an Event workflow in the authoritative main document.
+	 * Detached payloads contain identifiers only; current events, notes, links,
+	 * sources, and queries are always read again from the main stores.
+	 * @param senderId Registered detached client requesting the action.
+	 * @param payload Event identity and serializable action descriptor.
+	 * @returns Promise resolved after the corresponding main banner is mounted.
+	 */
+	const openDetachedEventAction = useCallback(
+		async (
+			senderId: string,
+			payload: WindowBridge.OpenEventActionRequestPayload,
+		): Promise<void> => {
+			const requestingClient = clientsRef.current.get(senderId);
+			if (
+				requestingClient?.kind !== "dialog" ||
+				statusRef.current !== "active"
+			) {
+				return;
+			}
+
+			const operationEpoch = DataStore.getRenderOperationEpoch();
+			const event = await DataStore.Events.getById(payload.eventId);
+			const currentClient = clientsRef.current.get(senderId);
+			if (
+				!event ||
+				currentClient?.kind !== "dialog" ||
+				operationEpoch !== DataStore.getRenderOperationEpoch() ||
+				statusRef.current !== "active"
+			) {
+				return;
+			}
+
+			const operationId = getCurrentOperationId();
+			if (
+				!operationId ||
+				Doc.Entity.operationId(appRef.current, event) !== operationId ||
+				!isDetachedDialogActionTarget(
+					event._id,
+					dialogDescriptorRef.current,
+					infoRef.current.app.timeline.target?._id,
+				)
+			) {
+				return;
+			}
+
+			const banner = createMainEventActionBanner({
+				app: appRef.current,
+				Info: infoRef.current,
+				event,
+				action: payload.action,
+				onEnrichment: (enrichedEvent) => {
+					const resultClient = clientsRef.current.get(senderId);
+					if (
+						resultClient?.kind !== "dialog" ||
+						operationEpoch !== DataStore.getRenderOperationEpoch() ||
+						statusRef.current !== "active" ||
+						enrichedEvent._id !== event._id
+					) {
+						return;
+					}
+					resultClient.bridge.send(
+						WindowBridge.MessageType.EVENT_DETAIL_CHANGED,
+						{ event: enrichedEvent },
+					);
+				},
+			});
+
+			if (!banner) return;
+			spawnBannerRef.current(banner);
+			window.focus();
+		},
+		[getCurrentOperationId],
+	);
 
 	/**
 	 * Builds the current detached dialog payload from bounded hydrated references.
@@ -1563,6 +1680,11 @@ function _({ children }: { children: ReactNode }) {
 					window.focus();
 					break;
 				}
+				case WindowBridge.MessageType.OPEN_EVENT_ACTION_REQUEST: {
+					if (!isOpenEventActionRequestPayload(message.payload)) break;
+					void openDetachedEventAction(message.senderId, message.payload);
+					break;
+				}
 				case WindowBridge.MessageType.AUTH_LOST:
 					authLostRef.current = true;
 					setAuthLost(true);
@@ -1769,6 +1891,7 @@ function _({ children }: { children: ReactNode }) {
 		};
 	}, [
 		hydrateDialogProjection,
+		openDetachedEventAction,
 		scheduleDetachedState,
 		sendBootstrap,
 		setDialogsDocked,

@@ -64,6 +64,15 @@ Every detached route contains a `DetachedAppProvider` with its own `Info`
 instance, projected application state, document event handlers, and React
 scheduler.
 
+Event and Group dialogs use those independent routed roots because their state
+has an explicit serializable projection. Arbitrary plugin dialogs, such as the
+paid Knowledge Base explorer, cannot be reconstructed from a React element.
+They use an opener-owned portal in a popup document instead. The portal retains
+the authoritative main `Application` context and overrides only
+`currentDocument`, so plugin dialogs render in the popup while their API, dialog,
+banner, and state actions keep normal main-application ownership. Popup close or
+blocking safely returns the dialog to its docked state.
+
 Detached routes do not mount the full main `Application.Provider` listener
 stack. Extension loading is also scoped:
 
@@ -74,7 +83,11 @@ stack. Extension loading is also scoped:
 
 Each built-in or plugin Assistant route owns a websocket with an independent
 socket ID in its browser realm. Notes, Table View, Dashboard, and Dialog use
-the bridge and create no backend websocket.
+the bridge and create no backend websocket. Host-provided Event workflows that
+mutate query, websocket-streamed documents, notes, or links are therefore
+executed by the main application. The detached Dialog sends a serializable
+action descriptor; the coordinator resolves current entities and mounts the
+same banner used by a docked Dialog in the main document.
 
 Same-origin realms that need exact timeline documents open bounded readers on
 the EventStore namespace identified by canonical backend, authenticated user,
@@ -178,6 +191,7 @@ The main coordinator validates and applies the requested action.
 | `FOCUS_TIMELINE_REQUEST` | Focuses the main Canvas on a timestamp and optional source. |
 | `TIMELINE_ZOOM_REQUEST` | Applies a validated timeline frame and scale. |
 | `OPEN_FILTER_REQUEST` | Opens the main filter workflow with explicit source IDs and query. |
+| `OPEN_EVENT_ACTION_REQUEST` | Resolves the current event in the main stores and opens filter, enrichment, note, link, or send-data workflows in the main document. |
 | `DOCK_DIALOG` | Returns a detached Dialog to the main workspace. |
 | `AUTH_LOST` | Reports authentication failure from a detached API request. |
 | `TABLE_SYNC_CHANGED` | Enables or disables Table query/frame synchronization. |
@@ -186,6 +200,14 @@ The main coordinator validates and applies the requested action.
 Notes and Table row actions use `NAVIGATE_TO_EVENT`. Assistant event actions use
 the same path, while Assistant point, zoom, and filter tools use the dedicated
 focus, frame, and filter messages.
+
+Event action requests carry the event ID and only the primitive parameters
+needed by the selected workflow. Note and link edit/delete requests carry their
+entity IDs. The coordinator accepts them only from an active Dialog client,
+checks the current operation and Dialog target, and resolves the canonical
+event, source, query, note, or link before opening a banner. React elements are
+never transferred between browser realms. Flag, copy, download, view
+preference, and navigation actions remain local or use their dedicated paths.
 
 Assistant history lives in IndexedDB. `AI_HISTORY_UPDATED` carries no history
 payload; it invalidates only Assistant panels in the same coordinator and
@@ -204,6 +226,7 @@ operation namespace.
 | `EVENT_TARGET_CHANGED` | Selected event ID for Notes and Table highlighting. |
 | `ASSISTANT_CONNECTION_CHANGED` | Main connection identity from which the detached Assistant derives its socket ID. |
 | `DIALOG_CHANGED` | Compact events, collaboration state, colors, and nearby navigation indicators for the Dialog client. |
+| `EVENT_DETAIL_CHANGED` | Full detail returned by a successful main-owned single-event enrichment, addressed to the requesting Dialog client. |
 | `TABLE_SELECT_SOURCE` | Source-selection command for the Table client. |
 | `THEME_CHANGE` | Complete theme snapshot for one client. |
 
@@ -276,15 +299,19 @@ preflight beside each relevant request.
 Dialog navigation carries indicator metadata only. Complete event JSON remains
 outside bridge messages and is requested by the detached Dialog when the
 selected event changes. Returning to a recently viewed event uses the local
-detail cache. Navigation, stable actions, and the collaboration panel remain
-mounted while a newly selected detail is loading; only the detail viewer enters
-its loading or error state. The main coordinator retains the bounded neighbor
-window across covered selections and sends a newly centered compact projection
-without another EventStore neighbor read. Source, supplemental-event, operation,
-and uncovered-window changes invalidate that retained window. The detached
-Dialog route owns a definite viewport-height container, without an inherited
-flex-grow value, so its navigation keeps its fixed height while Tree, Raw, and
-Table detail views retain their flex layout in standalone browser windows.
+detail cache. A successful single-event enrichment replaces only the matching
+cached detail through `EVENT_DETAIL_CHANGED`; it does not remount the Dialog or
+its navigation. Note and link mutations return through the normal compact
+`DIALOG_CHANGED` projection after the main collaboration store changes.
+Navigation, stable actions, and the collaboration panel remain mounted while a
+newly selected detail is loading; only the detail viewer enters its loading or
+error state. The main coordinator retains the bounded neighbor window across
+covered selections and sends a newly centered compact projection without
+another EventStore neighbor read. Source, supplemental-event, operation, and
+uncovered-window changes invalidate that retained window. The detached Dialog
+route owns a definite viewport-height container, without an inherited flex-grow
+value, so its navigation keeps its fixed height while Tree, Raw, and Table
+detail views retain their flex layout in standalone browser windows.
 
 Safe realtime note edits patch visible data locally. Changes that can alter
 membership or ordering request one refresh. Create and delete notifications
@@ -306,6 +333,10 @@ retain the visible page and expose the Notes-changed acknowledgement flow.
 - Notes deltas are source-filtered before `BroadcastChannel` structured cloning.
 - Dialog projections reject unrelated note, link, source, and event changes
   before payload construction.
+- Event action banners and their query/collaboration mutations are owned by the
+  main application; detached Dialogs keep no competing QueryWorker or socket.
+- Non-serializable plugin dialogs use an opener-owned portal and do not create a
+  duplicate Application provider, websocket, or collaboration store.
 - Active heartbeats contain an empty payload and remain on the private channel.
 - The bridge does not request Canvas renders. Docking a Dialog is the only
   detached-window action that triggers the necessary main Canvas layout update.
@@ -317,6 +348,9 @@ Primary implementation files:
 - `gulp-ui/src/lib/WindowBridge.ts`;
 - `gulp-ui/src/context/DetachedWindow.context.tsx`;
 - `gulp-ui/src/context/DetachedApp.provider.tsx`;
+- `gulp-ui/src/context/DetachedEventAction.tsx`;
+- `gulp-ui/src/components/OpenerDetachedDialog.tsx`;
+- `gulp-ui/src/page/OperationView.page.tsx`;
 - `gulp-ui/src/page/DetachedRoute.page.tsx`.
 
 Focused regression coverage:
@@ -327,6 +361,9 @@ Focused regression coverage:
 - `gulp-ui/src/test/lib/WindowBridge.dialog.test.ts`;
 - `gulp-ui/src/test/context/DetachedApp.protocol.test.tsx`;
 - `gulp-ui/src/test/context/DetachedWindow.isolation.test.tsx`;
+- `gulp-ui/src/test/components/CollabList.detached-actions.test.tsx`;
+- `gulp-ui/src/test/components/OpenerDetachedDialog.test.tsx`;
+- `gulp-ui/src/test/dialogs/EventDialog.rendering.test.tsx`;
 - `gulp-ui/src/test/context/detachedTheme.test.ts`;
 - `gulp-ui/src/test/page/DetachedRoute.capabilities.test.tsx`;
 - `gulp-ui/src/test/components/NotesWindow.behavior.test.tsx`;

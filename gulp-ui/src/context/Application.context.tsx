@@ -548,6 +548,8 @@ function _({ children }: { children: ReactNode }) {
 			detachedDialog: null,
 			detachedDialogEventColors: {},
 			detachedDialogNavigation: null,
+			detachedEventDetail: null,
+			requestMainEventAction: () => false,
 			selectDetachedDialogEvent: () => {},
 			setDetachedTableSync: () => {},
 			setDetachedNotesRenderedSync: () => {},
@@ -674,6 +676,12 @@ export namespace Application {
 			detachedDialog: WindowBridge.DetachedDialogDescriptor | null;
 			detachedDialogEventColors: Partial<Record<Doc.Id, string>>;
 			detachedDialogNavigation: WindowBridge.DetachedDialogNavigation | null;
+			/** Latest full detail returned by a main-owned detached Event mutation. */
+			detachedEventDetail: Doc.Type | null;
+			/** Requests a main-owned Event workflow and reports whether it was delegated. */
+			requestMainEventAction: (
+				payload: WindowBridge.OpenEventActionRequestPayload,
+			) => boolean;
 			selectDetachedDialogEvent: (docId: Doc.Id) => void;
 			setDetachedTableSync: (enabled: boolean) => void;
 			setDetachedNotesRenderedSync: (enabled: boolean) => void;
