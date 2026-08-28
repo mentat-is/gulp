@@ -446,6 +446,20 @@ function isDialogRenderChangeRelevant(
 		return change.sourceId === dialog.event["gulp.source_id"];
 	}
 
+	if (change.type === "supplemental-events") {
+		if (dialog.kind === "group") {
+			return (
+				change.changedEvents.some((event) =>
+					projectedEventIds.has(event._id),
+				) ||
+				change.removedEventIds.some((eventId) =>
+					projectedEventIds.has(eventId),
+				)
+			);
+		}
+		return change.sourceId === dialog.event["gulp.source_id"];
+	}
+
 	if (change.type === "notes") {
 		// Removed overlays no longer carry their event identity. Reproject the
 		// compact strip so a deleted marker cannot remain visible.
@@ -1834,6 +1848,11 @@ function _({ children }: { children: ReactNode }) {
 				return;
 			}
 			if (change.type === "source-events") {
+				void hydrateDialogProjection();
+				scheduleDetachedState(["context", "dialog"]);
+				return;
+			}
+			if (change.type === "supplemental-events") {
 				void hydrateDialogProjection();
 				scheduleDetachedState(["context", "dialog"]);
 			}

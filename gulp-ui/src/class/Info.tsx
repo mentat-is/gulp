@@ -144,6 +144,7 @@ export namespace GulpDataset {
 			offset?: number;
 			limit?: number;
 			sort?: Record<string, "desc" | "asc">;
+			fields?: string[] | "*";
 			signal?: AbortSignal;
 		}
 	}
@@ -344,6 +345,12 @@ export namespace GulpDataset {
 	}
 }
 
+export interface IncludeNoteEventsResult {
+	events: Doc.Type[];
+	missingDocumentIds: Doc.Id[];
+	stale: boolean;
+}
+
 interface RefetchOptions {
 	ids?: Arrayed<Source.Id>;
 	refetchKeys?: Record<Source.Id, Array<keyof Doc.Type>>;
@@ -494,6 +501,7 @@ const ACTIVE_REQUEST_STATUSES = new Set<Request.Status>([
 ]);
 const MAX_QUERY_CONCURRENCY = 4;
 const QUERY_DOC_WORKER_THRESHOLD = 1000;
+const MAX_PAGINATED_QUERY_DOCUMENTS = 10000;
 const QUERY_CACHE_SHAPE_RANGE = {
 	min: "__gulp_source_range_min__",
 	max: "__gulp_source_range_max__",
@@ -3657,7 +3665,7 @@ export class Info implements InfoProps {
 	/**
 	 * Fetches a paginated raw query result for table-style detached views.
 	 * @param query Query body assembled from synced or local filters.
-	 * @param options Pagination, sorting, and cancellation options.
+	 * @param options Pagination, sorting, field selection, and cancellation options.
 	 * @returns Paginated documents and total hit count.
 	 */
 	query_paginate = async (
@@ -3666,6 +3674,7 @@ export class Info implements InfoProps {
 			limit = 100,
 			offset = 0,
 			sort = { "@timestamp": "asc" },
+			fields,
 			signal,
 		}: GulpDataset.QueryGulp.Options,
 	) => {
@@ -3681,6 +3690,7 @@ export class Info implements InfoProps {
 				sort,
 			},
 		};
+		if (fields) body.q_options.fields = fields;
 
 		const request_query: Record<string, string> = {
 			operation_id: operation.id,
@@ -6904,6 +6914,169 @@ export class Info implements InfoProps {
 		});
 	};
 
+	/**
+	 * Resolves note targets and explicitly includes missing query events in the
+	 * operation-scoped supplemental render collection.
+	 * @param notes Notes whose unique target documents should be made available.
+	 * @returns Resolved events, remaining missing IDs, and stale-operation state.
+	 */
+	includeNoteEvents = async (
+		notes: readonly Note.Type[],
+	): Promise<IncludeNoteEventsResult> => {
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const operation = Operation.Entity.selected(this.app);
+		const uniqueNotes = Array.from(
+			new Map(notes.map((note) => [note.doc._id, note])).values(),
+		);
+		if (!operation || uniqueNotes.length === 0) {
+			return {
+				events: [],
+				missingDocumentIds: uniqueNotes.map((note) => note.doc._id),
+				stale: false,
+			};
+		}
+		const isCurrent = (): boolean =>
+			operationEpoch === DataStore.getRenderOperationEpoch() &&
+			Operation.Entity.selected(this.app)?.id === operation.id;
+		if (
+			uniqueNotes.some((note) => note.operation_id !== operation.id) ||
+			!isCurrent()
+		) {
+			return {
+				events: [],
+				missingDocumentIds: uniqueNotes.map((note) => note.doc._id),
+				stale: true,
+			};
+		}
+
+		const documentIds = uniqueNotes.map((note) => note.doc._id);
+		let existingEvents: Doc.Type[] = [];
+		try {
+			existingEvents = await DataStore.Events.getByIds(documentIds);
+		} catch (error) {
+			Logger.warn(
+				`Unable to resolve note targets from EventStore before explicit retrieval: ${(error as Error).message}`,
+				Info,
+			);
+		}
+		if (!isCurrent()) {
+			return { events: [], missingDocumentIds: documentIds, stale: true };
+		}
+		const existingIds = new Set(existingEvents.map((event) => event._id));
+		const missingNotes = uniqueNotes.filter(
+			(note) => !existingIds.has(note.doc._id),
+		);
+		const fetchedDocuments: Doc.Type[] = [];
+		const retrievalFailedIds = new Set<Doc.Id>();
+		if (uniqueNotes.length === 1) {
+			const [note] = missingNotes;
+			if (note) {
+				try {
+					const fetched = await this.query_single_id(
+						note.doc._id,
+						note.operation_id,
+					);
+					if (fetched) fetchedDocuments.push(fetched);
+					else retrievalFailedIds.add(note.doc._id);
+				} catch {
+					retrievalFailedIds.add(note.doc._id);
+				}
+			}
+		} else {
+			const missingDocumentIds = missingNotes.map((note) => note.doc._id);
+			for (
+				let offset = 0;
+				offset < missingDocumentIds.length;
+				offset += MAX_PAGINATED_QUERY_DOCUMENTS
+			) {
+				const pageDocumentIds = missingDocumentIds.slice(
+					offset,
+					offset + MAX_PAGINATED_QUERY_DOCUMENTS,
+				);
+				try {
+					const response = await this.query_paginate(
+						{
+							string: "",
+							filters: [],
+							isManual: true,
+							raw: { terms: { _id: pageDocumentIds } },
+						},
+						{
+							limit: pageDocumentIds.length,
+							offset: 0,
+							fields: "*",
+						},
+					);
+					fetchedDocuments.push(...(response?.docs ?? []));
+				} catch {
+					pageDocumentIds.forEach((documentId) =>
+						retrievalFailedIds.add(documentId),
+					);
+				}
+			}
+		}
+		if (!isCurrent()) {
+			return { events: [], missingDocumentIds: documentIds, stale: true };
+		}
+
+		const fetchedEvents: Doc.Type[] = [];
+		const expectedIds = new Set(missingNotes.map((note) => note.doc._id));
+		const resolvedFetchedIds = new Set<Doc.Id>();
+		fetchedDocuments.forEach((fetched) => {
+			if (!expectedIds.has(fetched._id) || resolvedFetchedIds.has(fetched._id)) {
+				return;
+			}
+			const source = Source.Entity.id(this.app, fetched["gulp.source_id"]);
+			if (!source) return;
+			const settings = source.settings ?? Internal.Settings.default;
+			const [normalized] = Doc.Entity.normalize(
+				[fetched],
+				settings.field,
+				settings.hash_function,
+			);
+			if (!normalized) return;
+			fetchedEvents.push(normalized);
+			resolvedFetchedIds.add(fetched._id);
+		});
+		const failedIds = missingNotes
+			.map((note) => note.doc._id)
+			.filter(
+				(documentId) =>
+					retrievalFailedIds.has(documentId) ||
+					!resolvedFetchedIds.has(documentId),
+			);
+
+		if (fetchedEvents.length > 0) {
+			const fetchedSourceIds = new Set(
+				fetchedEvents.map((event) => event["gulp.source_id"]),
+			);
+			const files = this.app.target.files.map((source) =>
+				fetchedSourceIds.has(source.id) && !source.selected
+					? { ...source, selected: true }
+					: source,
+			);
+			if (files.some((source, index) => source !== this.app.target.files[index])) {
+				this.app.target.files = files;
+				this.setInfoByKey(files, "target", "files");
+			}
+			DataStore.upsertSupplementalEvents(fetchedEvents);
+			this.render();
+		}
+
+		const resolvedById = new Map<Doc.Id, Doc.Type>();
+		for (const event of [...existingEvents, ...fetchedEvents]) {
+			resolvedById.set(event._id, event);
+		}
+		return {
+			events: documentIds.flatMap((documentId) => {
+				const event = resolvedById.get(documentId);
+				return event ? [event] : [];
+			}),
+			missingDocumentIds: failedIds,
+			stale: false,
+		};
+	};
+
 	private _pluginListPromise: Promise<
 		GulpDataset.PluginList.Interface[]
 	> | null = null;
@@ -7285,10 +7458,11 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Resolves one source edge without loading or reversing its complete event list.
+	 * Resolves one query or supplemental source edge without loading or reversing
+	 * its complete persisted event list.
 	 * @param sourceId Source whose edge is requested.
 	 * @param newest Whether to return the newest rather than oldest timestamp.
-	 * @returns One exact edge event, or null for an empty source.
+	 * @returns One exact query or note-linked edge event, or null for an empty source.
 	 */
 	getTimelineSourceEdge = async (
 		sourceId: Source.Id,
@@ -7296,10 +7470,25 @@ export class Info implements InfoProps {
 	): Promise<Doc.Type | null> => {
 		const operationEpoch = DataStore.getRenderOperationEpoch();
 		for (let attempt = 0; attempt < 2; attempt++) {
+			let supplementalEdge: Doc.Type | null = null;
+			for (const event of DataStore.getSupplementalEvents(sourceId)) {
+				if (
+					!supplementalEdge ||
+					(newest
+						? event.gulp_timestamp > supplementalEdge.gulp_timestamp
+						: event.gulp_timestamp < supplementalEdge.gulp_timestamp)
+				) {
+					supplementalEdge = event;
+				}
+			}
 			const summary =
 				DataStore.getEventSourceSummary(sourceId) ??
 				(await DataStore.Events.getSourceSummary(sourceId));
-			if (!summary || summary.eventCount === 0) return null;
+			if (!summary || summary.eventCount === 0) {
+				return DataStore.getRenderOperationEpoch() === operationEpoch
+					? supplementalEdge
+					: null;
+			}
 			const timestamp = newest ? summary.maxTimestamp : summary.minTimestamp;
 			const page = await DataStore.Events.queryPixelBucket(
 				sourceId,
@@ -7308,7 +7497,13 @@ export class Info implements InfoProps {
 			);
 			if (DataStore.getRenderOperationEpoch() !== operationEpoch) return null;
 			if (attempt === 0 && page.sourceRevision !== summary.revision) continue;
-			return page.events[0] ?? null;
+			const queryEdge = page.events[0] ?? null;
+			if (!queryEdge) return supplementalEdge;
+			if (!supplementalEdge) return queryEdge;
+			const supplementalIsOuterEdge = newest
+				? supplementalEdge.gulp_timestamp > queryEdge.gulp_timestamp
+				: supplementalEdge.gulp_timestamp < queryEdge.gulp_timestamp;
+			return supplementalIsOuterEdge ? supplementalEdge : queryEdge;
 		}
 		return null;
 	};
@@ -7641,6 +7836,7 @@ export class Info implements InfoProps {
 				setActivating(false);
 				return false;
 			}
+			DataStore.clearSupplementalEvents(source.id);
 			this.applyQueryCacheActivations([
 				{ sourceId: source.id, activation },
 			]);

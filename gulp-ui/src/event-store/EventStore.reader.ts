@@ -19,6 +19,13 @@ export interface EventNeighborWindow {
 	sourceRevision: number;
 }
 
+/** Bounded query events surrounding a timestamp that is not necessarily persisted. */
+export interface EventTimestampNeighborWindow {
+	newer: Doc.Type[];
+	older: Doc.Type[];
+	sourceRevision: number;
+}
+
 /** Read-only contract shared by QueryWorker, main, and detached realms. */
 export interface EventStoreReader {
 	getSourceSummary(sourceId: Source.Id): Promise<EventSourceSummary | null>;
@@ -31,6 +38,12 @@ export interface EventStoreReader {
 		before: number,
 		after: number,
 	): Promise<EventNeighborWindow>;
+	getTimestampNeighbors(
+		sourceId: Source.Id,
+		timestamp: number,
+		before: number,
+		after: number,
+	): Promise<EventTimestampNeighborWindow>;
 	queryPixelBucket(
 		sourceId: Source.Id,
 		range: EventTimestampRange,

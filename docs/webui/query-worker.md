@@ -75,8 +75,8 @@ same operation database for bounded, asynchronous reads.
 | gULP backend | Authoritative events, query execution, detail retrieval | Browser cache state |
 | Query worker | WebSocket, stream contexts, normalization queues, IndexedDB writers, viewport projector | A permanent object collection containing every event |
 | IndexedDB EventStore | Source heads, query-cache provenance, exact event pages, LOD records, density aggregates, document index | Backend-only event details outside the timeline document shape |
-| Main thread | React state, applied query per source, compact cache/freshness state, source summaries, interaction state, bounded event cache | Full query chunks or a dataset-sized event map |
-| Render worker | Current render window, source drawing metadata, overlays, hit regions, bitmap assets | Exact events outside the projected window |
+| Main thread | React state, applied query per source, compact cache/freshness state, source summaries, interaction state, bounded event cache, explicitly included note targets | Full query chunks or a dataset-sized query-result map |
+| Render worker | Current render window, source drawing metadata, overlays including compact supplemental-event records, hit regions, bitmap assets | Exact query events outside the projected window |
 | Detached application | Its own UI state and bounded EventStore readers | A duplicate full event collection |
 
 ## Query worker lifecycle
@@ -552,7 +552,10 @@ viewport invalidates the active read at its next guard check. Canvas also
 coalesces same-viewport summary triggers into one active request and one
 trailing slot, so commit bursts do not continuously advance projection
 revisions. After projection, the render client applies its own one-in-flight
-plus one-coalesced-pending data queue.
+plus one-coalesced-pending data queue. Coalescing preserves every independently
+revisioned overlay section, including `supplementalEvents`; a concurrent scene,
+source, flag, or render-window update cannot discard a pending note-linked event
+collection.
 
 While a source is `building`, committed source summaries trigger projection
 refreshes at most once every 250 milliseconds. A terminal `complete` or
@@ -620,12 +623,14 @@ thread. A single-consumer render-window bus synchronously hands the result to
 the mounted Canvas, which validates its revisions and transfers the same
 buffers to the render worker. The bus does not retain the projection.
 
-Render protocol version 9 adds `frameEventCount` to each atomic source
-projection. The projector sums page catalog counts for fully covered pages and
-reads only partially covered exact pages, ignoring tombstones. A one-entry
-cache per source keyed by authority, generation, revision, raw frame and offset avoids
-repeating those reads during scroll or zoom. Direct RAM snapshots derive the
-same value through binary timestamp bounds.
+Render protocol version 10 retains `frameEventCount` on each atomic source
+projection and adds an independently revisioned `supplementalEvents` overlay
+plus the `supplemental-event` hit result. The projector sums page catalog counts
+for fully covered pages and reads only partially covered exact pages, ignoring
+tombstones and supplemental events. A one-entry cache per source keyed by
+authority, generation, revision, raw frame and offset avoids repeating those
+reads during scroll or zoom. Direct RAM snapshots derive the same value through
+binary timestamp bounds.
 
 Cache freshness is not part of the render-worker protocol. A main-thread DOM
 overlay shared by the OffscreenCanvas and legacy backends shows
@@ -645,7 +650,9 @@ of a dataset-sized event collection:
 
 - `getById(documentId)` and batched ID resolution;
 - `getByHandle(sourceId, handle)`;
-- `getNeighbors(sourceId, handle, before, after)`;
+- `getNeighbors(sourceId, documentIdOrHandle, before, after)`;
+- `getTimestampNeighbors(sourceId, timestamp, before, after)` for a virtual,
+  non-persisted anchor;
 - `queryPixelBucket(sourceId, timeRange, limit, cursor?)`;
 - source summary reads.
 
@@ -657,6 +664,39 @@ contains more events than can safely be materialized in the main thread.
 Notes, links, flags, navigation, and detached views resolve required IDs or
 handles through the same facade. They do not require a global in-memory event
 map.
+
+`DataStore.supplementalEvents` is the separate operation-scoped collection for
+events explicitly retrieved through a note or grouped note. It is indexed by
+source ID and document ID and is not owned by QueryWorker, written to IndexedDB,
+or included in query-cache provenance. The facade resolves these documents as
+exact interaction targets and merges them with bounded query neighbors. Query
+events win duplicate IDs; the merged sequence is ordered by timestamp and then
+trimmed around the current event.
+
+Source first/last navigation keeps the same separation. It resolves the query
+edge from the source summary and one exact `queryPixelBucket` record, scans only
+the small supplemental collection for that source, and selects the outer
+timestamp. It does not project or load the complete IndexedDB generation.
+
+Retrieval remains a main-thread API concern: one missing note target uses
+`/query_single_id`, while grouped targets use `/query_raw_paginate` with a terms
+query over the missing document IDs, split only at the endpoint's 10,000-record
+limit. The synchronous response is normalized and written directly to the
+supplemental collection; it never registers a QueryWorker stream or a query-cache
+generation.
+
+When the current event is supplemental, the repository's timestamp-neighbor API
+reads only the bounded active-query records on either side of its timestamp.
+When navigation moves to a persisted neighbor, the facade performs the normal
+ID-anchored read and merges the same supplemental source collection again. Main
+and detached dialogs therefore use an equivalent centered window without
+copying a source collection.
+
+Supplemental records publish only a render-overlay revision. They never advance
+source authority, generation, durable revision, `loadedCount`, `frameEventCount`,
+freshness, or query history. They are cleared by operation reset, source removal,
+a new source replacement query, and successful cache Undo/Redo activation. A
+failed activation and ordinary viewport or dialog changes retain them.
 
 ## Revisions and consistency
 
@@ -728,6 +768,7 @@ sequences and timestamps, and worker resync/error/fallback counts. See the
 The event path is expected to preserve these bounds:
 
 - no permanent main-thread collection proportional to all events;
+- no explicitly included note target in IndexedDB query pages or cache history;
 - at most 2,048 cached exact documents in the main realm;
 - at most 32,768 normalized documents pending in QueryWorker;
 - at most 128 MiB of accepted raw WebSocket frames globally and 64 MiB for one

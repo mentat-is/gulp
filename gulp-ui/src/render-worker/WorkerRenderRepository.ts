@@ -12,6 +12,7 @@ import {
 	type RenderPointerState,
 	type RenderSceneState,
 	type RenderSource,
+	type RenderSupplementalEventRecord,
 	type RenderTimeRange,
 	type RenderViewportState,
 	type RenderWindowProjection,
@@ -60,7 +61,7 @@ export interface WorkerRenderEventView {
 
 /** Canvas rectangle associated with a compact overlay identity. */
 export interface WorkerHitRegion {
-	kind: "note" | "link";
+	kind: "note" | "link" | "supplemental-event";
 	id: string;
 	noteIds?: string[];
 	x: number;
@@ -210,12 +211,14 @@ export class WorkerRenderRepository {
 	private links: RenderLinkRecord[] = [];
 	private highlights: RenderHighlightRecord[] = [];
 	private flags: RenderFlagRecord[] = [];
+	private supplementalEvents: RenderSupplementalEventRecord[] = [];
 	private hitRegions: WorkerHitRegion[] = [];
 	private sourceRevision = 0;
 	private notesRevision = 0;
 	private linksRevision = 0;
 	private highlightsRevision = 0;
 	private flagsRevision = 0;
+	private supplementalEventsRevision = 0;
 	private globalRevision = 0;
 	private acknowledgedGlobalRevision = 0;
 	private renderWindowOperationEpoch = -1;
@@ -410,6 +413,11 @@ export class WorkerRenderRepository {
 	 */
 	public getFlags(): readonly RenderFlagRecord[] {
 		return this.flags;
+	}
+
+	/** Returns explicitly included note targets rendered outside the query projection. */
+	public getSupplementalEvents(): readonly RenderSupplementalEventRecord[] {
+		return this.supplementalEvents;
 	}
 
 	/**
@@ -1090,6 +1098,14 @@ export class WorkerRenderRepository {
 		if (patch.flags && patch.flags.revision >= this.flagsRevision) {
 			this.flags = patch.flags.records;
 			this.flagsRevision = patch.flags.revision;
+			changed = true;
+		}
+		if (
+			patch.supplementalEvents &&
+			patch.supplementalEvents.revision >= this.supplementalEventsRevision
+		) {
+			this.supplementalEvents = patch.supplementalEvents.records;
+			this.supplementalEventsRevision = patch.supplementalEvents.revision;
 			changed = true;
 		}
 		return changed;
@@ -2892,7 +2908,7 @@ export class WorkerRenderRepository {
 	 * Finds the topmost interactive overlay at a canvas coordinate.
 	 * @param x Horizontal canvas coordinate.
 	 * @param y Vertical canvas coordinate.
-	 * @returns Compact note/link identity, or null when no region contains the point.
+	 * @returns Compact interactive-overlay identity, or null when no region contains the point.
 	 */
 	public hitTest(x: number, y: number): RenderHitTestResult | null {
 		for (let index = this.hitRegions.length - 1; index >= 0; index--) {
@@ -2903,13 +2919,14 @@ export class WorkerRenderRepository {
 				y >= region.y &&
 				y <= region.y + region.height
 			) {
-				return region.kind === "note"
-					? {
-							kind: "note",
-							id: region.id,
-							noteIds: region.noteIds ?? [region.id],
-						}
-					: { kind: "link", id: region.id };
+				if (region.kind === "note") {
+					return {
+						kind: "note",
+						id: region.id,
+						noteIds: region.noteIds ?? [region.id],
+					};
+				}
+				return { kind: region.kind, id: region.id };
 			}
 		}
 		return null;
@@ -2964,12 +2981,14 @@ export class WorkerRenderRepository {
 		this.links = [];
 		this.highlights = [];
 		this.flags = [];
+		this.supplementalEvents = [];
 		this.hitRegions = [];
 		this.sourceRevision = 0;
 		this.notesRevision = 0;
 		this.linksRevision = 0;
 		this.highlightsRevision = 0;
 		this.flagsRevision = 0;
+		this.supplementalEventsRevision = 0;
 		this.globalRevision = 0;
 		this.acknowledgedGlobalRevision = 0;
 		this.renderWindowOperationEpoch = -1;

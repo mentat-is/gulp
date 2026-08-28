@@ -1,5 +1,7 @@
 import { Info } from "@/class/Info";
 import type { App } from "@/entities/App";
+import type { Doc } from "@/entities/Doc";
+import type { Note } from "@/entities/Note";
 import type { Operation } from "@/entities/Operation";
 import type { Query } from "@/entities/Query";
 import { Request } from "@/entities/Request";
@@ -31,7 +33,7 @@ jest.mock("@/dto/Logger.class", () => ({
 		warn: jest.fn(),
 		error: jest.fn(),
 		fatal: jest.fn(),
-		assert: jest.fn(),
+		assert: (value: unknown) => value,
 	},
 }));
 
@@ -97,6 +99,17 @@ jest.mock("@/entities/Doc", () => ({
 		Entity: {
 			delete: jest.fn(),
 			clearHashRange: jest.fn(),
+			normalize: (documents: Array<Record<string, unknown>>) =>
+				documents.map((document) => ({
+					_id: document._id,
+					gulp_timestamp:
+						typeof document["@timestamp"] === "number"
+							? document["@timestamp"]
+							: Date.parse(String(document["@timestamp"])),
+					"gulp.source_id": document["gulp.source_id"],
+					"gulp.event_code": document["gulp.event_code"],
+					number_hash: 1,
+				})),
 		},
 	},
 }));
@@ -972,6 +985,146 @@ describe("Info timeline-frame refetch", () => {
 		});
 	});
 
+	it("includes note targets incrementally and retries only unresolved documents", async () => {
+		const source = createSource();
+		source.selected = false;
+		const { info, getApp } = createInfoHarness(source);
+		getApp().target.operations = [
+			{
+				id: source.operation_id,
+				name: "Frame refetch operation",
+				selected: true,
+			} as Operation.Type,
+		];
+		const createNote = (id: string): Note.Type =>
+			({
+				id: `note-${id}` as Note.Id,
+				type: "note",
+				operation_id: source.operation_id,
+				source_id: source.id,
+				name: id,
+				doc: {
+					_id: id as Doc.Id,
+					gulp_timestamp: 1_750_000_000_000,
+					"gulp.source_id": source.id,
+				} as Doc.Type,
+			}) as Note.Type;
+		const firstNote = createNote("first-target");
+		const secondNote = createNote("second-target");
+		let secondAttempt = false;
+		const createDocument = (documentId: Doc.Id): Doc.Type =>
+			({
+				_id: documentId,
+				"@timestamp": 1_750_000_000_000,
+				"gulp.source_id": source.id,
+				"gulp.event_code": 7,
+				"event.code": 7,
+			}) as unknown as Doc.Type;
+		const querySingleId = jest.fn(
+			async (): Promise<Doc.Type> => createDocument(firstNote.doc._id),
+		);
+		const queryPaginate = jest.fn(async (query: Query.Type, _options: unknown) => {
+			const requestedIds = (
+				query.raw as { terms: { _id: Doc.Id[] } }
+			).terms._id;
+			const docs = requestedIds
+				.filter(
+					(documentId) =>
+						documentId !== secondNote.doc._id || secondAttempt,
+				)
+				.map(createDocument);
+			return { docs, total_hits: docs.length };
+		});
+		info.query_single_id = querySingleId as typeof info.query_single_id;
+		info.query_paginate = queryPaginate as typeof info.query_paginate;
+		let sourceSelectedWhenOverlayPublished = false;
+		const unsubscribe = DataStore.subscribeRenderChanges((change) => {
+			if (change.type === "supplemental-events") {
+				sourceSelectedWhenOverlayPublished =
+					getApp().target.files[0].selected;
+			}
+		});
+
+		const partial = await info.includeNoteEvents([firstNote, secondNote, firstNote]);
+		expect(partial.stale).toBe(false);
+		expect(partial.events.map((event) => event._id)).toEqual([
+			firstNote.doc._id,
+		]);
+		expect(partial.missingDocumentIds).toEqual([secondNote.doc._id]);
+		expect(DataStore.getSupplementalEvents(source.id)).toHaveLength(1);
+		expect(getApp().target.files[0].selected).toBe(true);
+		expect(getApp().target.files[0].total).toBe(120);
+
+		secondAttempt = true;
+		const complete = await info.includeNoteEvents([firstNote, secondNote]);
+		unsubscribe();
+		expect(complete.events.map((event) => event._id)).toEqual([
+			firstNote.doc._id,
+			secondNote.doc._id,
+		]);
+		expect(complete.missingDocumentIds).toEqual([]);
+		expect(DataStore.getSupplementalEvents(source.id)).toHaveLength(2);
+		expect(querySingleId).not.toHaveBeenCalled();
+		expect(queryPaginate.mock.calls.map(([query]) => query.raw)).toEqual([
+			{ terms: { _id: [firstNote.doc._id, secondNote.doc._id] } },
+			{ terms: { _id: [secondNote.doc._id] } },
+		]);
+		expect(queryPaginate.mock.calls[0][1]).toMatchObject({
+			limit: 2,
+			offset: 0,
+			fields: "*",
+		});
+		expect(sourceSelectedWhenOverlayPublished).toBe(true);
+	});
+
+	it("discards a note fetch response after the operation epoch changes", async () => {
+		const source = createSource();
+		const { info, getApp } = createInfoHarness(source);
+		getApp().target.operations = [
+			{
+				id: source.operation_id,
+				name: "Frame refetch operation",
+				selected: true,
+			} as Operation.Type,
+		];
+		const note = {
+			id: "note-stale-target" as Note.Id,
+			type: "note",
+			operation_id: source.operation_id,
+			source_id: source.id,
+			name: "stale target",
+			doc: {
+				_id: "stale-target" as Doc.Id,
+				gulp_timestamp: 1_750_000_000_000,
+				"gulp.source_id": source.id,
+			} as Doc.Type,
+		} as Note.Type;
+		let resolveFetch!: (document: Doc.Type) => void;
+		const deferredFetch = new Promise<Doc.Type>((resolve) => {
+			resolveFetch = resolve;
+		});
+		const querySingleId = jest.fn(async () => deferredFetch);
+		info.query_single_id = querySingleId as typeof info.query_single_id;
+
+		const inclusion = info.includeNoteEvents([note]);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(querySingleId).toHaveBeenCalledTimes(1);
+		DataStore.resetRenderOperation("another-operation" as Operation.Id);
+		resolveFetch({
+			_id: note.doc._id,
+			"@timestamp": 1_750_000_000_000,
+			"gulp.source_id": source.id,
+		} as unknown as Doc.Type);
+
+		expect(await inclusion).toEqual({
+			events: [],
+			missingDocumentIds: [note.doc._id],
+			stale: true,
+		});
+		expect(DataStore.getSupplementalEvents()).toEqual([]);
+	});
+
 	it("navigates source-local Undo and Redo without dispatching backend queries", async () => {
 		const source = createSource();
 		source.queryCache = {
@@ -1004,16 +1157,34 @@ describe("Info timeline-frame refetch", () => {
 			async (_input: unknown) => pendingActivations.shift() ?? null,
 		);
 		setSmartSocket({ navigateSourceQueryCache });
+		DataStore.upsertSupplementalEvents([
+			{
+				_id: "included-before-undo" as Doc.Id,
+				gulp_timestamp: 1_750_000_000_000,
+				"gulp.source_id": source.id,
+				number_hash: 1,
+			} as Doc.Type,
+		]);
 
 		expect(await info.navigateSourceQueryCache(source, "undo")).toBe(true);
+		expect(DataStore.getSupplementalEvents(source.id)).toEqual([]);
 		expect(getApp().target.files[0].appliedQuery).toEqual(undoQuery);
-		expect(getApp().target.files[0].queryCache).toMatchObject({
+			expect(getApp().target.files[0].queryCache).toMatchObject({
 			activeGeneration: 1,
 			canUndo: false,
 			canRedo: true,
 		});
+		DataStore.upsertSupplementalEvents([
+			{
+				_id: "included-before-redo" as Doc.Id,
+				gulp_timestamp: 1_750_000_000_000,
+				"gulp.source_id": source.id,
+				number_hash: 1,
+			} as Doc.Type,
+		]);
 
 		expect(await info.navigateSourceQueryCache(source, "redo")).toBe(true);
+		expect(DataStore.getSupplementalEvents(source.id)).toEqual([]);
 		expect(navigateSourceQueryCache.mock.calls).toEqual([
 			[
 				{
@@ -1037,6 +1208,30 @@ describe("Info timeline-frame refetch", () => {
 			canUndo: true,
 			canRedo: true,
 		});
+	});
+
+	it("retains supplemental events when Undo activation does not succeed", async () => {
+		const source = createSource();
+		source.queryCache = {
+			activeGeneration: 2,
+			canUndo: true,
+			canRedo: false,
+			freshness: "fresh",
+			warningReason: null,
+			isActivating: false,
+		};
+		const { info } = createInfoHarness(source);
+		setSmartSocket({ navigateSourceQueryCache: async () => null });
+		const supplemental = {
+			_id: "included-retained" as Doc.Id,
+			gulp_timestamp: 1_750_000_000_000,
+			"gulp.source_id": source.id,
+			number_hash: 1,
+		} as Doc.Type;
+		DataStore.upsertSupplementalEvents([supplemental]);
+
+		expect(await info.navigateSourceQueryCache(source, "undo")).toBe(false);
+		expect(DataStore.getSupplementalEvents(source.id)).toEqual([supplemental]);
 	});
 
 	it("does not compare a filtered cache count with the complete source total", async () => {

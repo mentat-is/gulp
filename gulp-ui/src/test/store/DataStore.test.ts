@@ -116,6 +116,18 @@ describe("DataStore source insertion", () => {
 		unsubscribe();
 	});
 
+	it("keeps an empty query source visible while it has supplemental events", () => {
+		DataStore.publishEventSourceSummary(
+			createSourceSummary({ eventCount: 0, minTimestamp: 0, maxTimestamp: 0 }),
+			"immediate",
+		);
+		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 0)).toBe(false);
+
+		DataStore.upsertSupplementalEvents([createDocument("included", 250)]);
+
+		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 0)).toBe(true);
+	});
+
 	it("uses logical authority before physical generation when accepting summaries", () => {
 		const current = createSourceSummary({
 			generation: 5,
@@ -297,6 +309,28 @@ describe("DataStore render mutation contracts", () => {
 		]);
 	});
 
+	it("deduplicates and clears supplemental events without advancing query revisions", () => {
+		const first = createDocument("included", 200);
+		const replacement = { ...first, number_hash: 99 };
+		const changes: DataStoreRenderChange[] = [];
+		const unsubscribe = DataStore.subscribeRenderChanges((change) => {
+			changes.push(change);
+		});
+
+		DataStore.upsertSupplementalEvents([first, replacement]);
+		expect(DataStore.getSupplementalEvents(SOURCE_ID)).toEqual([replacement]);
+		expect(DataStore.getSourceRevision(SOURCE_ID)).toBe(0);
+
+		expect(DataStore.clearSupplementalEvents(SOURCE_ID)).toEqual([replacement]);
+		unsubscribe();
+
+		expect(DataStore.getSupplementalEvents(SOURCE_ID)).toEqual([]);
+		expect(changes.map((change) => change.type)).toEqual([
+			"supplemental-events",
+			"supplemental-events",
+		]);
+	});
+
 	it("publishes a same-length upsert and restores timestamp ordering", () => {
 		const originalFirst = createDocument("first", 300);
 		const originalSecond = createDocument("second", 200);
@@ -347,6 +381,7 @@ describe("DataStore render mutation contracts", () => {
 		expect(DataStore.getSourceRevision(SOURCE_ID)).toBe(0);
 		expect(DataStore.getRenderOperationId()).toBe(nextOperationId);
 		expect(DataStore.events.size).toBe(0);
+		expect(DataStore.supplementalEvents.size).toBe(0);
 		expect(DataStore.getRenderHandle(SOURCE_ID, document._id)).toBe(1);
 		expect(changes.map((change) => change.type)).toEqual(["operation-reset"]);
 	});

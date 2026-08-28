@@ -16,6 +16,7 @@ import type {
 	RenderNoteRecord,
 	RenderOverlaySnapshot,
 	RenderSource,
+	RenderSupplementalEventRecord,
 } from "./RenderWorker.types";
 import { getRenderSourceName } from "./RenderSourceLabel";
 
@@ -55,6 +56,8 @@ export interface RenderOverlayProjectionInput {
 	highlightsRevision: number;
 	flaggedDocuments: readonly Doc.Type[];
 	flagsRevision: number;
+	supplementalEvents: readonly Doc.Type[];
+	supplementalEventsRevision: number;
 }
 
 export type RenderChangeProjection =
@@ -439,6 +442,22 @@ export class RenderProjectionAdapter {
 					},
 				};
 			}
+			case "supplemental-events":
+				return {
+					kind: "data",
+					queueKey: "overlays:supplemental-events",
+					patch: {
+						globalRevision: change.sequence,
+						overlays: {
+							supplementalEvents: {
+								revision: change.collectionRevision,
+								records: this.createSupplementalEventRecords(
+									change.events,
+								),
+							},
+						},
+					},
+				};
 			case "notes":
 				return {
 					kind: "data",
@@ -560,13 +579,10 @@ export class RenderProjectionAdapter {
 		const records: RenderNoteRecord[] = [];
 		for (const note of notes) {
 			if (!note.doc) continue;
-			const document =
-				this.options.resolveDocument(note.doc._id) ?? note.doc;
-			if (!document) continue;
 			records.push({
 				id: note.id,
-				sourceId: document["gulp.source_id"],
-				timestamp: document.gulp_timestamp,
+				sourceId: note.doc["gulp.source_id"],
+				timestamp: note.doc.gulp_timestamp,
 				name: note.name,
 				color: note.color?.trim() || "",
 				iconKey:
@@ -650,6 +666,22 @@ export class RenderProjectionAdapter {
 	}
 
 	/**
+	 * Projects explicitly included note targets into compact render-only records.
+	 * @param documents Normalized supplemental event documents.
+	 * @returns Worker-safe event marker records.
+	 */
+	public createSupplementalEventRecords(
+		documents: readonly Doc.Type[],
+	): RenderSupplementalEventRecord[] {
+		return documents.map((document) => ({
+			id: document._id,
+			sourceId: document["gulp.source_id"],
+			timestamp: document.gulp_timestamp,
+			numberHash: document.number_hash,
+		}));
+	}
+
+	/**
 	 * Creates the complete revisioned overlay snapshot used during startup and replay.
 	 * @param input Canonical overlay collections and their current revisions.
 	 * @returns Compact overlay snapshot safe to post to the worker.
@@ -673,6 +705,12 @@ export class RenderProjectionAdapter {
 			flags: {
 				revision: input.flagsRevision,
 				records: this.createFlagRecords(input.flaggedDocuments),
+			},
+			supplementalEvents: {
+				revision: input.supplementalEventsRevision,
+				records: this.createSupplementalEventRecords(
+					input.supplementalEvents,
+				),
 			},
 		};
 	}

@@ -18,10 +18,15 @@ import { NotesWindow } from "@/components/NotesWindow";
 interface MockTableRow {
 	id: Note.Id;
 	title: string;
+	rawNote: Note.Type;
 }
 
 interface MockTableProps {
 	values: MockTableRow[];
+	actions?: Array<{
+		label: string;
+		onClick: (row: MockTableRow) => void;
+	}>;
 }
 
 interface MockChildrenProps {
@@ -60,6 +65,10 @@ let mockDetachedStatus:
 	| "auth_lost" = "active";
 let mockTranslate = (key: string): string => key;
 const mockSpawnBanner = jest.fn();
+const mockSendControlMessage = jest.fn<
+	void,
+	[string, { docId: Doc.Id; operationId: Operation.Id }, string | undefined]
+>();
 const mockNotesListCalls: Note.ListFilter[] = [];
 const mockNotesCountCalls: Note.ListFilter[] = [];
 let mockNotesListImplementation = async (
@@ -275,22 +284,31 @@ jest.mock("@/ui/utils", () => ({
 
 jest.mock("@/lib/WindowBridge", () => ({
 	WindowBridge: {
-		sendControlMessage: (): void => undefined,
+		sendControlMessage: (
+			type: string,
+			payload: { docId: Doc.Id; operationId: Operation.Id },
+			coordinatorId?: string,
+		): void => mockSendControlMessage(type, payload, coordinatorId),
 		MessageType: { NAVIGATE_TO_EVENT: "NAVIGATE_TO_EVENT" },
 	},
 }));
 
 jest.mock("@/components/Table", () => {
 	return {
-		Table: ({ values }: MockTableProps): ReactNode =>
+		Table: ({ values, actions }: MockTableProps): ReactNode =>
 			<div data-testid="notes-table">
 				{values.map((row) => (
-					<span
-						key={row.id}
-						data-note-id={row.id}
-					>
-						{row.title}
-					</span>
+					<div key={row.id} data-note-id={row.id}>
+						<span>{row.title}</span>
+						{actions?.map((action) => (
+							<button
+								type="button"
+								key={action.label}
+								data-action-label={action.label}
+								onClick={() => action.onClick(row)}
+							/>
+						))}
+					</div>
 				))}
 			</div>,
 	};
@@ -410,6 +428,7 @@ describe("NotesWindow semantic requests", () => {
 		DataStore.notes = [createNote("note-1")];
 		mockNotesListCalls.length = 0;
 		mockNotesCountCalls.length = 0;
+		mockSendControlMessage.mock.calls.splice(0);
 		mockNotesListImplementation = async (filter) =>
 			getFilteredNotes(filter);
 		mockNotesCountImplementation = async (filter) =>
@@ -482,6 +501,25 @@ describe("NotesWindow semantic requests", () => {
 		expect(getNotesListCallCount()).toBe(1);
 		expect(getNotesCountCallCount()).toBe(1);
 		expect(container.textContent?.includes("Original title")).toBe(true);
+	});
+
+	it("routes a note target by the embedded document ID even when no event is resident", async () => {
+		await renderWindow();
+		const note = DataStore.notes[0];
+		const targetButton = container.querySelector<HTMLButtonElement>(
+			'[data-action-label="notes.targetNote"]',
+		);
+
+		act(() => targetButton?.click());
+
+		expect(mockSendControlMessage).toHaveBeenCalledWith(
+			"NAVIGATE_TO_EVENT",
+			{
+				docId: note.doc._id,
+				operationId: note.operation_id,
+			},
+			undefined,
+		);
 	});
 
 	it("ignores rendered-source changes until visible-only filtering is enabled", async () => {

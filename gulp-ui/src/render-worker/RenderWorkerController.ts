@@ -858,7 +858,7 @@ export class RenderWorkerController {
 	}
 
 	/**
-	 * Emits HOVER_CHANGED only when the compact note/link identity changes.
+	 * Emits HOVER_CHANGED only when the compact interactive-overlay identity changes.
 	 * @returns Nothing.
 	 */
 	private publishHoverIfChanged(): void {
@@ -885,7 +885,7 @@ export class RenderWorkerController {
 		if (!hit) return null;
 		return hit.kind === "note"
 			? `note:${hit.noteIds.join(",")}`
-			: `link:${hit.id}`;
+			: `${hit.kind}:${hit.id}`;
 	}
 
 	/**

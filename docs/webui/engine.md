@@ -84,6 +84,39 @@ colors for selected field values.
 Context color is used as the row tint and separator color so related sources can
 be visually grouped.
 
+## Notes whose events are outside the active query
+
+Notes and grouped notes are positioned from the document identity, source, and
+timestamp embedded in `note.doc`. They therefore remain visible when their
+events are outside the active source query. When empty source rows are hidden, a
+source still remains on the timeline while it has a visible note; hiding notes
+removes that note-only exception.
+
+Selecting a note whose event is unavailable shows a localized confirmation to
+retrieve the event. A grouped note marker uses one confirmation for all missing
+targets, deduplicates repeated document IDs, and retains successful results if
+only part of the group can be retrieved. Retrying requests only the targets that
+are still unavailable. A single target uses `/query_single_id`; grouped targets
+use one `/query_raw_paginate` terms query per API-sized batch instead of issuing
+one request per document.
+
+Retrieved note targets are normalized with their source settings and included
+as session-only timeline events. They are drawn as normal event markers in the
+Default, HeightMap, and Graph engines, can be selected to open the standard
+event dialog, and participate in previous/next navigation in both main and
+detached dialogs. They do not change source totals, the selected timeframe, LOD
+aggregates, query-result counts, or cache freshness. A newly affected source is
+selected before the supplemental overlay mutation is published, so source-row
+membership and the marker become visible in the same ordered render update.
+The source menu's **Show first event** and **Show last event** actions, together
+with the Home and End shortcuts in an event dialog, compare active-query and
+included note targets and open the actual oldest or newest event of the source.
+
+Included note targets are intentionally separate from the IndexedDB query-cache
+pool. A new replacement query for the source, successful source-local Undo/Redo,
+source removal, or operation reset clears them. A failed Undo/Redo attempt,
+viewport movement, note reload, and dialog close leave them available.
+
 ## Caching
 
 Exact timeline events are stored in an operation-scoped IndexedDB EventStore.
@@ -96,3 +129,7 @@ receives persisted density counts, and Graph receives viewport-scale samples.
 Palette-only changes reuse the exact stored pages; source revisions, offsets,
 engine settings, overrides, notes, flags, or viewport changes publish the
 corresponding revisioned render state.
+
+The small operation-scoped collection of explicitly included note targets is a
+revisioned render overlay owned by the main thread. It is never written to an
+IndexedDB query generation and is not restored by query-cache Undo/Redo.

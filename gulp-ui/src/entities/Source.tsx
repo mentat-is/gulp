@@ -138,6 +138,7 @@ export namespace Source {
 			ref: Source.Type[] | null;
 			filterText: string;
 			sourcesWithNoEvents: boolean;
+			notesHidden: boolean;
 			renderVersion: number;
 			renderDataSequence: number;
 			result: Source.Type[];
@@ -145,6 +146,7 @@ export namespace Source {
 			ref: null,
 			filterText: "",
 			sourcesWithNoEvents: true,
+			notesHidden: false,
 			renderVersion: 0,
 			renderDataSequence: 0,
 			result: [],
@@ -152,11 +154,23 @@ export namespace Source {
 
 		/**
 		 * Checks whether a source should stay visible while empty-source rows are hidden.
-		 * @param source Source whose canonical render events and fallback total are inspected.
-		 * @returns True when the source has loaded render events or has not been queried yet but advertises a non-zero total.
+		 * @param source Source whose query, supplemental events, and notes are inspected.
+		 * @param notesHidden Whether note-only rows are currently suppressed.
+		 * @returns True when query or supplemental events exist, or a visible note targets the source.
 		 */
-		private static hasVisibleEvents = (source: Source.Type): boolean => {
-			return DataStore.hasRenderableSourceEvents(source.id, source.total);
+		private static hasVisibleEvents = (
+			source: Source.Type,
+			notesHidden: boolean,
+		): boolean => {
+			if (DataStore.hasRenderableSourceEvents(source.id, source.total)) {
+				return true;
+			}
+			return (
+				!notesHidden &&
+				DataStore.notes.some(
+					(note) => Note.Entity.sourceId(note) === source.id,
+				)
+			);
 		};
 
 		/**
@@ -198,6 +212,7 @@ export namespace Source {
 		public static rendered = (app: App.Type): Source.Type[] => {
 			const currentFilter = (app.timeline.filter || "").toLowerCase();
 			const hiddenSourcesWithNoEvents = app.hidden.sourcesWithNoEvents;
+			const notesHidden = app.hidden.notes;
 			const renderVersion = app.timeline.renderVersion;
 			const renderDataSequence = DataStore.getRenderSequence();
 
@@ -206,6 +221,7 @@ export namespace Source {
 				currentFilter === Source.Entity._renderedCache.filterText &&
 				hiddenSourcesWithNoEvents ===
 					Source.Entity._renderedCache.sourcesWithNoEvents &&
+				notesHidden === Source.Entity._renderedCache.notesHidden &&
 				renderVersion === Source.Entity._renderedCache.renderVersion &&
 				renderDataSequence === Source.Entity._renderedCache.renderDataSequence
 			) {
@@ -213,7 +229,7 @@ export namespace Source {
 			}
 			const pins = Source.Entity.selected(app).filter((source) =>
 				hiddenSourcesWithNoEvents
-					? Source.Entity.hasVisibleEvents(source)
+					? Source.Entity.hasVisibleEvents(source, notesHidden)
 					: true,
 			);
 
@@ -229,6 +245,7 @@ export namespace Source {
 				ref: app.target.files,
 				filterText: currentFilter,
 				sourcesWithNoEvents: hiddenSourcesWithNoEvents,
+				notesHidden,
 				renderVersion,
 				renderDataSequence,
 				result,

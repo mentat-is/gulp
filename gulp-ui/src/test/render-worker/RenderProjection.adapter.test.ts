@@ -1,4 +1,5 @@
 import type { Doc } from "@/entities/Doc";
+import type { Note } from "@/entities/Note";
 import type { Source } from "@/entities/Source";
 import { RenderProjectionAdapter } from "@/render-worker/RenderProjection.adapter";
 import { DataStore } from "@/store/DataStore";
@@ -86,6 +87,49 @@ describe("RenderProjectionAdapter cooperative ranges", () => {
 
 		expect(project("filename")).toBe("events.json");
 		expect(project("full_path")).toBe(source.name);
+	});
+
+	it("projects supplemental events without query authority fields", () => {
+		const adapter = new RenderProjectionAdapter({
+			resolveDocument: () => undefined,
+		});
+		const document = createDocument(7);
+
+		expect(adapter.createSupplementalEventRecords([document])).toEqual([
+			{
+				id: document._id,
+				sourceId: SOURCE_ID,
+				timestamp: document.gulp_timestamp,
+				numberHash: document.number_hash,
+			},
+		]);
+	});
+
+	it("projects note identity, source, and timestamp from the embedded note document", () => {
+		const noteDocument = createDocument(8);
+		const residentDocument = {
+			...noteDocument,
+			gulp_timestamp: 99,
+			"gulp.source_id": "different-source" as Source.Id,
+		};
+		const adapter = new RenderProjectionAdapter({
+			resolveDocument: () => residentDocument,
+		});
+		const note = {
+			id: "note-embedded-document" as Note.Id,
+			name: "Embedded",
+			color: null,
+			glyph_id: "note",
+			doc: noteDocument,
+		} as Note.Type;
+
+		expect(adapter.createNoteRecords([note])).toMatchObject([
+			{
+				id: note.id,
+				sourceId: noteDocument["gulp.source_id"],
+				timestamp: noteDocument.gulp_timestamp,
+			},
+		]);
 	});
 
 });

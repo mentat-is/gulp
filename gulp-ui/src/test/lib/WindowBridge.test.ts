@@ -372,7 +372,7 @@ describe("WindowBridge capability-scoped projections", () => {
 		);
 	});
 
-	it("keeps canvas-rendered membership separate from the notes snapshot", () => {
+	it("keeps note-only and supplemental source rows aligned with Canvas visibility", () => {
 		const renderedSource = createSource("rendered", "Needle rendered source");
 		const hiddenEmptySource = createSource("hidden", "Needle hidden source");
 		const app = createApp();
@@ -394,12 +394,27 @@ describe("WindowBridge capability-scoped projections", () => {
 			OPERATION_ID,
 		);
 
-		expect(renderedSourceIds).toEqual([renderedSource.id]);
+		expect(renderedSourceIds).toEqual([
+			renderedSource.id,
+			hiddenEmptySource.id,
+		]);
 		expect(notesPayload.operationId).toBe(OPERATION_ID);
 		expect(notesPayload.notes.map((note) => note.id)).toEqual([
 			renderedNote.id,
 			hiddenNote.id,
 		]);
+
+		app.hidden.notes = true;
+		expect(
+			WindowBridge.createRenderedSourceIds(app, OPERATION_ID),
+		).toEqual([renderedSource.id]);
+
+		DataStore.upsertSupplementalEvents([
+			createDocument("included-doc", hiddenEmptySource.id),
+		]);
+		expect(
+			WindowBridge.createRenderedSourceIds(app, OPERATION_ID),
+		).toEqual([renderedSource.id, hiddenEmptySource.id]);
 	});
 
 	it("filters realtime note upserts before private delivery", () => {

@@ -3,6 +3,7 @@ import {
 	type RenderEventBatch,
 	type RenderNoteRecord,
 	type RenderSource,
+	type RenderSupplementalEventRecord,
 	type RenderWindowProjection,
 	type RenderWindowSourceProjection,
 } from "@/render-worker/RenderWorker.types";
@@ -1202,6 +1203,30 @@ describe("WorkerRenderRepository", () => {
 		expect(repository.getNotes()).toEqual([refreshedNote]);
 	});
 
+	it("replaces supplemental event overlays by their independent revision", async () => {
+		const event: RenderSupplementalEventRecord = {
+			id: "included-event",
+			sourceId: "source-a",
+			timestamp: 15,
+			numberHash: 4,
+		};
+
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			overlays: {
+				supplementalEvents: { revision: 1, records: [event] },
+			},
+		});
+		await repository.applyDataPatch({
+			globalRevision: 2,
+			overlays: {
+				supplementalEvents: { revision: 0, records: [] },
+			},
+		});
+
+		expect(repository.getSupplementalEvents()).toEqual([event]);
+	});
+
 	it("returns the topmost hit region and preserves grouped note identities", () => {
 		repository.setHitRegions([
 			{ kind: "link", id: "link-a", x: 10, y: 10, width: 20, height: 20 },
@@ -1226,6 +1251,21 @@ describe("WorkerRenderRepository", () => {
 			id: "link-a",
 		});
 		expect(repository.hitTest(100, 100)).toBeNull();
+
+		repository.setHitRegions([
+			{
+				kind: "supplemental-event",
+				id: "included-event",
+				x: 0,
+				y: 0,
+				width: 5,
+				height: 48,
+			},
+		]);
+		expect(repository.hitTest(2, 20)).toEqual({
+			kind: "supplemental-event",
+			id: "included-event",
+		});
 	});
 
 	it("clears operation state and closes every worker-owned bitmap", async () => {

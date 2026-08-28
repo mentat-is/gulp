@@ -208,6 +208,9 @@ export function mergeRenderDataPatches(
 					highlights:
 						next.overlays?.highlights ?? previous.overlays?.highlights,
 					flags: next.overlays?.flags ?? previous.overlays?.flags,
+					supplementalEvents:
+						next.overlays?.supplementalEvents ??
+						previous.overlays?.supplementalEvents,
 				}
 			: undefined;
 

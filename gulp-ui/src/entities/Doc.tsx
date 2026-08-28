@@ -201,6 +201,7 @@ export namespace Doc {
 					);
 				}
 				DataStore.clearSourceEvents(file.id);
+				DataStore.clearSupplementalEvents(file.id);
 				Doc.Entity.clearHashRange(file.id);
 			});
 

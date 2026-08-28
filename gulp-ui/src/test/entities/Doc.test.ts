@@ -244,6 +244,9 @@ describe("Doc asynchronous ingestion", () => {
 	it("releases canonical documents, indexes, and hash ranges when a source is deleted", () => {
 		const document = createDocument("deleted-source-document", 500);
 		Doc.Entity.add(APP, [document]);
+		DataStore.upsertSupplementalEvents([
+			createDocument("deleted-source-supplemental", 450),
+		]);
 		const originalHandle = DataStore.getRenderHandle(SOURCE_ID, document._id);
 		const changes: DataStoreRenderChange[] = [];
 		const unsubscribe = DataStore.subscribeRenderChanges((change) => {
@@ -254,14 +257,16 @@ describe("Doc asynchronous ingestion", () => {
 		unsubscribe();
 
 		expect(DataStore.getSourceEvents(SOURCE_ID)).toEqual([]);
+		expect(DataStore.getSupplementalEvents(SOURCE_ID)).toEqual([]);
 		expect(Doc.Entity.id(APP, document._id)).toBeUndefined();
 		expect(Doc.Entity.hashRange(SOURCE_ID)).toBeUndefined();
-		expect(changes).toHaveLength(1);
+		expect(changes).toHaveLength(2);
 		const sourceChange = changes[0];
 		expect(sourceChange.type).toBe("source-events");
 		if (sourceChange.type === "source-events") {
 			expect(sourceChange.mutation).toBe("clear");
 		}
+		expect(changes[1].type).toBe("supplemental-events");
 
 		const replacement = createDocument("deleted-source-document", 600);
 		Doc.Entity.add(APP, [replacement]);

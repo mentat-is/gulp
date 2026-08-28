@@ -1186,6 +1186,26 @@ describe("EventStoreRepository", () => {
 		expect(neighbors.currentIndex).toBe(1);
 	});
 
+	it("returns bounded query neighbors around a non-persisted timestamp", async () => {
+		const { repository } = await createOverlappingRepository();
+
+		const neighbors = await repository.getTimestampNeighbors(
+			SOURCE_ID,
+			85,
+			2,
+			2,
+		);
+
+		expect(neighbors.newer.map((event) => event._id)).toEqual([
+			"event-100",
+			"event-90",
+		]);
+		expect(neighbors.older.map((event) => event._id)).toEqual([
+			"event-80",
+			"event-70",
+		]);
+	});
+
 	it("stops neighbor reads at adjacent non-overlapping pages", async () => {
 		const backend = new CountingMemoryEventStoreBackend();
 		const repository = new EventStoreRepository(backend);

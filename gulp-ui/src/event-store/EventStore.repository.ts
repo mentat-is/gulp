@@ -22,6 +22,7 @@ import type {
 import type {
 	EventNeighborWindow,
 	EventStoreReader,
+	EventTimestampNeighborWindow,
 	EventTimestampRange,
 } from "./EventStore.reader";
 import {
@@ -1747,12 +1748,77 @@ export class EventStoreRepository
 	}
 
 	/**
+	 * Reads bounded query neighbors around a timestamp that has no active document.
+	 * Query events at the exact timestamp are placed on the newer side so a caller
+	 * can insert its transient anchor deterministically after them.
+	 * @param sourceId Source whose active generation is inspected.
+	 * @param timestamp Timestamp used as the virtual insertion point.
+	 * @param before Maximum newer neighbors.
+	 * @param after Maximum older neighbors.
+	 * @returns Bounded canonical query events on each side of the timestamp.
+	 */
+	public async getTimestampNeighbors(
+		sourceId: Source.Id,
+		timestamp: number,
+		before: number,
+		after: number,
+	): Promise<EventTimestampNeighborWindow> {
+		const manifest = await this.getStoredManifest(sourceId);
+		if (!manifest) {
+			return { newer: [], older: [], sourceRevision: 0 };
+		}
+		if (!Number.isFinite(timestamp)) {
+			throw new RangeError("Event neighbor timestamp must be finite.");
+		}
+		const beforeLimit = Math.max(
+			0,
+			Math.min(EVENT_PIXEL_PAGE_SIZE, Math.floor(before)),
+		);
+		const afterLimit = Math.max(
+			0,
+			Math.min(EVENT_PIXEL_PAGE_SIZE, Math.floor(after)),
+		);
+		const lastPageId = manifest.pages.reduce(
+			(maximum, page) => Math.max(maximum, page.pageId),
+			0,
+		);
+		const anchor: EventLocation = {
+			sourceId,
+			generation: manifest.generation,
+			pageId: lastPageId + 1,
+			offset: 0,
+			handle: 0,
+			timestamp,
+			revision: manifest.revision,
+		};
+		const newer = await this.collectNeighborLocations(
+			manifest,
+			anchor,
+			null,
+			beforeLimit,
+			"before",
+		);
+		const older = await this.collectNeighborLocations(
+			manifest,
+			anchor,
+			null,
+			afterLimit,
+			"after",
+		);
+		return {
+			newer: await this.decodeLocations(newer),
+			older: await this.decodeLocations(older),
+			sourceRevision: manifest.revision,
+		};
+	}
+
+	/**
 	 * Reads only pages whose timestamp bounds can still improve a bounded neighbor side.
 	 * Fully overlapping page ranges remain exact and are visited one at a time, while the
 	 * normal non-overlapping append layout stops after the immediately adjacent pages.
 	 * @param manifest Source authority and compact page catalog.
 	 * @param current Exact current-event location.
-	 * @param currentPage Already loaded page containing the current event.
+	 * @param currentPage Already loaded page containing the current event, or null for a timestamp anchor.
 	 * @param limit Maximum locations retained on this side.
 	 * @param side Newer (`before`) or older (`after`) canonical side.
 	 * @returns Canonically sorted bounded neighbor locations.
@@ -1760,13 +1826,15 @@ export class EventStoreRepository
 	private async collectNeighborLocations(
 		manifest: StoredEventSourceManifest,
 		current: EventLocation,
-		currentPage: EncodedEventPage,
+		currentPage: EncodedEventPage | null,
 		limit: number,
 		side: EventNeighborSide,
 	): Promise<EventLocation[]> {
 		if (limit === 0) return [];
 		const locations: EventLocation[] = [];
-		this.collectPageNeighborLocations(currentPage, current, side, limit, locations);
+		if (currentPage) {
+			this.collectPageNeighborLocations(currentPage, current, side, limit, locations);
+		}
 
 		const candidates = manifest.pages
 			.filter(

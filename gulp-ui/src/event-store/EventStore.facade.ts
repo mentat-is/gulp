@@ -4,6 +4,7 @@ import { EventDocumentCache } from "./EventStore.cache";
 import type {
 	EventNeighborWindow,
 	EventStoreReader,
+	EventTimestampNeighborWindow,
 	EventTimestampRange,
 } from "./EventStore.reader";
 import {
@@ -16,6 +17,8 @@ import {
 export interface EventStoreFacadeFallbacks {
 	resolveById?: (documentId: Doc.Id) => Doc.Type | undefined;
 	resolveSource?: (sourceId: Source.Id) => readonly Doc.Type[];
+	resolveSupplementalById?: (documentId: Doc.Id) => Doc.Type | undefined;
+	resolveSupplementalSource?: (sourceId: Source.Id) => readonly Doc.Type[];
 	resolveSourceRevision?: (sourceId: Source.Id) => number;
 }
 
@@ -72,12 +75,29 @@ export class EventStoreFacade implements EventStoreReader {
 	}
 
 	/**
+	 * Evicts bounded interaction copies whose canonical transient owner was cleared.
+	 * @param documentIds Document identifiers to forget.
+	 * @returns Number of cache entries removed.
+	 */
+	public forgetDocuments(documentIds: readonly Doc.Id[]): number {
+		let removed = 0;
+		for (const documentId of documentIds) {
+			if (this.cache.delete(documentId)) removed++;
+		}
+		return removed;
+	}
+
+	/**
 	 * Reads one already-bounded interaction document without starting async storage work.
 	 * @param documentId Document identifier to inspect.
 	 * @returns Cached document, or undefined when an IndexedDB lookup is still required.
 	 */
 	public peekDocument(documentId: Doc.Id): Doc.Type | undefined {
-		return this.cache.get(documentId);
+		return (
+			this.cache.get(documentId) ??
+			this.fallbacks.resolveSupplementalById?.(documentId) ??
+			this.fallbacks.resolveById?.(documentId)
+		);
 	}
 
 	/**
@@ -131,6 +151,14 @@ export class EventStoreFacade implements EventStoreReader {
 		}
 		const persisted = await this.reader?.getById(documentId, sourceId);
 		if (persisted) return this.cache.set(persisted);
+		const supplemental =
+			this.fallbacks.resolveSupplementalById?.(documentId);
+		if (
+			supplemental &&
+			(!sourceId || supplemental["gulp.source_id"] === sourceId)
+		) {
+			return supplemental;
+		}
 		const fallback = this.fallbacks.resolveById?.(documentId);
 		if (fallback && (!sourceId || fallback["gulp.source_id"] === sourceId)) {
 			return this.cache.set(fallback);
@@ -161,6 +189,12 @@ export class EventStoreFacade implements EventStoreReader {
 		}
 		for (const documentId of missingIds) {
 			if (documentsById.has(documentId)) continue;
+			const supplemental =
+				this.fallbacks.resolveSupplementalById?.(documentId);
+			if (supplemental) {
+				documentsById.set(documentId, supplemental);
+				continue;
+			}
 			const fallback = this.fallbacks.resolveById?.(documentId);
 			if (!fallback) continue;
 			this.cache.set(fallback);
@@ -203,16 +237,58 @@ export class EventStoreFacade implements EventStoreReader {
 		after: number,
 	): Promise<EventNeighborWindow> {
 		if (this.reader) {
-			const window = await this.reader.getNeighbors(
+			const persistedWindow = await this.reader.getNeighbors(
 				sourceId,
 				documentIdOrHandle,
 				before,
 				after,
 			);
-			this.cache.setMany(window.events);
-			return window;
+			const supplementalEvents =
+				this.fallbacks.resolveSupplementalSource?.(sourceId) ?? [];
+			if (
+				persistedWindow.currentIndex >= 0 ||
+				typeof documentIdOrHandle === "number"
+			) {
+				const current = persistedWindow.events[persistedWindow.currentIndex];
+				const merged = current
+					? this.mergeNeighborEvents(
+							current,
+							persistedWindow.events,
+							supplementalEvents,
+							before,
+							after,
+							persistedWindow.sourceRevision,
+						)
+					: persistedWindow;
+				this.cache.setMany(merged.events);
+				return merged;
+			}
+
+			const supplemental = supplementalEvents.find(
+				(event) => event._id === documentIdOrHandle,
+			);
+			if (!supplemental) return persistedWindow;
+			const timestampWindow = await this.reader.getTimestampNeighbors(
+				sourceId,
+				supplemental.gulp_timestamp,
+				before,
+				after,
+			);
+			const merged = this.mergeNeighborEvents(
+				supplemental,
+				[...timestampWindow.newer, ...timestampWindow.older],
+				supplementalEvents,
+				before,
+				after,
+				timestampWindow.sourceRevision,
+			);
+			this.cache.setMany(merged.events);
+			return merged;
 		}
-		const events = this.fallbacks.resolveSource?.(sourceId) ?? [];
+		const events = this.mergeDescendingEvents(
+			this.fallbacks.resolveSource?.(sourceId) ?? [],
+			this.fallbacks.resolveSupplementalSource?.(sourceId) ?? [],
+		);
 		const currentIndex =
 			typeof documentIdOrHandle === "number"
 				? -1
@@ -231,6 +307,135 @@ export class EventStoreFacade implements EventStoreReader {
 		return {
 			events: windowEvents,
 			currentIndex: currentIndex - start,
+			sourceRevision: this.fallbacks.resolveSourceRevision?.(sourceId) ?? 0,
+		};
+	}
+
+	/**
+	 * Merges canonical query order with timestamp-sorted supplemental events.
+	 * Query events win duplicate IDs and timestamp ties.
+	 * @param queryEvents Canonical descending query events.
+	 * @param supplementalEvents Explicitly included note targets.
+	 * @returns Descending unique event sequence.
+	 */
+	private mergeDescendingEvents(
+		queryEvents: readonly Doc.Type[],
+		supplementalEvents: readonly Doc.Type[],
+	): Doc.Type[] {
+		if (supplementalEvents.length === 0) return [...queryEvents];
+		const queryIds = new Set(queryEvents.map((event) => event._id));
+		const supplemental = [...supplementalEvents]
+			.filter((event) => !queryIds.has(event._id))
+			.sort(
+				(left, right) =>
+					right.gulp_timestamp - left.gulp_timestamp ||
+					String(left._id).localeCompare(String(right._id)),
+			);
+		const merged: Doc.Type[] = [];
+		let queryIndex = 0;
+		let supplementalIndex = 0;
+		while (
+			queryIndex < queryEvents.length ||
+			supplementalIndex < supplemental.length
+		) {
+			const queryEvent = queryEvents[queryIndex];
+			const supplementalEvent = supplemental[supplementalIndex];
+			if (
+				queryEvent &&
+				(!supplementalEvent ||
+					queryEvent.gulp_timestamp >= supplementalEvent.gulp_timestamp)
+			) {
+				merged.push(queryEvent);
+				queryIndex++;
+			} else if (supplementalEvent) {
+				merged.push(supplementalEvent);
+				supplementalIndex++;
+			}
+		}
+		return merged;
+	}
+
+	/**
+	 * Centers one event in a bounded window after merging explicit note targets.
+	 * @param current Event that must remain present in the returned window.
+	 * @param queryEvents Descending active-query neighbors.
+	 * @param supplementalEvents Explicit note targets for the source.
+	 * @param before Maximum newer entries.
+	 * @param after Maximum older entries.
+	 * @param sourceRevision Durable source revision associated with the query window.
+	 * @returns Bounded descending window centered on the supplied event.
+	 */
+	private mergeNeighborEvents(
+		current: Doc.Type,
+		queryEvents: readonly Doc.Type[],
+		supplementalEvents: readonly Doc.Type[],
+		before: number,
+		after: number,
+		sourceRevision: number,
+	): EventNeighborWindow {
+		const merged = this.mergeDescendingEvents(queryEvents, supplementalEvents);
+		if (!merged.some((event) => event._id === current._id)) {
+			merged.push(current);
+			merged.sort(
+				(left, right) =>
+					right.gulp_timestamp - left.gulp_timestamp ||
+					String(left._id).localeCompare(String(right._id)),
+			);
+		}
+		const currentIndex = merged.findIndex((event) => event._id === current._id);
+		const safeBefore = Math.max(0, Math.floor(before));
+		const safeAfter = Math.max(0, Math.floor(after));
+		const start = Math.max(0, currentIndex - safeBefore);
+		const events = merged.slice(start, currentIndex + safeAfter + 1);
+		return {
+			events,
+			currentIndex: currentIndex - start,
+			sourceRevision,
+		};
+	}
+
+	/**
+	 * Reads bounded canonical events around a timestamp without requiring an exact ID.
+	 * Supplemental events are merged by `getNeighbors`, so this lower-level method
+	 * preserves the reader contract for callers that need only query authority.
+	 * @param sourceId Source whose event order is inspected.
+	 * @param timestamp Virtual insertion timestamp.
+	 * @param before Maximum newer events.
+	 * @param after Maximum older events.
+	 * @returns Query events on either side of the timestamp.
+	 */
+	public async getTimestampNeighbors(
+		sourceId: Source.Id,
+		timestamp: number,
+		before: number,
+		after: number,
+	): Promise<EventTimestampNeighborWindow> {
+		if (this.reader) {
+			const window = await this.reader.getTimestampNeighbors(
+				sourceId,
+				timestamp,
+				before,
+				after,
+			);
+			this.cache.setMany([...window.newer, ...window.older]);
+			return window;
+		}
+		const events = this.fallbacks.resolveSource?.(sourceId) ?? [];
+		const safeBefore = Math.max(0, Math.floor(before));
+		const safeAfter = Math.max(0, Math.floor(after));
+		const newer =
+			safeBefore === 0
+				? []
+				: events
+						.filter((event) => event.gulp_timestamp >= timestamp)
+						.slice(-safeBefore);
+		const older = events
+			.filter((event) => event.gulp_timestamp < timestamp)
+			.slice(0, safeAfter);
+		this.cache.setMany([...newer, ...older]);
+		return {
+			newer,
+			older,
 			sourceRevision: this.fallbacks.resolveSourceRevision?.(sourceId) ?? 0,
 		};
 	}

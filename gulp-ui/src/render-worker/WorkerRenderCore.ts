@@ -229,6 +229,7 @@ export class WorkerRenderCore {
 		const sections = this.drawRulerWalls(state);
 		const visibleSources: RenderSource[] = [];
 		const sourceIndexes = new Map<string, number>();
+		const hitRegions: WorkerHitRegion[] = [];
 
 		for (let index = 0; index < sources.length; index++) {
 			const source = sources[index];
@@ -241,6 +242,13 @@ export class WorkerRenderCore {
 			statistics.renderedRows++;
 			if (this.isSourceInTimeline(source, state)) {
 				this.drawSourceEvents(source, centerY - ROW_CENTER_OFFSET, state, statistics);
+				this.drawSupplementalEvents(
+					source,
+					centerY - ROW_CENTER_OFFSET,
+					state,
+					hitRegions,
+					statistics,
+				);
 			}
 			if (index === 0) this.drawPrimaryRowEdge(centerY, state);
 			this.drawSourceRow(source, centerY, state);
@@ -252,7 +260,6 @@ export class WorkerRenderCore {
 		this.drawTargetMarker(state);
 		this.drawHighlights(state);
 		this.drawFlags(sourceIndexes, state);
-		const hitRegions: WorkerHitRegion[] = [];
 		if (!state.hidden.notes) {
 			this.drawNotes(
 				visibleSources,
@@ -644,6 +651,62 @@ export class WorkerRenderCore {
 		}
 		if (rasterSurface) {
 			this.paintRasterSurface(rasterSurface, rowTop, ROW_HEIGHT - 1);
+		}
+	}
+
+	/**
+	 * Draws explicitly included note targets without changing the source's LOD view.
+	 * @param source Source metadata used for offsets and colors.
+	 * @param rowTop Top edge of the source row.
+	 * @param state Current viewport and theme state.
+	 * @param hitRegions Mutable overlay hit index.
+	 * @param statistics Mutable frame counters.
+	 * @returns Nothing.
+	 */
+	private drawSupplementalEvents(
+		source: RenderSource,
+		rowTop: number,
+		state: RenderFrameState,
+		hitRegions: WorkerHitRegion[],
+		statistics: RenderFrameStatistics,
+	): void {
+		const records = this.repository
+			.getSupplementalEvents()
+			.filter((record) => record.sourceId === source.id);
+		if (records.length === 0) return;
+		const eventView = this.repository.getEvents(source.id);
+		let hashMinimum = eventView?.hashMin ?? Number.POSITIVE_INFINITY;
+		let hashMaximum = eventView?.hashMax ?? Number.NEGATIVE_INFINITY;
+		for (const record of records) {
+			hashMinimum = Math.min(hashMinimum, record.numberHash);
+			hashMaximum = Math.max(hashMaximum, record.numberHash);
+		}
+		for (const record of records) {
+			const adjustedTimestamp = record.timestamp + source.offset;
+			if (
+				adjustedTimestamp < state.frame.min ||
+				adjustedTimestamp > state.frame.max
+			) {
+				continue;
+			}
+			const x = this.getPixelPosition(adjustedTimestamp, state);
+			if (x < -3 || x > state.width + 3) continue;
+			this.context.fillStyle = this.resolveColor(
+				source,
+				record.numberHash,
+				hashMinimum,
+				hashMaximum,
+			);
+			this.context.fillRect(x, rowTop, 1, ROW_HEIGHT - 1);
+			hitRegions.push({
+				kind: "supplemental-event",
+				id: record.id,
+				x: x - 2,
+				y: rowTop,
+				width: 5,
+				height: ROW_HEIGHT - 1,
+			});
+			statistics.renderedEventPixels++;
 		}
 	}
 

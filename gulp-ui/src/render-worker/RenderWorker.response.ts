@@ -37,12 +37,12 @@ function hasFiniteNumbers(
 /**
  * Validates a worker hit-test identity without trusting its discriminant.
  * @param value Candidate hit-test result.
- * @returns True for null or a fully shaped note/link identity.
+ * @returns True for null or a fully shaped interactive-overlay identity.
  */
 function isRenderHitTestResult(value: unknown): value is RenderHitTestResult | null {
 	if (value === null) return true;
 	if (!isRecord(value) || typeof value.id !== "string") return false;
-	if (value.kind === "link") return true;
+	if (value.kind === "link" || value.kind === "supplemental-event") return true;
 	return (
 		value.kind === "note" &&
 		Array.isArray(value.noteIds) &&

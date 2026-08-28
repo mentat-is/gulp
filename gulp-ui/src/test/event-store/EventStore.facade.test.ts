@@ -2,6 +2,7 @@ import type { Doc } from "@/entities/Doc";
 import type { Source } from "@/entities/Source";
 import { EventDocumentCache } from "@/event-store/EventStore.cache";
 import { EventStoreFacade } from "@/event-store/EventStore.facade";
+import type { EventStoreReader } from "@/event-store/EventStore.reader";
 
 const SOURCE_ID = "facade-source" as Source.Id;
 
@@ -79,5 +80,147 @@ describe("EventStoreFacade rollout fallback", () => {
 		expect(boundedFacade.peekDocument(events[2]._id)).toEqual(events[2]);
 		expect(await boundedFacade.getById(events[0]._id)).toBeNull();
 		expect(await boundedFacade.getById(events[2]._id)).toEqual(events[2]);
+	});
+});
+
+describe("EventStoreFacade supplemental navigation", () => {
+	const queryEvents = [
+		createDocument("newest", 300),
+		createDocument("middle", 200),
+		createDocument("oldest", 100),
+	];
+	const supplementalEvents = [
+		createDocument("included-newer", 250),
+		createDocument("included-older", 150),
+	];
+	const reader: EventStoreReader = {
+		getSourceSummary: async () => null,
+		getById: async (documentId) =>
+			queryEvents.find((event) => event._id === documentId) ?? null,
+		getByIds: async (documentIds) =>
+			documentIds.flatMap((documentId) => {
+				const event = queryEvents.find((candidate) => candidate._id === documentId);
+				return event ? [event] : [];
+			}),
+		getByHandle: async () => null,
+		getNeighbors: async (_sourceId, documentId) => {
+			const currentIndex = queryEvents.findIndex(
+				(event) => event._id === documentId,
+			);
+			return {
+				events: currentIndex === -1 ? [] : queryEvents,
+				currentIndex,
+				sourceRevision: 11,
+			};
+		},
+		getTimestampNeighbors: async (_sourceId, timestamp) => ({
+			newer: queryEvents.filter((event) => event.gulp_timestamp >= timestamp),
+			older: queryEvents.filter((event) => event.gulp_timestamp < timestamp),
+			sourceRevision: 11,
+		}),
+		queryPixelBucket: async () => ({
+			events: [],
+			total: 0,
+			nextCursor: null,
+			sourceRevision: 11,
+		}),
+	};
+
+	it("merges supplemental events into a persisted event window", async () => {
+		const facade = new EventStoreFacade({
+			resolveSupplementalById: (documentId) =>
+				supplementalEvents.find((event) => event._id === documentId),
+			resolveSupplementalSource: () => supplementalEvents,
+		});
+		facade.useReader(reader);
+
+		const window = await facade.getNeighbors(
+			SOURCE_ID,
+			"middle" as Doc.Id,
+			2,
+			2,
+		);
+
+		expect(window.events.map((event) => event._id)).toEqual([
+			"newest",
+			"included-newer",
+			"middle",
+			"included-older",
+			"oldest",
+		]);
+		expect(window.currentIndex).toBe(2);
+	});
+
+	it("centers a supplemental event through timestamp-anchored query reads", async () => {
+		const facade = new EventStoreFacade({
+			resolveSupplementalById: (documentId) =>
+				supplementalEvents.find((event) => event._id === documentId),
+			resolveSupplementalSource: () => supplementalEvents,
+		});
+		facade.useReader(reader);
+
+		const window = await facade.getNeighbors(
+			SOURCE_ID,
+			"included-newer" as Doc.Id,
+			1,
+			2,
+		);
+
+		expect(window.events.map((event) => event._id)).toEqual([
+			"newest",
+			"included-newer",
+			"middle",
+			"included-older",
+		]);
+		expect(window.currentIndex).toBe(1);
+		expect(window.sourceRevision).toBe(11);
+	});
+
+	it("keeps query order ahead of supplemental IDs at equal timestamps", async () => {
+		const equalQueryEvents = [
+			createDocument("query-first", 200),
+			createDocument("query-second", 200),
+			createDocument("query-older", 100),
+		];
+		const equalSupplementalEvents = [
+			createDocument("included-a", 200),
+			createDocument("included-z", 200),
+		];
+		const equalReader: EventStoreReader = {
+			...reader,
+			getById: async () => null,
+			getNeighbors: async () => ({
+				events: [],
+				currentIndex: -1,
+				sourceRevision: 12,
+			}),
+			getTimestampNeighbors: async () => ({
+				newer: equalQueryEvents.slice(0, 2),
+				older: equalQueryEvents.slice(2),
+				sourceRevision: 12,
+			}),
+		};
+		const facade = new EventStoreFacade({
+			resolveSupplementalById: (documentId) =>
+				equalSupplementalEvents.find((event) => event._id === documentId),
+			resolveSupplementalSource: () => equalSupplementalEvents,
+		});
+		facade.useReader(equalReader);
+
+		const window = await facade.getNeighbors(
+			SOURCE_ID,
+			"included-a" as Doc.Id,
+			2,
+			2,
+		);
+
+		expect(window.events.map((event) => event._id)).toEqual([
+			"query-first",
+			"query-second",
+			"included-a",
+			"included-z",
+			"query-older",
+		]);
+		expect(window.currentIndex).toBe(2);
 	});
 });

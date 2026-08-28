@@ -1,5 +1,5 @@
 /** Current wire-protocol version shared by the main thread and render worker. */
-export const RENDER_PROTOCOL_VERSION = 9 as const;
+export const RENDER_PROTOCOL_VERSION = 10 as const;
 /** Horizontal graph density interval preserved by both QueryWorker and RenderCore. */
 export const RENDER_GRAPH_BUCKET_PIXEL_WIDTH = 10;
 
@@ -223,6 +223,14 @@ export interface RenderFlagRecord {
 	timestamp: number;
 }
 
+/** Compact explicitly included note target rendered outside query projections. */
+export interface RenderSupplementalEventRecord {
+	id: string;
+	sourceId: string;
+	timestamp: number;
+	numberHash: number;
+}
+
 /** Revisioned replacement for one overlay collection. */
 export interface RenderCollectionPatch<TRecord> {
 	revision: number;
@@ -235,6 +243,7 @@ export interface RenderOverlayPatch {
 	links?: RenderCollectionPatch<RenderLinkRecord>;
 	highlights?: RenderCollectionPatch<RenderHighlightRecord>;
 	flags?: RenderCollectionPatch<RenderFlagRecord>;
+	supplementalEvents?: RenderCollectionPatch<RenderSupplementalEventRecord>;
 }
 
 /** Complete overlay view used by initial snapshots and recovery replay. */
@@ -243,6 +252,7 @@ export interface RenderOverlaySnapshot {
 	links: RenderCollectionPatch<RenderLinkRecord>;
 	highlights: RenderCollectionPatch<RenderHighlightRecord>;
 	flags: RenderCollectionPatch<RenderFlagRecord>;
+	supplementalEvents: RenderCollectionPatch<RenderSupplementalEventRecord>;
 }
 
 /** Revisioned replacement of source metadata. */
@@ -455,7 +465,8 @@ export type RenderDataMessage = RenderProtocolEnvelope<
 /** Hit-test identity returned without canonical entity objects. */
 export type RenderHitTestResult =
 	| { kind: "note"; id: string; noteIds: string[] }
-	| { kind: "link"; id: string };
+	| { kind: "link"; id: string }
+	| { kind: "supplemental-event"; id: string };
 
 /** Per-frame counters reported for profiling and release gates. */
 export interface RenderFrameStatistics {

@@ -1045,7 +1045,12 @@ export namespace WindowBridge {
       )
       .filter((source) =>
         app.hidden.sourcesWithNoEvents
-          ? DataStore.hasRenderableSourceEvents(source.id, source.total)
+          ? DataStore.hasRenderableSourceEvents(source.id, source.total) ||
+            (!app.hidden.notes &&
+              DataStore.notes.some(
+                (note) =>
+                  (note.source_id ?? note.doc?.['gulp.source_id']) === source.id,
+              ))
           : true,
       )
       .filter((source) => {

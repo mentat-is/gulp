@@ -93,6 +93,37 @@ describe("RenderDataQueue", () => {
 		expect(pending?.renderWindow?.sources).toHaveLength(0);
 	});
 
+	it("retains supplemental events when a dialog-driven projection joins the pending envelope", () => {
+		const queue = new RenderDataQueue();
+		queue.enqueue({ globalRevision: 1 });
+		expect(queue.dispatch(1)).not.toBeNull();
+		const supplementalEvents = {
+			revision: 2,
+			records: [
+				{
+					id: "note-linked-event",
+					sourceId: "source-a",
+					timestamp: 500,
+					numberHash: 5,
+				},
+			],
+		};
+		queue.enqueue({
+			globalRevision: 2,
+			overlays: { supplementalEvents },
+		});
+		queue.enqueue({
+			globalRevision: 3,
+			renderWindow: createRenderWindow(2, 1),
+		});
+
+		expect(queue.acknowledge(1)).toBe(true);
+		const pending = queue.dispatch(2);
+
+		expect(pending?.overlays?.supplementalEvents).toBe(supplementalEvents);
+		expect(pending?.renderWindow?.viewportRevision).toBe(2);
+	});
+
 	it("rejects a malformed render window before it enters either queue slot", () => {
 		const queue = new RenderDataQueue();
 		const malformed = {

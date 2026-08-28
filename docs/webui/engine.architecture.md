@@ -87,7 +87,8 @@ The main thread owns React state and user interaction. In the rendering path it:
 - coalesces projection triggers into one active request and one trailing request;
 - transfers render windows and other incremental scene patches;
 - correlates terminal source revisions with worker ACKs and frames;
-- performs bounded exact-event lookups for dialogs, notes, links, and selections.
+- performs bounded exact-event lookups for dialogs, notes, links, and selections;
+- owns the operation-scoped supplemental events explicitly retrieved from notes.
 
 The main thread does not decode or retain a source-wide event collection while
 the scalable EventStore mode is active.
@@ -118,7 +119,10 @@ caches, and hit regions. It receives:
 - bounded asset responses for icons and fonts.
 
 It applies a data patch atomically before acknowledging it. A frame reports the
-highest applied data sequence actually included in that draw.
+highest applied data sequence actually included in that draw. The bounded
+pending-envelope merge retains the newest value of each independent overlay
+section, including supplemental note-linked events, when dialog target state or
+a render-window projection is published concurrently.
 
 ## What is stored and what is rendered
 
@@ -149,6 +153,66 @@ The render worker supports the current source engines:
 Projection budgets may reduce visual density when the viewport would otherwise
 exceed its representative limit. This degradation changes detail, not the exact
 event authority stored in IndexedDB.
+
+## Note-linked supplemental event flow
+
+Notes use the ID, source, and timestamp embedded in `note.doc`, so their overlay
+does not depend on the target event being present in the active query. A note-only
+source row remains renderable while notes are visible. A source with a
+supplemental event remains renderable independently of note visibility.
+
+```mermaid
+flowchart LR
+    N[Note or grouped-note marker<br/>note.doc identity and timestamp]
+    UI[Info.includeNoteEvents<br/>deduplicate and guard operation epoch]
+    SINGLE[gULP /query_single_id<br/>single note]
+    GROUP[gULP /query_raw_paginate<br/>grouped missing IDs]
+    SE[DataStore supplementalEvents<br/>source ID + document ID]
+    RW[Render worker<br/>supplemental-event overlay and hit region]
+    NAV[Event navigation<br/>merged neighbors and source edges]
+
+    N -->|target absent| UI
+    UI -->|single-note request| SINGLE
+    UI -->|group request, missing IDs| GROUP
+    SINGLE -->|retrieved document| UI
+    GROUP -->|retrieved documents| UI
+    UI -->|select source, normalize, then upsert| SE
+    SE -->|protocol 10 overlay patch| RW
+    SE --> NAV
+    NAV -->|main and detached dialog window| N
+```
+
+The collection is deliberately outside QueryWorker and IndexedDB. Its documents
+are session-only, deduplicated per source and document ID, and never enter an
+exact page, LOD aggregate, query manifest, or query-cache history. Retrieval can
+complete partially: successful documents are published immediately and another
+confirmation retries only unresolved IDs. An operation-epoch check discards a
+response that belongs to a previous operation. Single-note retrieval uses
+`/query_single_id`; grouped retrieval batches missing IDs through
+`/query_raw_paginate` and requests complete documents for source-specific
+normalization. The affected source selection is committed before the synchronous
+supplemental mutation reaches Canvas, preserving source/overlay ordering.
+
+The render worker draws supplemental records above the active LOD projection for
+all three engines. The records create `supplemental-event` hit regions but do not
+change `loadedCount`, `frameEventCount`, source authority, generation, revision,
+freshness, density aggregates, or source totals.
+
+For navigation, `EventStoreReader.getTimestampNeighbors` reads bounded query
+events around a timestamp that need not identify a persisted document.
+`EventStoreFacade.getNeighbors` merges those query neighbors with every retained
+supplemental event for the source, deduplicates by document ID, sorts by timestamp,
+and slices the requested centered window. The same projection feeds main and
+detached event dialogs, so the included event remains reachable after navigation
+moves to an adjacent query event. Source first/last navigation reads the bounded
+query edge and compares it with the small in-memory supplemental collection; the
+outer timestamp wins, while the query event remains authoritative for equal
+timestamps.
+
+Supplemental events are cleared on operation reset, source removal, a new
+source replacement query, and successful Undo/Redo activation. A failed
+activation retains them. Pan, zoom, collaboration reloads, and dialog lifecycle
+do not clear the collection.
 
 ## Applied query and cache freshness
 
@@ -190,7 +254,7 @@ Several counters exist because they answer different questions.
 | data sequence | Identifies the `DATA_PATCH` that applied a source revision. |
 | `globalRevision` | Aggregate telemetry; it is not terminal-render proof. |
 
-The render protocol is version 9. ACKs travel on the data port and frames travel
+The render protocol is version 10. ACKs travel on the data port and frames travel
 on the control port, so their delivery order can be inverted. Canvas therefore
 stores, for each acknowledged source revision, the data sequence that applied
 it. A terminal target is cleared only when all of these statements are true:
@@ -205,10 +269,12 @@ A stale frame received after a newer ACK cannot complete convergence. A watchdog
 requests another projection after 500 ms and backs off to at most two seconds
 until the correct frame arrives or the lifecycle changes.
 
-Version 9 adds an exact `frameEventCount` to each source projection while
-retaining `loadedCount` as the complete-generation authority used by terminal
-convergence. The projector sums active counts from pages entirely inside the
-selected frame and inspects only partial boundary pages; tombstones are
+Protocol version 10 retains the exact `frameEventCount` introduced with the LOD
+projection and adds `RenderSupplementalEventRecord`, its independently
+revisioned overlay patch, and the `supplemental-event` hit result. `loadedCount`
+remains the complete-generation authority used by terminal convergence. The
+projector sums active counts from pages entirely inside the selected frame and
+inspects only partial boundary pages; tombstones and supplemental events are
 excluded. The result is cached per source authority, generation, revision, raw
 frame and offset so scroll and zoom do not repeat IndexedDB reads.
 
@@ -412,6 +478,7 @@ rules, continue with [query-worker.md](query-worker.md).
 Changes to the engine must preserve these boundaries:
 
 - do not move complete documents onto the main thread or into the render worker;
+- keep explicitly retrieved note targets outside query generations and LOD counts;
 - keep persisted pages and render projections versioned and atomically replaceable;
 - keep query provenance source-scoped and activate cached manifests without
   copying their pages;

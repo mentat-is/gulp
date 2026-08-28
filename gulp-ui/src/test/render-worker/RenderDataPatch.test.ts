@@ -232,6 +232,17 @@ describe("mergeRenderDataPatches", () => {
 			overlays: {
 				notes: { revision: 1, records: [firstNote] },
 				highlights: { revision: 4, records: [] },
+				supplementalEvents: {
+					revision: 1,
+					records: [
+						{
+							id: "included-before-dialog",
+							sourceId: "source-a",
+							timestamp: 100,
+							numberHash: 1,
+						},
+					],
+				},
 			},
 		};
 		const next: RenderDataPatch = {
@@ -239,6 +250,17 @@ describe("mergeRenderDataPatches", () => {
 			overlays: {
 				notes: { revision: 2, records: [secondNote] },
 				links: { revision: 5, records: [] },
+				supplementalEvents: {
+					revision: 2,
+					records: [
+						{
+							id: "included-after-dialog",
+							sourceId: "source-a",
+							timestamp: 200,
+							numberHash: 2,
+						},
+					],
+				},
 			},
 		};
 
@@ -248,6 +270,38 @@ describe("mergeRenderDataPatches", () => {
 		expect(merged.overlays?.notes).toBe(next.overlays?.notes);
 		expect(merged.overlays?.links).toBe(next.overlays?.links);
 		expect(merged.overlays?.highlights).toBe(previous.overlays?.highlights);
+		expect(merged.overlays?.supplementalEvents).toBe(
+			next.overlays?.supplementalEvents,
+		);
+	});
+
+	it("retains a supplemental overlay while dialog-driven data patches coalesce", () => {
+		const supplementalEvents = {
+			revision: 3,
+			records: [
+				{
+					id: "included-single-note",
+					sourceId: "source-a",
+					timestamp: 300,
+					numberHash: 3,
+				},
+			],
+		};
+		const renderWindow = createRenderWindowProjection(9, 4, "source-a", 1);
+
+		const merged = mergeRenderDataPatches(
+			{
+				globalRevision: 12,
+				overlays: { supplementalEvents },
+			},
+			{
+				globalRevision: 13,
+				renderWindow,
+			},
+		);
+
+		expect(merged.overlays?.supplementalEvents).toBe(supplementalEvents);
+		expect(merged.renderWindow).toBe(renderWindow);
 	});
 
 	it("retains only the newest complete render window without concatenating sources", () => {

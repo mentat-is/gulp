@@ -519,6 +519,77 @@ describe("WorkerRenderCore", () => {
 			expect(statistics?.renderedRows).toBe(1);
 			expect(recordedText.includes("94391")).toBe(true);
 		});
+
+		it(`renders and hit-tests supplemental events with the ${engine} engine without changing LOD counts`, async () => {
+			const source = {
+				...createRenderSource(`source-supplemental-${engine}`, 0),
+				engine,
+				total: 12,
+			};
+			await repository.applyDataPatch({
+				globalRevision: 1,
+				sources: { revision: 1, records: [source], removedSourceIds: [] },
+				overlays: {
+					supplementalEvents: {
+						revision: 1,
+						records: [
+							{
+								id: `included-${engine}`,
+								sourceId: source.id,
+								timestamp: 500,
+								numberHash: 3,
+							},
+						],
+					},
+				},
+				renderWindow: {
+					operationEpoch: 1,
+					viewportRevision: 1,
+					projectionRevision: 1,
+					sources: [
+						{
+							sourceId: source.id,
+							sourceAuthorityRevision: 2,
+							sourceGeneration: 1,
+							sourceRevision: 2,
+							sourceStatus: "complete",
+							coveredRange: { min: 0, max: 1_000 },
+							bucketPixelWidth: 1,
+							degradedLod: false,
+							loadedCount: 12,
+							frameEventCount: 7,
+							hashRange: { min: 1, max: 2 },
+							representativeHandles: new Uint32Array(0),
+							representativeTimestamps: new Float64Array(0),
+							representativeHashes: new Float64Array(0),
+							heightTimestamps: new Float64Array(0),
+							heightCounts: new Float64Array(0),
+							heightMaximumCount: 0,
+							graphTimestamps: new Float64Array(0),
+							graphCounts: new Float64Array(0),
+						},
+					],
+					evictedSourceIds: [],
+				},
+			});
+			repository.setFrameState(createFrameState([source.id]));
+			const recordedText: string[] = [];
+			const renderCore = new WorkerRenderCore(
+				createRecordingContext(1_000, 96, recordedText),
+				repository,
+				{ requestAsset: jest.fn() },
+			);
+
+			const statistics = renderCore.render(100, DirtyCanvas.Events);
+
+			expect(statistics?.renderedEventPixels).toBe(1);
+			expect(repository.hitTest(500, 24)).toEqual({
+				kind: "supplemental-event",
+				id: `included-${engine}`,
+			});
+			expect(recordedText.filter((label) => label === "7")).toHaveLength(3);
+			expect(recordedText.includes("13")).toBe(false);
+		});
 	}
 
 	it("renders default-engine events shifted into the visible frame by source offset", async () => {

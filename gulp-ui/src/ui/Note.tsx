@@ -15,13 +15,11 @@ import { Source } from "@/entities/Source";
 import { DisplayEventDialog } from "@/dialogs/Event.dialog";
 import { Note } from "@/entities/Note";
 import { DataStore } from "@/store/DataStore";
-import { RenderEngine } from "@/class/RenderEngine";
 import { useMemo, useState } from "react";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/Tooltip";
 import { Locale } from "@/locales";
-import { Internal } from "@/entities/addon/Internal";
 
 export namespace NotePoint {
 	export interface Props extends Omit<
@@ -39,54 +37,68 @@ export namespace NotePoint {
 		}
 	}
 
-	export function FetchEventBanner({ note }: { note: Note.Type }) {
-		const { app, Info, spawnDialog, destroyBanner } = Application.use();
+	export interface FetchEventBannerProps {
+		note?: Note.Type;
+		notes?: readonly Note.Type[];
+		onIncluded?: (events: Doc.Type[]) => void;
+	}
+
+	/**
+	 * Offers one explicit fetch action for note targets outside the active query.
+	 * Partial results remain included and a subsequent attempt requests only missing IDs.
+	 * @param props Single or grouped notes and an optional completion callback.
+	 * @returns Localized fetch banner.
+	 */
+	export function FetchEventBanner({
+		note,
+		notes,
+		onIncluded,
+	}: FetchEventBannerProps) {
+		const { Info, spawnDialog, destroyBanner } = Application.use();
 		const { t } = Locale.use();
 		const [loading, setLoading] = useState<boolean>(false);
+		const targets = useMemo(
+			() => notes ?? (note ? [note] : []),
+			[note, notes],
+		);
+		const uniqueTargetCount = new Set(targets.map((target) => target.doc._id)).size;
 
-		const fetch = async () => {
+		/** Fetches unresolved targets and closes the banner only after full resolution. */
+		const fetch = async (): Promise<void> => {
 			setLoading(true);
 			try {
-				const fetched = await Info.query_single_id(
-					note.doc._id,
-					note.operation_id,
-				);
-				if (!fetched) {
-					toast.error(t("notePoint.fetchFailed"));
+				const result = await Info.includeNoteEvents(targets);
+				if (result.stale) return;
+				if (result.missingDocumentIds.length > 0) {
+					toast.error(
+						t(
+							result.missingDocumentIds.length === 1
+								? "notePoint.fetchFailed"
+								: "notePoint.fetchFailedMany",
+							{ count: result.missingDocumentIds.length },
+						),
+					);
 					return;
 				}
-				const noteSourceId = Note.Entity.sourceId(note);
-				const source = noteSourceId
-					? (Source.Entity.id(Info.app, noteSourceId) as Source.Type | undefined)
-					: undefined;
-				const sourceSettings = source?.settings ?? Internal.Settings.default;
-				const [event] = Doc.Entity.normalize(
-					[fetched],
-					sourceSettings.field,
-					sourceSettings.hash_function,
-				);
-				DataStore.Events.rememberDocuments([event]);
-
-				const sourceId = event["gulp.source_id"];
-				const loadedCount =
-					DataStore.getEventSourceSummary(sourceId)?.eventCount ?? 1;
-				const updatedFiles = app.target.files.map((f) =>
-					f.id === sourceId
-						? {
-								...f,
-								selected: true,
-								total: Math.max(f.total ?? 0, loadedCount),
-							}
-						: f,
-				);
-				Info.setInfoByKey(updatedFiles, "target", "files");
-
-				Note.Entity.invalidateCache();
-				RenderEngine.clearAllCaches();
-				DataStore.markDirty();
-				Info.render();
 				destroyBanner();
-				spawnDialog(<DisplayEventDialog event={event} />);
+				if (onIncluded) {
+					onIncluded(result.events);
+				} else if (result.events.length === 1) {
+					spawnDialog(<DisplayEventDialog event={result.events[0]} />);
+				} else if (result.events.length > 1) {
+					spawnDialog(
+						<DisplayGroupDialog events={result.events} groupKind="notes" />,
+					);
+				}
+			} catch {
+				toast.error(
+					t(
+						uniqueTargetCount === 1
+							? "notePoint.fetchFailed"
+							: "notePoint.fetchFailedMany",
+						{ count: uniqueTargetCount },
+					),
+				);
 			} finally {
 				setLoading(false);
 			}
@@ -94,7 +106,12 @@ export namespace NotePoint {
 
 		return (
 			<UIBanner
-				title={t("notePoint.fetchTitle")}
+				title={t(
+					uniqueTargetCount === 1
+						? "notePoint.fetchTitle"
+						: "notePoint.fetchTitleMany",
+					{ count: uniqueTargetCount },
+				)}
 				done={
 					<Button
 						loading={loading}
@@ -105,7 +122,17 @@ export namespace NotePoint {
 				}
 			>
 				<p>
-					{t("notePoint.fetchDescriptionBefore")} <code>{note.name}</code> {t("notePoint.fetchDescriptionAfter")}
+					{uniqueTargetCount === 1 ? (
+						<>
+							{t("notePoint.fetchDescriptionBefore")}{" "}
+							<code>{targets[0]?.name ?? targets[0]?.doc._id}</code>{" "}
+							{t("notePoint.fetchDescriptionAfter")}
+						</>
+					) : (
+						t("notePoint.fetchDescriptionMany", {
+							count: uniqueTargetCount,
+						})
+					)}
 				</p>
 			</UIBanner>
 		);
@@ -196,7 +223,21 @@ export namespace NotePoint {
 	}
 
 	export function Point({ notes, ...props }: NotePoint.Props) {
-		const { spawnDialog } = Application.use();
+		const { spawnBanner, spawnDialog } = Application.use();
+
+		/** Opens a fully resolved single-note or grouped-note target. */
+		const openEvents = useCallback(
+			(events: Doc.Type[]): void => {
+				if (events.length === 1) {
+					spawnDialog(<DisplayEventDialog event={events[0]} />);
+				} else if (events.length > 1) {
+					spawnDialog(
+						<DisplayGroupDialog events={events} groupKind="notes" />,
+					);
+				}
+			},
+			[spawnDialog],
+		);
 
 		/**
 		 * Opens the event or group dialog for the notes represented by this point.
@@ -204,28 +245,26 @@ export namespace NotePoint {
 		 * @returns Event dialog for one note target or notes group dialog for many.
 		 */
 		const handleClick = useCallback(async (): Promise<void> => {
-			const ids = notes.map((n) => n.doc._id);
+			const ids = [...new Set(notes.map((n) => n.doc._id))];
 			const sourceId = Note.Entity.sourceId(notes[0]);
 			if (!sourceId) return;
 
-			const events = (await DataStore.Events.getByIds(ids)).filter(
-				(event) => event["gulp.source_id"] === sourceId,
-			);
-			if (!events.length) {
+			let events: Doc.Type[] = [];
+			try {
+				events = (await DataStore.Events.getByIds(ids)).filter(
+					(event) => event["gulp.source_id"] === sourceId,
+				);
+			} catch {
+				// The explicit inclusion flow remains available if the local query store is unavailable.
+			}
+			if (events.length !== ids.length) {
+				spawnBanner(
+					<FetchEventBanner notes={notes} onIncluded={openEvents} />,
+				);
 				return;
 			}
-
-			if (events.length === 1) {
-				return spawnDialog(<DisplayEventDialog event={events[0]} />);
-			}
-
-			return spawnDialog(
-				<DisplayGroupDialog
-					events={events}
-					groupKind="notes"
-				/>,
-			);
-		}, [notes, spawnDialog]);
+			openEvents(events);
+		}, [notes, openEvents, spawnBanner]);
 
 		return (
 			<UIPoint

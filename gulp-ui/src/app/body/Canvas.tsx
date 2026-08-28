@@ -53,6 +53,7 @@ import { Stack } from "@/ui/Stack";
 import { Spinner } from "@/ui/Spinner";
 import { Source } from "@/entities/Source";
 import { Note } from "@/entities/Note";
+import { NotePoint } from "@/ui/Note";
 import { Doc } from "@/entities/Doc";
 import { Operation } from "@/entities/Operation";
 import { Link } from "@/entities/Link";
@@ -308,7 +309,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const scrollbar = useRef<HTMLDivElement>(null);
 	const isManualScroll = useRef(false);
 	const isProgramScroll = useRef(false);
-	const { app, banner, spawnDialog, Info, highlightsOverlay } =
+	const { app, banner, spawnBanner, spawnDialog, Info, highlightsOverlay } =
 		Application.use();
 	const scrollX = scrollStore.getX();
 	const scrollY = scrollStore.getY();
@@ -341,6 +342,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const workerLinksProjectionRevisionRef = useRef<number>(0);
 	const workerHighlightsProjectionRevisionRef = useRef<number>(0);
 	const workerFlagsRevisionRef = useRef<number>(0);
+	const workerSupplementalEventsRevisionRef = useRef<number>(0);
 	const workerFlagDocumentsRef = useRef<Doc.Type[]>([]);
 	const workerFlagLookupSequenceRef = useRef<number>(0);
 	const workerUnresolvedNoteDocumentIdsRef = useRef<Set<Doc.Id>>(new Set());
@@ -1059,6 +1061,62 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		 * @returns True when the click was handled or became stale, otherwise false.
 		 */
 		const resolveOverlayClick = async (): Promise<boolean> => {
+			/** Resolves unique note targets while preserving the explicit fetch fallback on local read errors. */
+			const resolveNoteDocuments = async (
+				notes: readonly Note.Type[],
+			): Promise<Doc.Type[]> => {
+				try {
+					return await DataStore.Events.getByIds([
+						...new Set(notes.map((note) => note.doc._id)),
+					]);
+				} catch {
+					return [];
+				}
+			};
+
+			/** Opens resolved note targets or offers one fetch action for the missing set. */
+			const openNoteTargets = (
+				notes: readonly Note.Type[],
+				documents: Doc.Type[],
+			): boolean => {
+				const uniqueTargetIds = new Set(notes.map((note) => note.doc._id));
+				if (documents.length !== uniqueTargetIds.size) {
+					spawnBanner(
+						<NotePoint.FetchEventBanner
+							notes={notes}
+							onIncluded={(includedEvents) => {
+								if (includedEvents.length === 1) {
+									spawnDialog(
+										<DisplayEventDialog event={includedEvents[0]} />,
+									);
+									return;
+								}
+								setGroupDialogEventStore(null);
+								setGroupDialogEvents(includedEvents);
+								setGroupDialogKind("notes");
+								setGroupDialogAnchor({
+									x: event.clientX,
+									y: event.clientY,
+								});
+							}}
+						/>,
+					);
+					return true;
+				}
+				if (documents.length === 1) {
+					spawnDialog(<DisplayEventDialog event={documents[0]} />);
+					return true;
+				}
+				if (documents.length > 1) {
+					setGroupDialogEventStore(null);
+					setGroupDialogEvents(documents);
+					setGroupDialogKind("notes");
+					setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
+					return true;
+				}
+				return false;
+			};
+
 			if (rendererBackendRef.current === "worker") {
 				const client = workerClientRef.current;
 				const hitTestViewportRevision = client?.requestedViewportRevision ?? 0;
@@ -1075,6 +1133,18 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					client.requestedViewportRevision !== hitTestViewportRevision ||
 					client.lastViewportRevision !== hitTestViewportRevision
 				) {
+					return true;
+				}
+				if (workerHit?.kind === "supplemental-event") {
+					const supplementalEvent =
+						DataStore.getSupplementalEventById(workerHit.id as Doc.Id) ??
+						(await DataStore.Events.getById(workerHit.id as Doc.Id));
+					if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
+						return true;
+					}
+					if (supplementalEvent) {
+						spawnDialog(<DisplayEventDialog event={supplementalEvent} />);
+					}
 					return true;
 				}
 				if (workerHit?.kind === "link") {
@@ -1098,25 +1168,14 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					}
 				}
 				if (workerHit?.kind === "note") {
-					const noteDocumentIds = workerHit.noteIds
+					const hitNotes = workerHit.noteIds
 						.map((noteId) => DataStore.notes.find((note) => note.id === noteId))
-						.filter((note): note is Note.Type => Boolean(note))
-						.map((note) => note.doc._id);
-					const noteDocuments = await DataStore.Events.getByIds(noteDocumentIds);
+						.filter((note): note is Note.Type => Boolean(note));
+					const noteDocuments = await resolveNoteDocuments(hitNotes);
 					if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
 						return true;
 					}
-					if (noteDocuments.length === 1) {
-						spawnDialog(<DisplayEventDialog event={noteDocuments[0]} />);
-						return true;
-					}
-					if (noteDocuments.length > 1) {
-						setGroupDialogEventStore(null);
-						setGroupDialogEvents(noteDocuments);
-						setGroupDialogKind("notes");
-						setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
-						return true;
-					}
+					return openNoteTargets(hitNotes, noteDocuments);
 				}
 				return false;
 			}
@@ -1152,22 +1211,11 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					canvasHitY >= item.rect.y &&
 					canvasHitY <= item.rect.y + item.rect.h
 				) {
-					const noteDocuments = await DataStore.Events.getByIds(
-						item.notes.map((note) => note.doc._id),
-					);
+					const noteDocuments = await resolveNoteDocuments(item.notes);
 					if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
 						return true;
 					}
-					if (noteDocuments.length === 1) {
-						spawnDialog(<DisplayEventDialog event={noteDocuments[0]} />);
-						return true;
-					}
-
-					setGroupDialogEventStore(null);
-					setGroupDialogEvents(noteDocuments);
-					setGroupDialogKind("notes");
-					setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
-					return true;
+					return openNoteTargets(item.notes, noteDocuments);
 				}
 			}
 			return false;
@@ -1634,6 +1682,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		app.timeline.filter,
 		app.timeline.renderVersion,
 		app.hidden.sourcesWithNoEvents,
+		app.hidden.notes,
 		theme,
 		language,
 		inputCoordinator,
@@ -2492,6 +2541,9 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				highlightsRevision: workerHighlightsProjectionRevisionRef.current,
 				flaggedDocuments: workerFlagDocumentsRef.current,
 				flagsRevision: workerFlagsRevisionRef.current,
+				supplementalEvents: DataStore.getSupplementalEvents(),
+				supplementalEventsRevision:
+					++workerSupplementalEventsRevisionRef.current,
 			});
 		},
 		[refreshWorkerOverlayDependencies, renderProjectionAdapter],
@@ -3021,6 +3073,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				workerLinksProjectionRevisionRef.current = 0;
 				workerHighlightsProjectionRevisionRef.current = 0;
 				workerFlagsRevisionRef.current = 0;
+				workerSupplementalEventsRevisionRef.current = 0;
 				workerFlagDocumentsRef.current = [];
 				workerFlagLookupSequenceRef.current++;
 				workerUnresolvedNoteDocumentIdsRef.current.clear();
@@ -3125,7 +3178,31 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				return;
 			}
 
+			if (change.type === "supplemental-events") {
+				workerSupplementalEventsRevisionRef.current++;
+				reconcileVisibleSourceMembership(Info.app);
+				syncWorkerSourcesRef.current(client, true);
+				client.queueDataPatch("overlays:supplemental-events", {
+					globalRevision: change.sequence,
+					overlays: {
+						supplementalEvents: {
+							revision: workerSupplementalEventsRevisionRef.current,
+							records:
+								renderProjectionAdapter.createSupplementalEventRecords(
+									change.events,
+								),
+						},
+					},
+				});
+				inputCoordinator.invalidate(
+					DirtyCanvas.Sources | DirtyCanvas.Overlays,
+				);
+				return;
+			}
+
 			if (change.type === "notes") {
+				reconcileVisibleSourceMembership(Info.app);
+				syncWorkerSourcesRef.current(client, true);
 				workerNotesProjectionRevisionRef.current++;
 				refreshWorkerOverlayDependencies();
 				client.queueDataPatch("overlays:notes", {
@@ -3170,6 +3247,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			Info,
 			cancelEventStoreRenderWindowRetry,
 			inputCoordinator,
+			reconcileVisibleSourceMembership,
 			renderProjectionAdapter,
 			refreshWorkerOverlayDependencies,
 			streamWorkerSourceSnapshot,

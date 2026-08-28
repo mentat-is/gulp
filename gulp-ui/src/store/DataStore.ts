@@ -35,6 +35,16 @@ export interface SourceEventsRenderChange extends RenderChangeBase {
 	changedEvents: readonly Doc.Type[];
 }
 
+export interface SupplementalEventsRenderChange extends RenderChangeBase {
+	type: "supplemental-events";
+	mutation: "upsert" | "clear";
+	collectionRevision: number;
+	sourceId: Source.Id;
+	events: readonly Doc.Type[];
+	changedEvents: readonly Doc.Type[];
+	removedEventIds: readonly Doc.Id[];
+}
+
 export interface NotesRenderChange extends RenderChangeBase {
 	type: "notes";
 	mutation: RenderCollectionMutation;
@@ -102,6 +112,7 @@ export interface RenderOperationResetChange extends RenderChangeBase {
 
 export type DataStoreRenderChange =
 	| SourceEventsRenderChange
+	| SupplementalEventsRenderChange
 	| NotesRenderChange
 	| LinksRenderChange
 	| HighlightsRenderChange
@@ -124,6 +135,10 @@ export class DataStore {
 		resolveById: (documentId) =>
 			documentIdentityRegistry.getDocument(documentId),
 		resolveSource: (sourceId) => DataStore.events.get(sourceId) ?? [],
+		resolveSupplementalById: (documentId) =>
+			DataStore.getSupplementalEventById(documentId),
+		resolveSupplementalSource: (sourceId) =>
+			DataStore.getSupplementalEvents(sourceId),
 		resolveSourceRevision: (sourceId) => DataStore.getSourceRevision(sourceId),
 	});
 
@@ -135,6 +150,10 @@ export class DataStore {
 
 	/** Canonical source documents, grouped for constant-time source lookup. */
 	public static events: Map<Source.Id, Doc.Type[]> = new Map();
+
+	/** Explicit note targets rendered outside the active IndexedDB query generation. */
+	public static supplementalEvents: Map<Source.Id, Map<Doc.Id, Doc.Type>> =
+		new Map();
 
 	/** Canonical highlight records used by React surfaces and the renderer projection. */
 	public static highlights: Highlight.Type[] = [];
@@ -169,6 +188,7 @@ export class DataStore {
 	private static overlayVersion = 0;
 	private static renderSequence = 0;
 	private static notesSyncSequence = 0;
+	private static supplementalEventsRevision = 0;
 	private static operationEpoch = 1;
 	private static renderOperationId: Operation.Id | null = null;
 	private static eventStoreRepository: EventStoreRepository | null = null;
@@ -532,14 +552,15 @@ export class DataStore {
 
 	/**
 	 * Checks whether a source should be considered non-empty for timeline visibility.
-	 * @param sourceId Source whose loaded render events are inspected.
+	 * @param sourceId Source whose query and supplemental render events are inspected.
 	 * @param fallbackTotal Backend-advertised total used before the source has a loaded event collection.
-	 * @returns True when loaded render events exist or no render collection exists yet and the fallback total is positive.
+	 * @returns True when supplemental or query events exist, or when the backend fallback is positive before loading.
 	 */
 	public static hasRenderableSourceEvents(
 		sourceId: Source.Id,
 		fallbackTotal: number,
 	): boolean {
+		if (DataStore.hasSupplementalEvents(sourceId)) return true;
 		const summary = DataStore.eventSourceSummaries.get(sourceId);
 		if (summary) return summary.eventCount > 0;
 		const loadedEvents = DataStore.events.get(sourceId);
@@ -547,6 +568,106 @@ export class DataStore {
 			return loadedEvents.length > 0;
 		}
 		return fallbackTotal > 0;
+	}
+
+	/**
+	 * Checks whether a source has an explicitly included note target.
+	 * @param sourceId Source whose transient event collection is inspected.
+	 * @returns True when at least one supplemental event is retained.
+	 */
+	public static hasSupplementalEvents(sourceId: Source.Id): boolean {
+		return (DataStore.supplementalEvents.get(sourceId)?.size ?? 0) > 0;
+	}
+
+	/**
+	 * Returns supplemental events for one source or the complete operation.
+	 * @param sourceId Optional source filter.
+	 * @returns Snapshot array of explicitly included note targets.
+	 */
+	public static getSupplementalEvents(sourceId?: Source.Id): Doc.Type[] {
+		if (sourceId) {
+			return Array.from(DataStore.supplementalEvents.get(sourceId)?.values() ?? []);
+		}
+		return Array.from(DataStore.supplementalEvents.values()).flatMap((events) =>
+			Array.from(events.values()),
+		);
+	}
+
+	/**
+	 * Resolves one supplemental event without consulting IndexedDB.
+	 * @param documentId Document identifier to resolve.
+	 * @returns Matching transient event, or undefined.
+	 */
+	public static getSupplementalEventById(
+		documentId: Doc.Id,
+	): Doc.Type | undefined {
+		for (const events of DataStore.supplementalEvents.values()) {
+			const event = events.get(documentId);
+			if (event) return event;
+		}
+		return undefined;
+	}
+
+	/**
+	 * Inserts or replaces explicit note targets without changing query authority.
+	 * @param events Normalized minimal documents to retain for this operation session.
+	 * @param notificationMode React subscription notification scheduling mode.
+	 * @returns Stored unique supplemental events in caller order.
+	 */
+	public static upsertSupplementalEvents(
+		events: readonly Doc.Type[],
+		notificationMode: DataStoreNotificationMode = "immediate",
+	): Doc.Type[] {
+		const uniqueEvents = Array.from(
+			new Map(events.map((event) => [event._id, event])).values(),
+		);
+		const changedBySource = new Map<Source.Id, Doc.Type[]>();
+		for (const event of uniqueEvents) {
+			const sourceId = event["gulp.source_id"];
+			const sourceEvents = DataStore.supplementalEvents.get(sourceId) ?? new Map();
+			sourceEvents.set(event._id, event);
+			DataStore.supplementalEvents.set(sourceId, sourceEvents);
+			const changedEvents = changedBySource.get(sourceId) ?? [];
+			changedEvents.push(event);
+			changedBySource.set(sourceId, changedEvents);
+		}
+		for (const [sourceId, changedEvents] of changedBySource) {
+			DataStore.publishSupplementalEventsChange(
+				sourceId,
+				"upsert",
+				changedEvents,
+				[],
+			);
+		}
+		if (changedBySource.size > 0) {
+			DataStore.notifyMutation(notificationMode, ["documents"]);
+		}
+		return uniqueEvents;
+	}
+
+	/**
+	 * Clears explicit note targets for one source.
+	 * @param sourceId Source whose transient events are released.
+	 * @param notificationMode React subscription notification scheduling mode.
+	 * @returns Removed supplemental events.
+	 */
+	public static clearSupplementalEvents(
+		sourceId: Source.Id,
+		notificationMode: DataStoreNotificationMode = "immediate",
+	): Doc.Type[] {
+		const sourceEvents = DataStore.supplementalEvents.get(sourceId);
+		if (!sourceEvents || sourceEvents.size === 0) return [];
+		const removedEvents = Array.from(sourceEvents.values());
+		DataStore.supplementalEvents.delete(sourceId);
+		DataStore.Events.forgetDocuments(removedEvents.map((event) => event._id));
+		DataStore.publishSupplementalEventsChange(
+			sourceId,
+			"clear",
+			[],
+			removedEvents.map((event) => event._id),
+		);
+		DataStore.notifyMutation(notificationMode, ["documents"]);
+		return removedEvents;
 	}
 
 	/**
@@ -935,6 +1056,7 @@ export class DataStore {
 		DataStore.operationEpoch++;
 		DataStore.renderOperationId = operationId;
 		DataStore.events.clear();
+		DataStore.supplementalEvents.clear();
 		DataStore.notes = [];
 		DataStore.links = [];
 		DataStore.highlights = [];
@@ -943,6 +1065,7 @@ export class DataStore {
 		DataStore.collectionRevisions.notes = 0;
 		DataStore.collectionRevisions.links = 0;
 		DataStore.collectionRevisions.highlights = 0;
+		DataStore.supplementalEventsRevision = 0;
 		documentIdentityRegistry.reset();
 		DataStore.publishRenderChange({
 			type: "operation-reset",
@@ -1089,6 +1212,34 @@ export class DataStore {
 			sourceRevision,
 			events: DataStore.getSourceEvents(sourceId),
 			changedEvents,
+		});
+	}
+
+	/**
+	 * Publishes one source-scoped supplemental-event collection mutation.
+	 * @param sourceId Source whose transient note targets changed.
+	 * @param mutation Upsert or clear operation.
+	 * @param changedEvents Events added or replaced by the mutation.
+	 * @param removedEventIds Event IDs released by the mutation.
+	 * @returns Nothing.
+	 */
+	private static publishSupplementalEventsChange(
+		sourceId: Source.Id,
+		mutation: "upsert" | "clear",
+		changedEvents: readonly Doc.Type[],
+		removedEventIds: readonly Doc.Id[],
+	): void {
+		DataStore.supplementalEventsRevision++;
+		DataStore.publishRenderChange({
+			type: "supplemental-events",
+			mutation,
+			operationEpoch: DataStore.operationEpoch,
+			sequence: DataStore.nextRenderSequence(),
+			collectionRevision: DataStore.supplementalEventsRevision,
+			sourceId,
+			events: DataStore.getSupplementalEvents(),
+			changedEvents,
+			removedEventIds,
 		});
 	}
 
