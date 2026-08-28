@@ -1,6 +1,5 @@
 import { DragDealer } from '@/class/dragDealer.class'
 import { Application } from '@/context/Application.context'
-import { scrollStore } from '@/store/scroll.store'
 import { StartEnd, StartEndBase } from '@/dto/StartEnd.dto'
 import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -38,11 +37,17 @@ export function useKeyHandler(key: string) {
  * Provides Canvas drag and range-selection handlers.
  * @param timeline Timeline canvas receiving pointer gestures.
  * @param queueScrollDelta Canvas-owned callback that coalesces drag movement.
+ * @param commitRangeZoom Canvas-owned callback that commits and renders a selected range.
  * @returns Drag state and React handlers used by the Canvas wrapper.
  */
 export const useDrugs = (
   timeline: RefObject<HTMLCanvasElement>,
   queueScrollDelta: (deltaX: number, deltaY: number, inputTimestamp: number) => void,
+  commitRangeZoom: (
+    selectionStartX: number,
+    selectionEndX: number,
+    inputTimestamp: number,
+  ) => boolean,
 ) => {
   const { Info, highlightsOverlay } = Application.use()
   const [resize, setResize] = useState<StartEnd>(StartEndBase)
@@ -123,9 +128,9 @@ export const useDrugs = (
   /**
    * Finalizes Canvas dragging or range selection when the pointer is released.
    * @param event Native mouse event ending the interaction.
-   * @returns Toast identifier for an invalid selection, otherwise nothing.
+   * @returns Nothing.
    */
-  const handleMouseUpOrLeave = useCallback((event: MouseEvent) => {
+  const handleMouseUpOrLeave = useCallback((event: MouseEvent): void => {
     const wasDragging = dragState.current.dragging;
     const wasClicked = dragState.current.clicked;
 
@@ -147,24 +152,19 @@ export const useDrugs = (
     dragState.current.dragStop()
 
     if (isResizing) {
-      const min = Math.min(resize.end, resize.start)
-      const max = Math.max(resize.end, resize.start)
-      const scale =
-        (document.getElementById('canvas')!.clientWidth *
-          Info.app.timeline.scale) /
-        (max - min)
-
-      if (!isFinite(scale)) return toast(translate('timeline.selectedFrameTooSmall'))
-
-      scrollStore.setScrollX(x => (x + min) * (scale / Info.app.timeline.scale))
-      setTimeout(() => {
-        Info.setTimelineScale(scale)
-      }, 10)
+      const didCommitRangeZoom = commitRangeZoom(
+        resize.start,
+        resize.end,
+        performance.now(),
+      )
+      if (!didCommitRangeZoom) {
+        toast(translate('timeline.selectedFrameTooSmall'))
+      }
     }
 
     setResize(StartEndBase)
     setIsResizing(false)
-  }, [dragState, isResizing, resize, Info.app.timeline.scale]);
+  }, [commitRangeZoom, dragState, isResizing, resize]);
 
   return {
     dragState,

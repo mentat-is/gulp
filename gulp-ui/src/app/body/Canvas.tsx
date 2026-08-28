@@ -146,6 +146,7 @@ import {
 	type EventTimestampRange,
 } from "@/event-store";
 import { CanvasCacheWarningOverlay } from "./CanvasCacheWarning";
+import { commitTimelineRangeZoomViewport } from "./CanvasRangeZoom";
 
 export namespace Canvas {
 	export interface Props extends Stack.Props {
@@ -515,8 +516,6 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		},
 		[inputCoordinator],
 	);
-	const { resize, handleMouseDown, handleMouseMove, handleMouseUpOrLeave } =
-		useDrugs(canvas_ref, queueDragScroll);
 	const renderProjectionAdapter = useMemo(
 		() =>
 			new RenderProjectionAdapter({
@@ -558,6 +557,53 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const [visibleSourceRowCount, setVisibleSourceRowCount] = useState<number>(
 		() => initialVisibleSources.length,
 	);
+
+	/**
+	 * Commits an Alt-drag range through canonical viewport state and the Canvas rAF.
+	 * @param selectionStartX Canvas-relative horizontal selection origin.
+	 * @param selectionEndX Canvas-relative horizontal selection end.
+	 * @param inputTimestamp Monotonic timestamp captured when selection ended.
+	 * @returns True when the selected range produced a valid viewport.
+	 */
+	const commitRangeZoom = useCallback(
+		(
+			selectionStartX: number,
+			selectionEndX: number,
+			inputTimestamp: number,
+		): boolean => {
+			const viewportWidth = canvas_ref.current?.clientWidth ?? 0;
+			return commitTimelineRangeZoomViewport(
+				{
+					currentScale: scaleRef.current,
+					currentScrollX: scrollStore.getX(),
+					viewportWidth,
+					selectionStartX,
+					selectionEndX,
+					clampScale: Info.clampTimelineScale,
+				},
+				{
+					setScale: (scale) => {
+						scaleCommitGuard.cancelGesture();
+						inputCoordinator.cancelWheelGesture();
+						const committedScale = Info.persistSettledTimelineScale(scale);
+						scaleRef.current = committedScale;
+						scaleCommitGuard.reconcileCanonicalScale(committedScale);
+					},
+					setScrollX: scrollStore.setScrollX,
+					requestRender: () => {
+						workerProjectionScheduler.markInteraction();
+						inputCoordinator.invalidate(
+							DirtyCanvas.Viewport,
+							inputTimestamp,
+						);
+					},
+				},
+			);
+		},
+		[Info, inputCoordinator, scaleCommitGuard, workerProjectionScheduler],
+	);
+	const { resize, handleMouseDown, handleMouseMove, handleMouseUpOrLeave } =
+		useDrugs(canvas_ref, queueDragScroll, commitRangeZoom);
 
 	/**
 	 * Reconciles source-row membership without subscribing Canvas to every document

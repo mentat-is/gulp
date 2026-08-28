@@ -66,6 +66,11 @@ ten one-millisecond sections independently of Canvas width. Timeline events are
 normalized to whole milliseconds; maximum zoom separates adjacent millisecond
 timestamps but does not invent sub-millisecond event precision.
 
+Holding `Alt` while dragging horizontally over the timeline zooms the Canvas to
+the selected interval. The selected scale and horizontal position are committed
+together, and the resulting viewport is rendered on the next Canvas display
+frame.
+
 Render work at maximum zoom remains based on viewport pixels rather than the
 overall frame span. The query worker projects only the visible source rows and an
 overscanned horizontal viewport into pixel-sized buckets. A render window is
