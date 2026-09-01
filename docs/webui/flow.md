@@ -148,6 +148,10 @@ multiple results open the group dialog with pages of up to 100 events. This
 selection uses exact events even when the timeline is displaying a
 viewport-resolution LOD projection.
 
+See [Query worker and event storage architecture](query-worker.md) for query and
+cache ownership, and [Render worker and LOD projection architecture](render-worker.md)
+for viewport projection and drawing.
+
 The event panel can be docked in the workspace or opened as a detached dialog
 window. Its selected ID is synchronized with detached Notes and Table View for
 row highlighting. Detached row and Assistant event actions can select or fetch

@@ -5,10 +5,11 @@ Source settings also control offset, sampling, colors, and field hashing.
 
 The primary timeline canvas is owned by a render worker. A query worker reads
 the operation EventStore and supplies only the event representatives and
-aggregates required for the visible viewport. See
+aggregates required for the visible viewport.
 [Query worker and event storage architecture](query-worker.md) and
-[Timeline rendering architecture](engine.architecture.md) for the internal
-design.
+[Render worker and LOD projection architecture](render-worker.md) describe the
+component internals. [Timeline rendering architecture](engine.architecture.md)
+provides the end-to-end map.
 
 ![source settings](./images/source_settings.png)
 
@@ -17,7 +18,7 @@ design.
 gULP UI has three source render engines:
 
 - `Default`: draws event activity as one-pixel vertical bars colored from the
-  configured hash field.
+  configured event field and palette.
 - `HeightMap`: groups events into fixed one-minute buckets and draws vertical
   bars proportional to event density.
 - `Graph`: aggregates source sample data into dynamic buckets, draws a semi-log
@@ -81,10 +82,11 @@ page-bounded, and superseded by newer viewport requests.
 
 ## Colors and Fields
 
-Default and HeightMap rendering resolve colors from the selected palette and the
-configured event field. The hash function converts field values into stable
-numeric values for palette lookup. Explicit color overrides can replace palette
-colors for selected field values.
+Default rendering hashes the configured event field into stable numeric values
+for palette lookup. Explicit color overrides can replace palette colors for
+selected field values. HeightMap colors its density counts across the selected
+palette; it does not color individual buckets from the configured event field.
+Graph maps its semi-log count values across the selected palette.
 
 Context color is used as the row tint and separator color so related sources can
 be visually grouped.
@@ -98,33 +100,24 @@ source still remains on the timeline while it has a visible note; hiding notes
 removes that note-only exception.
 
 Selecting a note whose event is unavailable shows a localized confirmation to
-retrieve the event. A grouped note marker uses one confirmation for all missing
-targets, deduplicates repeated document IDs, and retains successful results if
-only part of the group can be retrieved. Retrying requests only the targets that
-are still unavailable. A single target uses `/query_single_id`; grouped targets
-use one `/query_raw_paginate` terms query per API-sized batch instead of issuing
-one request per document.
+retrieve it. A grouped marker uses one confirmation for its missing targets,
+deduplicates repeated document IDs, and retains successful results if retrieval
+is only partially successful. Retrying requests only unresolved targets.
 
-Retrieved note targets are normalized with their source settings and included
-as session-only timeline events. They are drawn as normal event markers in the
-Default, HeightMap, and Graph engines, can be selected to open the standard
-event dialog, and participate in previous/next navigation in both main and
-detached dialogs. They do not change source totals, the selected timeframe, LOD
-aggregates, query-result counts, or cache freshness. A newly affected source is
-selected before the supplemental overlay mutation is published, so source-row
-membership and the marker become visible in the same ordered render update.
-The source menu's **Show first event** and **Show last event** actions, together
-with the Home and End shortcuts in an event dialog, compare active-query and
-included note targets and open the actual oldest or newest event of the source.
-Event dialogs prefetch a 51-event neighbor window for responsive repeated
-navigation while rendering an independent 11-slot strip. The selected event
-occupies the middle slot even at the first or last source boundary, where fixed
-placeholders fill the unavailable side.
+Retrieved targets become session-only timeline events. They are drawn in all
+three engines, can open the standard event dialog, and participate in
+previous/next and first/last navigation in main and detached dialogs. They do
+not change source totals, the selected timeframe, LOD aggregates, query-result
+counts, or cache freshness.
 
 Included note targets are intentionally separate from the IndexedDB query-cache
 pool. A new replacement query for the source, successful source-local Undo/Redo,
 source removal, or operation reset clears them. A failed Undo/Redo attempt,
 viewport movement, note reload, and dialog close leave them available.
+
+The retrieval, overlay, and rendering boundaries are documented in
+[Timeline rendering architecture](engine.architecture.md#supplemental-note-linked-events)
+and [Render worker and LOD projection architecture](render-worker.md#supplemental-note-linked-events).
 
 ## Caching
 

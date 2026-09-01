@@ -1,19 +1,19 @@
 # Query worker and event storage architecture
 
-The query worker owns the high-volume event path used by the timeline. It
+The query worker owns the high-volume query path used by the timeline. It
 receives `docs_chunk` messages from the authenticated WebSocket, normalizes and
-persists exact events, and builds compact render-window projections from
-IndexedDB. Document payloads do not pass through the main thread.
+persists exact events, and manages each source's query-cache pool. Document
+payloads do not pass through the main thread.
 
 This architecture keeps the application's long-lived memory related to the
 current viewport rather than to the total number of events. IndexedDB is a
 rebuildable browser cache; the gULP backend remains the authoritative event
 source.
 
-The companion [timeline rendering architecture](engine.architecture.md)
-describes how a projection is transferred to the render worker and drawn on the
-`OffscreenCanvas`. The field-level IndexedDB schema is documented in
-[Query document stores](../../gulp-ui/docs/query-document-stores.md).
+The companion [render worker and LOD projection architecture](render-worker.md)
+describes how the active cache is projected for the viewport, transferred, and
+drawn on the worker-owned `OffscreenCanvas`. The higher-level component map is
+in [Timeline rendering architecture](engine.architecture.md).
 
 ## Persistence selection and compatibility mode
 
@@ -55,18 +55,15 @@ flowchart LR
     QW -->|accepted / durable chunk ACK| BE
     QW -->|cache manifests, binary pages and indexes| IDB[(IndexedDB EventStore)]
     QW -->|source summaries and status| UI
-    UI -->|viewport descriptor| QW
-    IDB -->|pages, LOD, aggregates| QW
-    QW -->|transferable render window| UI
-    UI -->|immediate buffer transfer| RW[Render worker]
     UI -->|bounded exact reads| IDB
     DA[Detached application] -->|bounded exact reads| IDB
 ```
 
 The main thread starts backend requests and owns visible UI state. The query
-worker owns the WebSocket, document routing, storage writes, and LOD projection.
-The render worker owns drawing. Main and detached browser realms can open the
-same operation database for bounded, asynchronous reads.
+worker owns the WebSocket, document routing, storage writes, and cache commands.
+Main and detached browser realms can open the same operation database for
+bounded, asynchronous reads. The viewport path is shown separately in
+[render-worker.md](render-worker.md#from-viewport-to-frame).
 
 ## Ownership boundaries
 
@@ -76,7 +73,6 @@ same operation database for bounded, asynchronous reads.
 | Query worker | WebSocket, stream contexts, normalization queues, IndexedDB writers, viewport projector | A permanent object collection containing every event |
 | IndexedDB EventStore | Source heads, query-cache provenance, exact event pages, LOD records, density aggregates, document index | Backend-only event details outside the timeline document shape |
 | Main thread | React state, applied query per source, compact cache/freshness state, source summaries, interaction state, bounded event cache, explicitly included note targets | Full query chunks or a dataset-sized query-result map |
-| Render worker | Current render window, source drawing metadata, overlays including compact supplemental-event records, hit regions, bitmap assets | Exact query events outside the projected window |
 | Detached application | Its own UI state and bounded EventStore readers | A duplicate full event collection |
 
 ## Query worker lifecycle
@@ -200,9 +196,9 @@ Each accepted chunk passes through four stages:
 
 1. Route the WebSocket frame to its registered stream context.
 2. Normalize raw documents into the minimal timeline document shape.
-3. Build or update exact pages, LOD records, density aggregates, and document
-   index segments.
-4. Commit the prepared mutations atomically to IndexedDB.
+3. Build or update exact pages, LOD records, density aggregates, and staged
+   document-index segments.
+4. Atomically publish the pages, summaries, source manifest, and index catalog.
 
 Normalization yields cooperatively after short work slices so control messages,
 click-related reads, and viewport requests remain responsive. It has its own
@@ -297,8 +293,11 @@ and `operationId`. The resolved `cacheNamespaceId` is stable across browser
 restarts for the same backend/user pair and uses the database name:
 
 ```text
-gulp-event-store:<cacheNamespaceId>:<operationId>
+gulp-event-store:<encoded cacheNamespaceId>:<encoded operationId>
 ```
+
+Both components are escaped with `encodeURIComponent` before the IndexedDB name
+is created.
 
 The namespace allows independent main tabs for the same user, compatible
 detached windows, and workers on the same origin to open the same exact event
@@ -374,8 +373,12 @@ Backend `docs_chunk` frames remain capped at 10,000 events. A replace therefore
 keeps its partial builder across frames: for example, three 10,000-event chunks
 produce one full 16,384-event page and one final 13,616-event page. A source
 containing 14,000,000 events occupies 855 exact pages when no pressure flush is
-required. Page data, source-local handles, LOD, height aggregates, and document
-index mutations are committed together by the existing atomic page append.
+required.
+
+Document-index segments are prepared in separate bounded transactions. They
+remain invisible until the final page append atomically publishes the new page,
+LOD and height records, source manifest, and index catalog. A failed final
+commit deletes the staged segments; obsolete segments are reclaimed afterward.
 
 Columnar values avoid one IndexedDB record per event and allow the projector to
 decode only the fields required for rendering. A source-local handle is a
@@ -528,119 +531,18 @@ fit the origin quota. At the limit, pruning and its bounded cleanup complete
 before a new cache build reserves the next history slot. If the subsequent
 write still exceeds quota, the active rollback remains authoritative.
 
-## Viewport render projection
+## Render-projection boundary
 
-Canvas describes the current render window with:
+The query worker also owns `EventStoreViewportProjector`, because IndexedDB must
+remain on the worker side of the high-volume path. It accepts bounded viewport
+requests and returns transferable typed arrays; it does not draw them.
 
-- operation ID and epoch;
-- viewport and projection revisions;
-- visible time frame, scale, scroll, width, and horizontal overscan;
-- visible source rows plus two vertical overscan rows;
-- each source authority/generation/revision, timestamp offset, render engine,
-  frequency setting, and cache-freshness state;
-- palette, override, and render-setting revision inputs;
-- the maximum representative count and sources to evict.
-
-Horizontal overscan is normally one canvas width on each side. It gives small
-pans a ready projection without retaining an operation-wide snapshot.
-
-The query worker keeps one active projection and only the newest pending
-request. A pending refresh for the same operation, epoch, and viewport does not
-cancel the active read: the coherent active snapshot may publish before the
-trailing refresh starts. A pending request for another operation, epoch, or
-viewport invalidates the active read at its next guard check. Canvas also
-coalesces same-viewport summary triggers into one active request and one
-trailing slot, so commit bursts do not continuously advance projection
-revisions. After projection, the render client applies its own one-in-flight
-plus one-coalesced-pending data queue. Coalescing preserves every independently
-revisioned overlay section, including `supplementalEvents`; a concurrent scene,
-source, flag, or render-window update cannot discard a pending note-linked event
-collection.
-
-While a source is `building`, committed source summaries trigger projection
-refreshes at most once every 250 milliseconds. A terminal `complete` or
-`incomplete` summary requests the final projection immediately. Canvas retains
-the terminal revision and committed `eventCount` until the render worker has
-acknowledged that source revision and emitted a frame for the current viewport
-whose `renderedDataSequence` includes the `DATA_PATCH` that applied it. ACK and
-frame arrival order is not used because they travel on separate message ports;
-the ACK records the applying sequence for each accepted source revision.
-Same-revision projections with a different `loadedCount` are rejected.
-`globalRevision` is aggregate telemetry only. A single capped-backoff watchdog
-reissues a current-viewport projection only after the previous request has
-settled and the bounded render data queue is empty.
-
-Every source summary contains its logical authority revision and IndexedDB
-generation. Each projected source also carries authority, generation and
-manifest status. Canvas can publish an older but monotonically advancing
-`building` revision from the same authority/generation when a newer summary
-arrived during the read. Terminal projections are accepted only when authority,
-generation, status, revision, and count exactly match their summary. A cache
-activation with a lower physical generation remains valid because its authority
-revision is newer; snapshots from a superseded authority never reach the
-renderer.
-
-### LOD selection
-
-For the Default engine, the projector chooses the least expensive level that is
-pixel-equivalent for the requested scale:
-
-1. Use the page representative when an entire page maps to one pixel bucket.
-2. Use microblock representatives when a page spans several buckets.
-3. Read the exact page when a microblock needs per-pixel refinement.
-4. Within a bucket, choose the most recent applicable event, including the
-   active color-override representative rules.
-
-The HeightMap engine reads persisted one-minute counts and aggregates them to
-the viewport scale. The Graph engine aggregates source samples into graph
-buckets appropriate to the visible width.
-
-The render window carries source-wide totals and hash ranges independently of
-the representative arrays. `loadedCount` remains the authority of the complete
-active generation. A separate `frameEventCount` counts active cached events in
-the selected timeline frame and drives the source labels without changing
-terminal convergence or freshness.
-
-One projection contains at most 1,000,000 representatives. The render worker
-may temporarily own the preceding and next atomic projections, keeping the
-combined resident bound at 2,000,000. If the requested window would exceed its
-budget, the projector increases bucket width to 2, 4, or more pixels and marks
-the source as degraded LOD.
-
-### Transfer to the renderer
-
-Projection fields are typed arrays containing only render data:
-
-- representative handles, timestamps, and hashes;
-- HeightMap timestamps and counts;
-- Graph timestamps and counts;
-- covered range, bucket width, loaded count, frame event count, hash range,
-  source authority and revision;
-- compact source drawing metadata.
-
-Their `ArrayBuffer` instances are transferred from the query worker to the main
-thread. A single-consumer render-window bus synchronously hands the result to
-the mounted Canvas, which validates its revisions and transfers the same
-buffers to the render worker. The bus does not retain the projection.
-
-Render protocol version 10 retains `frameEventCount` on each atomic source
-projection and adds an independently revisioned `supplementalEvents` overlay
-plus the `supplemental-event` hit result. The projector sums page catalog counts
-for fully covered pages and reads only partially covered exact pages, ignoring
-tombstones and supplemental events. A one-entry cache per source keyed by
-authority, generation, revision, raw frame and offset avoids repeating those
-reads during scroll or zoom. Direct RAM snapshots derive the same value through
-binary timestamp bounds.
-
-Cache freshness is not part of the render-worker protocol. A main-thread DOM
-overlay shared by the OffscreenCanvas and legacy backends shows
-`AlertTriangle` only when a settled active cache has a non-`fresh` warning. Its
-localized hover tooltip states that the displayed events were loaded from
-cache; fresh caches, missing cache authority, and a backend replacement in
-progress have no indicator. The overlay also requires the applied query's sole
-source ID to equal the rendered `source.id`; display names never participate in
-warning ownership. The detailed localized explanation remains in the source
-menu.
+Projection scheduling, cache reads, the exact LOD selection algorithm, engine-
+specific aggregates, transfer semantics, RenderWorker protocol, ACK/frame
+fences, and drawing are documented in
+[Render worker and LOD projection architecture](render-worker.md). Keeping those
+details there prevents query ingestion and rendering behavior from acquiring
+independent, conflicting descriptions.
 
 ## Exact read API
 
@@ -674,54 +576,29 @@ Notes, links, flags, navigation, and detached views resolve required IDs or
 handles through the same facade. They do not require a global in-memory event
 map.
 
-`DataStore.supplementalEvents` is the separate operation-scoped collection for
-events explicitly retrieved through a note or grouped note. It is indexed by
-source ID and document ID and is not owned by QueryWorker, written to IndexedDB,
-or included in query-cache provenance. The facade resolves these documents as
-exact interaction targets and merges them with bounded query neighbors. Query
-events win duplicate IDs; the merged sequence is ordered by timestamp and then
-trimmed around the current event.
-
-Source first/last navigation keeps the same separation. It resolves the query
-edge from the source summary and one exact `queryPixelBucket` record, scans only
-the small supplemental collection for that source, and selects the outer
-timestamp. It does not project or load the complete IndexedDB generation.
-
-Retrieval remains a main-thread API concern: one missing note target uses
-`/query_single_id`, while grouped targets use `/query_raw_paginate` with a terms
-query over the missing document IDs, split only at the endpoint's 10,000-record
-limit. The synchronous response is normalized and written directly to the
-supplemental collection; it never registers a QueryWorker stream or a query-cache
-generation.
-
-When the current event is supplemental, the repository's timestamp-neighbor API
-reads only the bounded active-query records on either side of its timestamp.
-When navigation moves to a persisted neighbor, the facade performs the normal
-ID-anchored read and merges the same supplemental source collection again. Main
-and detached dialogs therefore use an equivalent centered window without
-copying a source collection.
-
-Supplemental records publish only a render-overlay revision. They never advance
-source authority, generation, durable revision, `loadedCount`, `frameEventCount`,
-freshness, or query history. They are cleared by operation reset, source removal,
-a new source replacement query, and successful cache Undo/Redo activation. A
-failed activation and ordinary viewport or dialog changes retain them.
+`DataStore.supplementalEvents` is a separate operation-scoped collection for
+events explicitly retrieved through notes. It is not owned by QueryWorker,
+written to IndexedDB, or included in query-cache provenance. The facade can merge
+this small collection with bounded persisted neighbors, but supplemental records
+never change source authority, cache history, counts, or freshness. Retrieval
+and drawing behavior is documented in [Rendering engines](engine.md#notes-whose-events-are-outside-the-active-query)
+and [Render worker and LOD projection architecture](render-worker.md#supplemental-note-linked-events).
 
 ## Revisions and consistency
 
-Four independent revision domains prevent stale work from becoming visible:
+Three EventStore revision domains prevent stale query or cache work from
+becoming authoritative:
 
 - the operation epoch changes when the active operation data is reset;
 - the source authority revision changes when a build or cache activation becomes
   visible;
-- the source generation/revision identifies durable data inside that authority;
-- the viewport revision changes with frame, scale, scroll, size, or visible
-  rows.
+- the source generation/revision identifies durable data inside that authority.
 
-A render projection is accepted only when all relevant revisions still match.
-An exact lookup is discarded when its operation epoch, source authority, or
-viewport revision is obsolete. If only the durable source revision changes
-during a lookup, the caller may retry once against the new manifest.
+An exact lookup is discarded when its operation epoch or source authority is
+obsolete. If only the durable source revision changes during a lookup, the
+caller may retry once against the new manifest. Viewport, projection, data-patch,
+and frame fences belong to the render path and are documented in
+[render-worker.md](render-worker.md#acks-frames-and-terminal-convergence).
 
 Pixel cursors are tied to a source authority and revision. If a source changes
 or another cache is activated during group-dialog navigation, pagination
@@ -733,8 +610,10 @@ inconsistent mixed result.
 Changing or releasing an operation cancels its streams, increments the
 operation epoch, closes transient repositories, and makes older projection and
 lookup results ineligible. IndexedDB data and its source-query pools remain in
-the operation/coordinator namespace until initial reconciliation, pruning,
-clear, or the normal cleanup lifecycle removes them.
+the backend/user/operation namespace until initial reconciliation, pruning,
+clear, or the normal cleanup lifecycle removes them. When no authenticated or
+persisted user identity can be established, the namespace is isolated to the
+current coordinator instead.
 
 On WebSocket disconnect, active persistence streams fail with a disconnected
 reason. Reconnect restores the transport but does not silently declare an
@@ -767,10 +646,9 @@ The snapshot contains:
 - projection requests started, completed, superseded, and retried after a stale
   storage read.
 
-Canvas combines this snapshot with render diagnostics: maximum interval between
-worker frames, queue depth, pending terminal-target age, ACK/frame data
-sequences and timestamps, and worker resync/error/fallback counts. See the
-[timeline engine guide](engine.architecture.md#diagnostics) for interpretation.
+Canvas combines this snapshot with render diagnostics. See
+[render-worker.md](render-worker.md#diagnostics-and-performance-checks) for the
+render queue, ACK/frame, terminal-target, and drawing counters.
 
 ## Performance invariants
 
@@ -786,10 +664,6 @@ The event path is expected to preserve these bounds:
 - no more than two concurrent IndexedDB commits;
 - at most five reachable query caches per source;
 - no cache cleanup transaction with more than 256 delete operations;
-- one active and one newest pending projection request in QueryWorker;
-- one in-flight and one coalesced pending render data message;
-- at most 1,000,000 representatives in one projection and 2,000,000 resident
-  during atomic replacement;
 - exact pixel and dialog reads return at most 100 events per page.
 
 Benchmarking at 10, 20, and 30 million events must verify IndexedDB throughput,
@@ -799,14 +673,8 @@ persistence remains subject to the origin quota available on that device. The
 `/renderer-test` benchmark performs no predictive admission either: it writes
 bounded pages until completion or a concrete IndexedDB quota failure.
 
-The 10M, 20M, and 30M EventStore benchmarks remain unchanged. The additional
-`?queryReplay=steady` profile creates one 14M source through JSON `docs_chunk`
-messages of 10,000 events in a dedicated worker. It uses `QuerySocketSession`,
-the persistence coordinator, and IndexedDB, allows at most two chunks to await a
-commit, and delivers `query_done` immediately after the last chunk. The
-`?queryReplay=burst` profile deliberately crosses the raw boundary and expects a
-controlled `backlog` failure. Both expose machine-readable diagnostics without
-moving document arrays to the page.
+Render projection limits and the renderer/query-replay profiles are documented
+with their consumer in [render-worker.md](render-worker.md#diagnostics-and-performance-checks).
 
 ## Source reference
 
@@ -820,8 +688,6 @@ The main implementation entry points are:
 - [`EventStore.repository.ts`](../../gulp-ui/src/event-store/EventStore.repository.ts)
 - [`QueryCache.ts`](../../gulp-ui/src/entities/QueryCache.ts)
 - [`IndexedDbEventStore.backend.ts`](../../gulp-ui/src/event-store/IndexedDbEventStore.backend.ts)
-- [`EventStore.viewport-projector.ts`](../../gulp-ui/src/event-store/EventStore.viewport-projector.ts)
 - [`EventStore.facade.ts`](../../gulp-ui/src/event-store/EventStore.facade.ts)
+- [`EventStore.reader.ts`](../../gulp-ui/src/event-store/EventStore.reader.ts)
 - [`DataStore.ts`](../../gulp-ui/src/store/DataStore.ts)
-- [`RendererQueryReplay.worker.ts`](../../gulp-ui/src/page/RendererQueryReplay.worker.ts)
-- [`RendererQueryReplay.page.tsx`](../../gulp-ui/src/page/RendererQueryReplay.page.tsx)

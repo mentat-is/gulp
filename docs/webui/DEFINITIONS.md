@@ -116,7 +116,7 @@ handle without retaining a full event object.
 Level of detail, or LOD, is the viewport projection strategy that selects page,
 microblock, or exact pixel representatives according to the current canvas
 resolution. Exact events remain available in EventStore for clicks and
-navigation.
+navigation. See [Render worker and LOD projection architecture](render-worker.md).
 
 ## Preview
 
@@ -226,7 +226,7 @@ produced by the query worker and transferred to the render worker.
 The render worker is the dedicated browser worker that owns the timeline
 `OffscreenCanvas`. It keeps the current render window and compact overlay state,
 then performs culling, drawing, hit testing, and frame scheduling. See
-[Timeline rendering architecture](engine.architecture.md).
+[Render worker and LOD projection architecture](render-worker.md).
 
 ## Default Engine
 

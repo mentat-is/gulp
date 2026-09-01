@@ -38,12 +38,16 @@ IndexedDB remains usable in browsers that expose it even when quota telemetry is
 not available.
 
 If opening or writing IndexedDB fails, including a real quota-exceeded error,
-the UI persists `gulp:event-store-lod-enabled=false` and performs one controlled
-reload into its in-memory compatibility pipeline. Sources and events still
-load, but large operations can consume substantially more RAM. HTTPS remains
-recommended for deployed environments because it enables the full set of
-browser security and storage APIs, but it is not required by this EventStore
-selection logic. Deleting site data also deletes the persisted fallback marker.
+the UI preserves the last coherent cache and shows an explicit compatibility
+decision. It never writes a marker or reloads automatically. The user can retry
+the scalable pipeline, or confirm the RAM compatibility pipeline; only that
+confirmed choice writes and verifies `gulp:event-store-lod-enabled=false` before
+reloading. Sources and events still load in compatibility mode, but large
+operations can consume substantially more RAM and persistent query-cache
+Undo/Redo is unavailable. HTTPS remains recommended for deployed environments
+because it enables the full set of browser security and storage APIs, but it is
+not required by this EventStore selection logic. Deleting site data also deletes
+the persisted fallback marker.
 
 ## Install Dependencies
 
