@@ -4,6 +4,7 @@ import type {
 	DocumentStreamDescriptor,
 	DocumentStreamSourceSettings,
 } from "@/event-stream";
+import { normalizeEventSequence } from "@/event-store/EventStore.order";
 
 const HASH_MODULUS = 8_000;
 const DEFAULT_FIELD = "gulp.event_code";
@@ -212,6 +213,9 @@ function appendNormalizedDocument(
 	const document: Doc.Type = {
 		_id: documentId as Doc.Id,
 		gulp_timestamp: normalizeTimestamp(rawTimestamp),
+		"event.sequence": normalizeEventSequence(
+			getFieldValue(raw, "event.sequence"),
+		),
 		"gulp.source_id": sourceValue as Source.Id,
 		"gulp.event_code": Number.isFinite(eventCode) ? eventCode : 0,
 		number_hash: normalizeNumberHash(

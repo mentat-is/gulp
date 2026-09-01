@@ -8,6 +8,10 @@ detached windows.
 Event Detail opens when an analyst selects an event on the timeline or from a
 table/list view.
 
+While Event Detail remains open, the timeline keeps its crosshair on the event
+shown in the panel. Clicking a source row or another empty timeline position
+does not clear that event target.
+
 ![Event detail](images/event-detail-notes.png)
 
 The event detail view provides:

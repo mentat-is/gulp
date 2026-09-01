@@ -1196,7 +1196,6 @@ export function DisplayEventDialog({
 		events: Doc.Type[];
 		anchor: { x: number; y: number };
 	} | null>(null);
-	const prevTargetRef = useRef<Doc.Id | null>(null);
 	const treeContextPathRef = useRef<string | null>(null);
 	const treeContainerRef = useRef<HTMLDivElement | null>(null);
 	const { theme } = useTheme();
@@ -1255,12 +1254,14 @@ export function DisplayEventDialog({
 
 	// --- EFFECTS ---
 
-	// Sync with timeline focus
+	/** Keeps the timeline crosshair aligned with the event visible in this dialog. */
 	useEffect(() => {
-		if (prevTargetRef.current === event._id) return;
-		prevTargetRef.current = event._id;
-		Info.setTimelineTarget(file ? event : null);
-	}, [event._id, file, Info]);
+		const nextTarget = file ? event : null;
+		const currentTargetId = app.timeline.target?._id ?? null;
+		const nextTargetId = nextTarget?._id ?? null;
+		if (currentTargetId === nextTargetId) return;
+		Info.setTimelineTarget(nextTarget);
+	}, [app.timeline.target?._id, event, file, Info]);
 
 	useEffect(() => {
 		setIsFlagged(getEventFlagState(app, event));

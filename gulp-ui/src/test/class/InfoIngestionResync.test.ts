@@ -14,6 +14,7 @@ import type {
 import { DataStore } from "@/store/DataStore";
 import { requestStore } from "@/store/request.store";
 import { generateUUID } from "@/ui/utils";
+import { ingestWorkerManager } from "@/workers/IngestWorker.manager";
 import { toast } from "sonner";
 import {
 	clearEventStoreFallbackRequest,
@@ -137,7 +138,7 @@ jest.mock("remark-gfm", () => (): null => null);
 jest.mock("rehype-prism-plus", () => (): null => null);
 
 jest.mock("@/workers/IngestWorker.manager", () => ({
-	ingestWorkerManager: {},
+	ingestWorkerManager: { enqueue: jest.fn() },
 }));
 
 jest.mock("@/workers/DataWorker.class", () => ({
@@ -381,6 +382,111 @@ describe("Info event stream registration", () => {
 		expect(cancelDocumentStream.mock.calls).toHaveLength(0);
 	});
 
+	it("routes ingestion through the page builder without changing realtime streams", async () => {
+		const registerDocumentStream = jest.fn(
+			(_descriptor: DocumentStreamDescriptor): Promise<void> => Promise.resolve(),
+		);
+		setEventStreamSocket({
+			registerDocumentStream,
+			cancelDocumentStream: jest.fn(() => Promise.resolve()),
+			completeDocumentStream: jest.fn(() => Promise.resolve()),
+		});
+		const info = createInfo();
+
+		await info.beginEventDocumentStream({
+			requestId: ingestionRequestId,
+			sourceIds: [],
+			operationId,
+			kind: "ingestion",
+			mode: "upsert",
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		await info.beginEventDocumentStream({
+			requestId: queryRequestId,
+			sourceIds: [],
+			operationId,
+			kind: "realtime",
+			mode: "upsert",
+		});
+
+		expect(registerDocumentStream.mock.calls[0][0]).toMatchObject({
+			kind: "ingestion-build",
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		expect(registerDocumentStream.mock.calls[1][0]).toMatchObject({
+			kind: "realtime-ingest",
+		});
+	});
+
+	it("forces file ingestion builds to the default event-code hash", async () => {
+		const registerDocumentStream = jest.fn(
+			(_descriptor: DocumentStreamDescriptor): Promise<void> => Promise.resolve(),
+		);
+		setEventStreamSocket({
+			registerDocumentStream,
+			cancelDocumentStream: jest.fn(() => Promise.resolve()),
+			completeDocumentStream: jest.fn(() => Promise.resolve()),
+		});
+		const app = createApp();
+		app.target = {
+			operations: [{ id: operationId, selected: true } as Operation.Type],
+			files: [],
+			contexts: [],
+		} as unknown as App.Type["target"];
+		app.general.ws_id = "file-ingestion-test";
+		const info = createInfo(app);
+		(
+			info as unknown as {
+				_register_ingest_source_done_listeners: () => void;
+				_register_persisted_ingestion_listeners: () => () => void;
+			}
+		)._register_ingest_source_done_listeners = () => undefined;
+		(
+			info as unknown as {
+				_register_persisted_ingestion_listeners: () => () => void;
+			}
+		)._register_persisted_ingestion_listeners = () => () => undefined;
+		const enqueue = ingestWorkerManager.enqueue as unknown as {
+			mockClear: () => void;
+			mock: {
+				calls: Array<[
+					{ settings: { field?: string; hash_function?: string } },
+				]>;
+			};
+		};
+		enqueue.mockClear();
+
+		await info.file_ingest({
+			context: "context",
+			file: new File(["line"], "events.log"),
+			settings: {
+				offset: 0,
+				custom_parameters: {},
+				field: "category",
+				hash_function: "djb2",
+			},
+		});
+
+		expect(registerDocumentStream.mock.calls[0][0]).toMatchObject({
+			kind: "ingestion-build",
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		expect(enqueue).toHaveBeenCalledTimes(1);
+		expect(enqueue.mock.calls[0][0].settings).toMatchObject({
+			field: "category",
+			hash_function: "djb2",
+		});
+	});
+
 	it("dispatches raw queries to IndexedDB persistence on an insecure origin", async () => {
 		const registerDocumentStream = jest.fn(
 			(_descriptor: DocumentStreamDescriptor): Promise<void> => Promise.resolve(),
@@ -578,6 +684,55 @@ describe("Info event stream registration", () => {
 		info.handleEventDocumentStreamFailure(failure);
 
 		expect(requestCancel.mock.calls).toEqual([[queryRequestId]]);
+	});
+
+	it("keeps backend ingestion running when its browser cache fails", async () => {
+		const cancelDocumentStream = jest.fn(() => Promise.resolve());
+		setEventStreamSocket({
+			registerDocumentStream: jest.fn(() => Promise.resolve()),
+			cancelDocumentStream,
+			completeDocumentStream: jest.fn(() => Promise.resolve()),
+		});
+		const info = createInfo();
+		const requestCancel = jest.fn(() => Promise.resolve());
+		const cleanup = jest.fn();
+		const previousWarn = console.warn;
+		const warn = jest.fn();
+		console.warn = warn;
+		info.request_cancel = requestCancel as typeof info.request_cancel;
+		await info.beginEventDocumentStream({
+			requestId: ingestionRequestId,
+			sourceIds: [],
+			operationId,
+			kind: "ingestion",
+			mode: "upsert",
+			completionMode: "explicit",
+		});
+		expect(
+			info.attachEventDocumentStreamCleanup(ingestionRequestId, cleanup),
+		).toBe(true);
+		(
+			info as unknown as {
+				markEventDocumentStreamDispatched: (requestId: Request.Id) => boolean;
+			}
+		).markEventDocumentStreamDispatched(ingestionRequestId);
+
+		info.handleEventDocumentStreamFailure({
+			requestId: ingestionRequestId,
+			operationId,
+			operationEpoch: DataStore.getRenderOperationEpoch(),
+			reason: "backlog",
+			message: "local cache is behind",
+		});
+
+		expect(requestCancel).not.toHaveBeenCalled();
+		expect(cancelDocumentStream).not.toHaveBeenCalled();
+		expect(cleanup).not.toHaveBeenCalled();
+		expect(toast.error).not.toHaveBeenCalled();
+		expect(warn).toHaveBeenCalledTimes(1);
+		await info.cancelEventDocumentStream(ingestionRequestId);
+		expect(cleanup).toHaveBeenCalledTimes(1);
+		console.warn = previousWarn;
 	});
 
 	it("removes dispatch state on normal terminal cleanup", async () => {

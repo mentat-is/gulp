@@ -1,5 +1,6 @@
 import type {
 	DocumentStreamDescriptor,
+	DocumentStreamFinalization,
 	QueryRenderWindowDescriptor,
 	QuerySocketState,
 	QueryWorkerInitialization,
@@ -115,10 +116,14 @@ export class DirectQueryTransport implements QueryTransport {
 	/**
 	 * Completes one stream after its final durable owner action succeeds.
 	 * @param requestId Request identifier whose stream is complete.
+	 * @param finalization Optional terminal source-cache metadata.
 	 * @returns Already-resolved completion promise.
 	 */
-	public completeDocumentStream(requestId: string): Promise<void> {
-		return this.session.completeDocumentStream(requestId);
+	public completeDocumentStream(
+		requestId: string,
+		finalization?: DocumentStreamFinalization,
+	): Promise<void> {
+		return this.session.completeDocumentStream(requestId, finalization);
 	}
 
 	/**

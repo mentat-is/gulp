@@ -5,6 +5,7 @@ import {
 	isQuerySocketMessage,
 	type DocumentChunkAcknowledgement,
 	type DocumentStreamDescriptor,
+	type DocumentStreamFinalization,
 	type QueryRenderWindowDescriptor,
 	type QuerySocketErrorDetails,
 	type QuerySocketState,
@@ -154,9 +155,13 @@ export class QuerySocketSession {
 	/**
 	 * Completes one stream after its final persistence or owner action succeeds.
 	 * @param requestId Request identifier whose stream is complete.
+	 * @param finalization Optional terminal source-cache metadata.
 	 */
-	public async completeDocumentStream(requestId: string): Promise<void> {
-		const handled = await this.persistence.complete(requestId);
+	public async completeDocumentStream(
+		requestId: string,
+		finalization?: DocumentStreamFinalization,
+	): Promise<void> {
+		const handled = await this.persistence.complete(requestId, finalization);
 		if (!handled) this.router.complete(requestId);
 	}
 

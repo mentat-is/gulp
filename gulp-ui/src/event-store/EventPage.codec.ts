@@ -1,6 +1,10 @@
 import type { Doc } from "@/entities/Doc";
 import type { Source } from "@/entities/Source";
 import {
+	compareEventDocuments,
+	normalizeEventSequence,
+} from "./EventStore.order";
+import {
 	EVENT_DOCUMENT_HASH_PREFIX_BITS,
 	EVENT_PAGE_LOD_BLOCKS,
 	EVENT_PAGE_SIZE,
@@ -65,6 +69,7 @@ export function hashEventDocumentId(documentId: Doc.Id): DocumentHash64 {
 export function getEncodedEventPageByteLength(page: {
 	handles: Uint32Array;
 	timestamps: Float64Array;
+	sequences: Float64Array;
 	hashes: Float64Array;
 	eventCodes: Float64Array;
 	idOffsets: Uint32Array;
@@ -74,6 +79,7 @@ export function getEncodedEventPageByteLength(page: {
 	return (
 		page.handles.byteLength +
 		page.timestamps.byteLength +
+		page.sequences.byteLength +
 		page.hashes.byteLength +
 		page.eventCodes.byteLength +
 		page.idOffsets.byteLength +
@@ -110,13 +116,13 @@ export function encodeEventPage(input: EncodeEventPageInput): EncodedEventPage {
 					]
 				: [],
 		)
-		.sort(
-			(left, right) =>
-				right.document.gulp_timestamp - left.document.gulp_timestamp,
+		.sort((left, right) =>
+			compareEventDocuments(left.document, right.document),
 		);
 	const count = entries.length;
 	const handles = new Uint32Array(count);
 	const timestamps = new Float64Array(count);
+	const sequences = new Float64Array(count);
 	const hashes = new Float64Array(count);
 	const eventCodes = new Float64Array(count);
 	const idOffsets = new Uint32Array(count + 1);
@@ -140,6 +146,7 @@ export function encodeEventPage(input: EncodeEventPageInput): EncodedEventPage {
 		idByteLength += encodedId.byteLength;
 		handles[index] = handle;
 		timestamps[index] = document.gulp_timestamp;
+		sequences[index] = normalizeEventSequence(document["event.sequence"]);
 		hashes[index] = document.number_hash;
 		eventCodes[index] = document["gulp.event_code"];
 		minTimestamp = Math.min(minTimestamp, document.gulp_timestamp);
@@ -166,6 +173,7 @@ export function encodeEventPage(input: EncodeEventPageInput): EncodedEventPage {
 		hashMax: count === 0 ? 0 : hashMax,
 		handles,
 		timestamps,
+		sequences,
 		hashes,
 		eventCodes,
 		idOffsets,
@@ -203,6 +211,7 @@ export function decodeEventAt(
 	return {
 		_id: documentId as Doc.Id,
 		gulp_timestamp: page.timestamps[offset],
+		"event.sequence": page.sequences[offset],
 		"gulp.source_id": page.sourceId,
 		"gulp.event_code": page.eventCodes[offset],
 		number_hash: page.hashes[offset],
@@ -366,6 +375,7 @@ export function createEventPageCatalogEntry(
 	page: EncodedEventPage,
 ): EventPageCatalogEntry {
 	let representativeOffset = 0;
+	let finalOffset = page.count - 1;
 	let minimumHandle = Number.POSITIVE_INFINITY;
 	let maximumHandle = 0;
 	for (let offset = 0; offset < page.count; offset++) {
@@ -379,6 +389,9 @@ export function createEventPageCatalogEntry(
 	) {
 		representativeOffset++;
 	}
+	while (finalOffset >= 0 && page.tombstones[finalOffset] !== 0) {
+		finalOffset--;
+	}
 	return {
 		pageId: page.pageId,
 		generation: page.generation,
@@ -387,6 +400,11 @@ export function createEventPageCatalogEntry(
 		activeCount: page.activeCount,
 		minTimestamp: page.minTimestamp,
 		maxTimestamp: page.maxTimestamp,
+		firstSequence:
+			representativeOffset < page.count
+				? page.sequences[representativeOffset]
+				: 0,
+		lastSequence: finalOffset >= 0 ? page.sequences[finalOffset] : 0,
 		hashMin: page.hashMin,
 		hashMax: page.hashMax,
 		minimumHandle: page.activeCount === 0 ? 0 : minimumHandle,

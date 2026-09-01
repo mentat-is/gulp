@@ -43,6 +43,7 @@ export type DocumentStreamState =
 /** Query mutation semantics retained with a stream registration. */
 export type DocumentStreamKind =
 	| "replace"
+	| "ingestion-build"
 	| "query-upsert"
 	| "enrichment"
 	| "realtime-ingest";
@@ -78,6 +79,12 @@ export interface StreamDescriptor {
 
 /** Explicit alias used at document-routing integration boundaries. */
 export type DocumentStreamDescriptor = StreamDescriptor;
+
+/** Terminal metadata supplied after an explicit stream's backend work completes. */
+export interface DocumentStreamFinalization {
+	/** Query-cache provenance keyed by a source discovered during the stream. */
+	queryCachesBySourceId?: Readonly<Record<string, QueryCacheProvenance>>;
+}
 
 /** Loosely typed payload envelope accepted from the gULP WebSocket. */
 export interface QuerySocketPayload {
@@ -247,6 +254,7 @@ export interface CompleteDocumentStreamCommand
 	extends QueryWorkerControlCommand {
 	type: "COMPLETE_STREAM";
 	requestId: string;
+	finalization?: DocumentStreamFinalization;
 }
 
 /** Cancels registered requests belonging to one operation epoch. */

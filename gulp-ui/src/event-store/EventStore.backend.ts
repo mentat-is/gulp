@@ -5,6 +5,7 @@ export const EVENT_STORE_NAMES = [
 	"pages",
 	"page_lod",
 	"document_index_pages",
+	"stream_journal",
 ] as const;
 
 export type EventStoreName = (typeof EVENT_STORE_NAMES)[number];

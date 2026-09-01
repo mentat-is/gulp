@@ -1,6 +1,7 @@
 import type { Doc } from "@/entities/Doc";
 import type { Source } from "@/entities/Source";
 import { EventDocumentCache } from "./EventStore.cache";
+import { compareEventDocuments } from "./EventStore.order";
 import type {
 	EventNeighborWindow,
 	EventStoreReader,
@@ -328,7 +329,7 @@ export class EventStoreFacade implements EventStoreReader {
 			.filter((event) => !queryIds.has(event._id))
 			.sort(
 				(left, right) =>
-					right.gulp_timestamp - left.gulp_timestamp ||
+					compareEventDocuments(left, right) ||
 					String(left._id).localeCompare(String(right._id)),
 			);
 		const merged: Doc.Type[] = [];
@@ -343,7 +344,7 @@ export class EventStoreFacade implements EventStoreReader {
 			if (
 				queryEvent &&
 				(!supplementalEvent ||
-					queryEvent.gulp_timestamp >= supplementalEvent.gulp_timestamp)
+					compareEventDocuments(queryEvent, supplementalEvent) <= 0)
 			) {
 				merged.push(queryEvent);
 				queryIndex++;
@@ -378,7 +379,7 @@ export class EventStoreFacade implements EventStoreReader {
 			merged.push(current);
 			merged.sort(
 				(left, right) =>
-					right.gulp_timestamp - left.gulp_timestamp ||
+					compareEventDocuments(left, right) ||
 					String(left._id).localeCompare(String(right._id)),
 			);
 		}

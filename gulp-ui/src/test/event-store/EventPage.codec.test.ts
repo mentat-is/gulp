@@ -68,6 +68,29 @@ describe("EventPage codec", () => {
 		expect(decodeEventAt(page, 1)?.number_hash).toBe(9);
 	});
 
+	it("orders equal timestamps by descending event.sequence", () => {
+		const documents = [
+			{ ...createDocument("third", 100, 3), "event.sequence": 30 },
+			{ ...createDocument("first", 100, 1), "event.sequence": 10 },
+			{ ...createDocument("second", 100, 2), "event.sequence": 20 },
+		];
+		const page = encodeEventPage({
+			sourceId: SOURCE_ID,
+			generation: 1,
+			pageId: 1,
+			revision: 1,
+			documents,
+		});
+
+		expect(Array.from(page.sequences)).toEqual([30, 20, 10]);
+		expect(
+			Array.from({ length: page.count }, (_, offset) =>
+				decodeEventAt(page, offset)?._id,
+			),
+		).toEqual(["third", "second", "first"]);
+		expect(decodeEventAt(page, 1)?.["event.sequence"]).toBe(20);
+	});
+
 	it("skips tombstoned documents and builds bounded LOD blocks", () => {
 		const documents = Array.from({ length: 600 }, (_, index) =>
 			createDocument(`event-${index}`, 10_000 - index, index),

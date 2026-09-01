@@ -104,7 +104,10 @@ async function handleCommand(command: QueryWorkerCommand): Promise<void> {
 			break;
 		case "COMPLETE_STREAM":
 			try {
-				await requireSession().completeDocumentStream(command.requestId);
+				await requireSession().completeDocumentStream(
+					command.requestId,
+					command.finalization,
+				);
 				completeControl(command.controlId);
 			} catch (error) {
 				completeControl(command.controlId, error);

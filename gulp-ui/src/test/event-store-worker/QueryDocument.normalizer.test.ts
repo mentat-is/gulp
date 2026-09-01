@@ -64,6 +64,19 @@ describe("normalizeQueryDocuments", () => {
 		expect(document.gulp_timestamp).toBe(1_742_981_079_186);
 	});
 
+	it("preserves event.sequence for deterministic timestamp ties", () => {
+		const document = normalizeOne({
+			_id: "sequence",
+			"gulp.source_id": "source-dynamic",
+			"gulp.timestamp": 1_700_000_000_000,
+			"event.sequence": "42",
+			"gulp.event_code": 1,
+			category: "network",
+		});
+
+		expect(document["event.sequence"]).toBe(42);
+	});
+
 	it("uses default settings for discovered sources and source-specific overrides", () => {
 		const dynamic = normalizeOne({
 			_id: "dynamic",

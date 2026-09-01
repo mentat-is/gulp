@@ -71,7 +71,7 @@ bounded, asynchronous reads. The viewport path is shown separately in
 | --- | --- | --- |
 | gULP backend | Authoritative events, query execution, detail retrieval | Browser cache state |
 | Query worker | WebSocket, stream contexts, normalization queues, IndexedDB writers, viewport projector | A permanent object collection containing every event |
-| IndexedDB EventStore | Source heads, query-cache provenance, exact event pages, LOD records, density aggregates, document index | Backend-only event details outside the timeline document shape |
+| IndexedDB EventStore | Source heads, query-cache provenance, exact event pages, LOD records, density aggregates, document index, transient ingestion overflow journal | Backend-only event details outside the timeline document shape |
 | Main thread | React state, applied query per source, compact cache/freshness state, source summaries, interaction state, bounded event cache, explicitly included note targets | Full query chunks or a dataset-sized query-result map |
 | Detached application | Its own UI state and bounded EventStore readers | A duplicate full event collection |
 
@@ -140,7 +140,7 @@ Each registered stream records:
 
 - request ID, operation ID, and operation epoch;
 - owner: `persist`, `ignore`, or `passthrough`;
-- mutation kind: `replace`, `query-upsert`, `enrichment`, or
+- mutation kind: `replace`, `ingestion-build`, `query-upsert`, `enrichment`, or
   `realtime-ingest`;
 - completion mode: final `last` chunk or explicit completion;
 - known source IDs and source-specific hash settings;
@@ -235,7 +235,8 @@ The normalized queue is deliberately bounded:
 
 - at most 32,768 normalized documents are pending across streams;
 - at most two IndexedDB commits execute concurrently;
-- replace builders combine backend chunks into full 16,384-event pages;
+- replace and file-ingestion builders combine backend chunks into full
+  16,384-event pages;
 - only a final residual page, or a residual released under global pressure, is
   smaller than the page size;
 - queued work receives FIFO credit so a large stream cannot starve every other
@@ -251,30 +252,46 @@ keeping the normal single-source replace densely packed. The terminal chunk,
 including an empty terminal chunk, commits every remaining residual before
 finalization.
 
-If accepting a frame would cross either raw-byte boundary, the frame is not
-queued, its `payload.docs` array is cleared synchronously, and that stream fails
-with reason `backlog`. The existing main-thread failure path then requests
-`/request_cancel` for a query that was already dispatched. Other streams retain
-their own queues and authority. A single chunk containing more than 32,768
-documents remains a normalized-backlog protocol failure; the normal backend
-chunk size stays below that bound.
+If a query or realtime frame would cross either raw-byte boundary, the frame is
+not queued, its `payload.docs` array is cleared synchronously, and that stream
+fails with reason `backlog`. A dispatched query is then canceled. File
+ingestion is intentionally different: `ingestion-build` never feeds UI
+backpressure into the backend producer. An overflow frame is written to the
+transient `stream_journal` IndexedDB store, its original object graph is
+released after the durable clone, and normalization resumes from the journal
+in stream order. The journal record is deleted after the documents enter the
+page builder. A single chunk containing more than 32,768 documents remains a
+normalized-backlog protocol failure; the normal backend chunk size stays below
+that bound.
 
 The negotiated acknowledgement window is the normal backpressure mechanism for
-the scalable query path. The 128/64 MiB UI limits remain a final overload guard
+the scalable query path only; ingestion sends no chunk acknowledgements. The
+128/64 MiB UI limits remain a final overload guard
 for an unnegotiated server, several concurrent child queries, a single oversized
-frame, or a consumer that cannot make normalization progress. Crossing a guard
-still cancels only the affected request; it is not used as routine pacing.
+frame, or a consumer that cannot make normalization progress. For query and
+realtime streams, crossing a guard cancels only the affected request; it is not
+used as routine pacing.
 
-If normalization or the IndexedDB write path fails,
-the worker marks the stream failed and reports its `req_id` and failure reason.
-The main thread requests backend cancellation only when that request crossed
-the HTTP or ingestion-worker dispatch boundary. Registration failures therefore
-cannot issue `/request_cancel` for a request the backend has never seen. There
-is no in-place RAM handoff for a partially persisted stream. Storage and real
-quota failures request the explicit choice described above; normalization,
-backlog, and connection failures remain ordinary stream failures. The failed
-stream is torn down in either case, so dismissing the choice does not leave a
-stale request registered.
+If normalization or the IndexedDB write path fails, the worker marks the stream
+failed and reports its `req_id` and failure reason. The main thread requests
+backend cancellation only for dispatched queries. A failed
+`ingestion-build` is marked `incomplete`, is never exposed as a reusable cache,
+and does not call `/request_cancel`; its backend ingestion and progress
+lifecycle continue independently. Registration failures cannot issue
+`/request_cancel` for a request the backend has never seen. There is no
+in-place RAM handoff for a partially persisted stream. Storage and real quota
+failures on query streams request the explicit compatibility choice described
+above; normalization, backlog, and connection failures remain ordinary query
+stream failures.
+
+File ingestion completes explicitly after backend ingest statistics report
+`done`. At that fence the UI supplies full-source query provenance normalized
+with `gulp.event_code`/`fnv1a`, the worker flushes the last partial page, replaces
+the provisional snapshot with its exact persisted count/range, and atomically
+finalizes the generation as the active query cache. Initial source loading can
+therefore reuse the ingested events without `/query_raw`. Changing the source
+hash field later follows the existing explicit rebuild path. `realtime-ingest`
+is deliberately unchanged and will be addressed with ingest-on-source support.
 
 `last` means complete only after all page builders have flushed and the final
 IndexedDB transaction has committed. Other WebSocket messages, including
@@ -318,9 +335,10 @@ the current reader and QueryWorker. Legacy databases named by random tab
 coordinators are not adopted because they do not carry a verified owner. This
 causes one post-upgrade cold load but prevents cross-user cache association.
 
-The EventStore database is version 4 and contains five object stores. Opening a
+The EventStore database is version 5 and contains six object stores. Opening a
 v1-v3 database rebuilds the EventStore because those caches have no trustworthy
-query provenance. This is safe because browser storage is reconstructible from
+query provenance. Upgrading v4 adds only the transient ingestion journal and
+preserves the existing cache pool. Browser storage remains reconstructible from
 the backend.
 
 ### `sources`
@@ -410,6 +428,13 @@ so hash collisions cannot return the wrong event.
 
 Segments use leveled compaction to keep lookups bounded while avoiding a full
 index rewrite on every append.
+
+### `stream_journal`
+
+The ingestion-only journal uses `[requestId, journalId]` keys and contains raw
+overflow frames only until their ordered normalization resumes. It is neither
+source authority nor a query-cache generation, and normal terminal cleanup
+removes every consumed or residual entry.
 
 ## Initial cache reconciliation
 

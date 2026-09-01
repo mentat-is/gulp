@@ -27,13 +27,17 @@ import {
 } from "@/event-store/EventStore.types";
 import { IndexedDbEventStoreBackend } from "@/event-store/IndexedDbEventStore.backend";
 import type { Doc } from "@/entities/Doc";
-import { cloneQueryForCache } from "@/entities/QueryCache";
+import {
+	cloneQueryForCache,
+	type QueryCacheProvenance,
+} from "@/entities/QueryCache";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
 import type {
 	DocumentChunkReady,
 	DocumentChunkAcknowledgement,
 	DocumentStreamDescriptor,
+	DocumentStreamFinalization,
 	QueryRenderWindowDescriptor,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
@@ -59,6 +63,7 @@ interface QueryPersistenceRepository {
 	finalizeGeneration(
 		sourceId: Source.Id,
 		generation: number,
+		queryCache?: QueryCacheProvenance,
 	): Promise<EventSourceSummary>;
 	cleanupObsoleteGenerations?: (sourceId: Source.Id) => Promise<void>;
 	cancelGeneration(sourceId: Source.Id, generation: number): Promise<void>;
@@ -149,7 +154,7 @@ interface StoredEventSourceManifest extends EventSourceHeadManifest {
 	rollback?: EventSourceHeadManifest;
 }
 
-interface ReplaceSourceContext {
+interface PageBuilderSourceContext {
 	sourceId: Source.Id;
 	generation: number;
 	nextHandle: number;
@@ -163,7 +168,7 @@ interface PersistenceStreamContext {
 	operation: OperationPersistenceContext;
 	sourceIds: Source.Id[];
 	hasDeclaredSourceAuthority: boolean;
-	replaceSources: Map<Source.Id, ReplaceSourceContext>;
+	pageBuilderSources: Map<Source.Id, PageBuilderSourceContext>;
 	releaseSourceLeases: Array<() => void>;
 	chain: Promise<void>;
 	normalizationChain: Promise<void>;
@@ -178,6 +183,9 @@ interface PersistenceStreamContext {
 	cleanupPromise: Promise<void> | null;
 	pendingRawChunkBytes: number;
 	maximumPendingRawChunkBytes: number;
+	finalization?: DocumentStreamFinalization;
+	nextJournalId: number;
+	journalIds: Set<number>;
 }
 
 interface NormalizedDocumentChunk {
@@ -186,6 +194,14 @@ interface NormalizedDocumentChunk {
 	chunkLast: boolean;
 	requestLast: boolean;
 	acknowledgement: Omit<DocumentChunkAcknowledgement, "stage"> | null;
+	journalId?: number;
+}
+
+interface IngestionStreamJournalEntry {
+	requestId: string;
+	journalId: number;
+	documents: readonly unknown[];
+	createdAt: number;
 }
 
 interface PendingDocumentCreditWaiter {
@@ -724,15 +740,14 @@ export class QueryPersistenceCoordinator {
 			try {
 				const operation = await this.getOperation(descriptor.operationId);
 				await this.refreshDeclaredSourceManifests(operation, sourceIds);
-				const isReplace =
-					(descriptor.kind ?? "query-upsert") === "replace";
+				const usesPageBuilder = this.usesPageBuilder(descriptor);
 
 				context = {
 					descriptor: this.cloneDescriptor(descriptor),
 					operation,
 					sourceIds,
 					hasDeclaredSourceAuthority: sourceIds.length > 0,
-					replaceSources: new Map(),
+					pageBuilderSources: new Map(),
 					releaseSourceLeases,
 					chain: Promise.resolve(),
 					normalizationChain: Promise.resolve(),
@@ -747,10 +762,12 @@ export class QueryPersistenceCoordinator {
 					cleanupPromise: null,
 					pendingRawChunkBytes: 0,
 					maximumPendingRawChunkBytes: 0,
+					nextJournalId: 0,
+					journalIds: new Set(),
 				};
 
-				if (isReplace) {
-					await this.prepareReplaceSources(context);
+				if (usesPageBuilder) {
+					await this.preparePageBuilderSources(context);
 				} else {
 					await this.prepareUpsertSources(context);
 				}
@@ -815,19 +832,42 @@ export class QueryPersistenceCoordinator {
 		const rawByteLength = this.normalizeRawChunkByteLength(chunk.rawByteLength);
 		const queuedDocumentCount = rawDocuments.length;
 		const backlogFailure = this.reserveRawChunkBytes(context, rawByteLength);
-		if (backlogFailure) {
+		const spillToJournal =
+			backlogFailure !== null &&
+			(context.descriptor.kind ?? "query-upsert") === "ingestion-build";
+		if (backlogFailure && !spillToJournal) {
 			if (chunk.message.payload) chunk.message.payload.docs = [];
 			this.beginFailure(context, backlogFailure);
 			return;
 		}
+		if (spillToJournal) this.recordRawChunkBytes(context, rawByteLength);
 		const chunkLast = chunk.message.payload?.last === true;
 		const requestLast = chunk.message.payload?.request_last === true;
 		const completesOnLast =
 			(context.descriptor.completionMode ?? "last") === "last";
 		if (requestLast || (chunkLast && completesOnLast)) context.accepting = false;
 
-		const normalization = context.normalizationChain.then(() =>
-			this.normalizeDocumentChunk(
+		const journalWrite = spillToJournal
+			? this.writeRawChunkToJournal(
+					context,
+					chunk,
+					rawDocuments,
+					rawByteLength,
+				)
+			: null;
+		const normalization = context.normalizationChain.then(async () => {
+			if (journalWrite) {
+				const journalId = await journalWrite;
+				return this.normalizeJournaledDocumentChunk(
+					context,
+					chunk,
+					journalId,
+					queuedDocumentCount,
+					chunkLast,
+					requestLast,
+				);
+			}
+			return this.normalizeDocumentChunk(
 				context,
 				chunk,
 				rawDocuments,
@@ -835,8 +875,8 @@ export class QueryPersistenceCoordinator {
 				queuedDocumentCount,
 				chunkLast,
 				requestLast,
-			),
-		);
+			);
+		});
 		context.normalizationChain = normalization.then(
 			() => undefined,
 			(error: unknown) => {
@@ -851,6 +891,117 @@ export class QueryPersistenceCoordinator {
 		context.chain = processing.catch((error: unknown) =>
 			this.failContext(context, error),
 		);
+	}
+
+	/**
+	 * Durably spills one ingestion frame that crossed the in-memory raw limit. The
+	 * backend producer is never acknowledged or throttled; the original object graph
+	 * is released as soon as IndexedDB has cloned it.
+	 */
+	private async writeRawChunkToJournal(
+		context: PersistenceStreamContext,
+		chunk: DocumentChunkReady,
+		documents: readonly unknown[],
+		rawByteLength: number,
+	): Promise<number> {
+		const journalId = context.nextJournalId++;
+		context.journalIds.add(journalId);
+		const entry: IngestionStreamJournalEntry = {
+			requestId: context.descriptor.requestId,
+			journalId,
+			documents,
+			createdAt: this.now(),
+		};
+		try {
+			await context.operation.backend.commit([
+				{
+					type: "put",
+					store: "stream_journal",
+					key: [context.descriptor.requestId, journalId],
+					value: entry,
+				},
+			]);
+			return journalId;
+		} catch (error) {
+			context.journalIds.delete(journalId);
+			throw error;
+		} finally {
+			this.releaseRawChunkBytes(context, rawByteLength);
+			if (chunk.message.payload) chunk.message.payload.docs = [];
+		}
+	}
+
+	/** Reads and normalizes one previously spilled ingestion chunk in stream order. */
+	private async normalizeJournaledDocumentChunk(
+		context: PersistenceStreamContext,
+		chunk: DocumentChunkReady,
+		journalId: number,
+		documentCount: number,
+		chunkLast: boolean,
+		requestLast: boolean,
+	): Promise<NormalizedDocumentChunk | null> {
+		const entry =
+			await context.operation.backend.get<IngestionStreamJournalEntry>(
+				"stream_journal",
+				[context.descriptor.requestId, journalId],
+			);
+		if (!entry) {
+			throw new QueryPersistenceError(
+				"storage",
+				`Ingestion journal entry ${journalId} is unavailable.`,
+			);
+		}
+		const normalized = await this.normalizeDocumentChunk(
+			context,
+			chunk,
+			entry.documents,
+			0,
+			documentCount,
+			chunkLast,
+			requestLast,
+		);
+		if (!normalized) {
+			await this.deleteJournalEntry(context, journalId);
+			return null;
+		}
+		normalized.journalId = journalId;
+		return normalized;
+	}
+
+	/** Deletes one consumed spill record without affecting durable event pages. */
+	private async deleteJournalEntry(
+		context: PersistenceStreamContext,
+		journalId: number,
+	): Promise<void> {
+		if (!context.journalIds.has(journalId)) return;
+		await context.operation.backend.commit([
+			{
+				type: "delete",
+				store: "stream_journal",
+				key: [context.descriptor.requestId, journalId],
+			},
+		]);
+		context.journalIds.delete(journalId);
+	}
+
+	/** Best-effort terminal cleanup for every remaining spill record. */
+	private async clearJournalEntries(
+		context: PersistenceStreamContext,
+	): Promise<void> {
+		const journalIds = [...context.journalIds];
+		if (journalIds.length === 0) return;
+		try {
+			await context.operation.backend.commit(
+				journalIds.map((journalId) => ({
+					type: "delete" as const,
+					store: "stream_journal" as const,
+					key: [context.descriptor.requestId, journalId],
+				})),
+			);
+			context.journalIds.clear();
+		} catch {
+			// Spill data are never cache authority and can be reclaimed on database reset.
+		}
 	}
 
 	/**
@@ -946,15 +1097,15 @@ export class QueryPersistenceCoordinator {
 			const sourceIds = [...normalized.grouped.keys()].sort();
 			if (!context.hasDeclaredSourceAuthority) {
 				await this.acquireDiscoveredSourceLeases(context, sourceIds);
-				await this.prepareDiscoveredUpsertSources(context, sourceIds);
+				await this.prepareDiscoveredSources(context, sourceIds);
 			}
-			if ((context.descriptor.kind ?? "query-upsert") === "replace") {
-				this.transferPendingDocumentsToReplaceBuilders(
+			if (this.usesPageBuilder(context.descriptor)) {
+				this.transferPendingDocumentsToPageBuilders(
 					context,
 					normalized.grouped,
 				);
 				documentCredit = 0;
-				await this.flushReplacePages(context, false);
+				await this.flushPageBuilderPages(context, false);
 			} else {
 				await this.waitForAll(
 					[...normalized.grouped.entries()].map(([sourceId, documents]) =>
@@ -981,6 +1132,9 @@ export class QueryPersistenceCoordinator {
 		} finally {
 			if (documentCredit > 0) {
 				this.releasePendingDocumentCredit(documentCredit);
+			}
+			if (normalized.journalId !== undefined) {
+				await this.deleteJournalEntry(context, normalized.journalId);
 			}
 		}
 	}
@@ -1020,21 +1174,29 @@ export class QueryPersistenceCoordinator {
 				`Global raw backlog would exceed ${this.rawGlobalByteLimit} bytes.`,
 			);
 		}
-		this.currentPendingRawChunkBytes = nextGlobal;
-		context.pendingRawChunkBytes = nextStream;
+		this.recordRawChunkBytes(context, byteLength);
+		return null;
+	}
+
+	/** Records raw memory retained normally or while an overflow frame is journaled. */
+	private recordRawChunkBytes(
+		context: PersistenceStreamContext,
+		byteLength: number,
+	): void {
+		this.currentPendingRawChunkBytes += byteLength;
+		context.pendingRawChunkBytes += byteLength;
 		this.maximumPendingRawChunkBytes = Math.max(
 			this.maximumPendingRawChunkBytes,
-			nextGlobal,
+			this.currentPendingRawChunkBytes,
 		);
 		context.maximumPendingRawChunkBytes = Math.max(
 			context.maximumPendingRawChunkBytes,
-			nextStream,
+			context.pendingRawChunkBytes,
 		);
 		this.maximumStreamPendingRawChunkBytes = Math.max(
 			this.maximumStreamPendingRawChunkBytes,
-			nextStream,
+			context.pendingRawChunkBytes,
 		);
-		return null;
 	}
 
 	/**
@@ -1169,11 +1331,16 @@ export class QueryPersistenceCoordinator {
 	/**
 	 * Flushes and completes one explicit-mode persistence stream.
 	 * @param requestId Request identifier to complete after its durable commit.
+	 * @param finalization Optional terminal source-cache metadata.
 	 * @returns True when persistence owned the request.
 	 */
-	public async complete(requestId: string): Promise<boolean> {
+	public async complete(
+		requestId: string,
+		finalization?: DocumentStreamFinalization,
+	): Promise<boolean> {
 		const context = this.streams.get(requestId);
 		if (!context) return false;
+		if (finalization) context.finalization = finalization;
 		const explicit =
 			(context.descriptor.completionMode ?? "last") === "explicit";
 		if (explicit) context.explicitCompletionRequested = true;
@@ -1197,7 +1364,7 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Cancels one persist stream and rolls back an unfinished replace generation.
+	 * Cancels one persist stream and rolls back an unfinished builder generation.
 	 * @param requestId Request identifier to cancel.
 	 * @returns True when persistence owned the request.
 	 */
@@ -1220,6 +1387,7 @@ export class QueryPersistenceCoordinator {
 			) {
 				await this.rollbackPreparedSources(context);
 			}
+			await this.clearJournalEntries(context);
 			this.releaseContext(context);
 		});
 		context.cleanupPromise = cleanup;
@@ -1294,7 +1462,7 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Fails active persist streams on socket disconnect and leaves replace caches incomplete.
+	 * Fails active persist streams on socket disconnect and leaves builds incomplete.
 	 * @returns Promise resolved after best-effort incomplete markers and lock release.
 	 */
 	public async handleDisconnect(): Promise<void> {
@@ -1363,6 +1531,12 @@ export class QueryPersistenceCoordinator {
 		) {
 			throw new TypeError("expectedEvents must be a non-negative integer.");
 		}
+	}
+
+	/** Returns whether a stream builds immutable EventStore pages before finalization. */
+	private usesPageBuilder(descriptor: DocumentStreamDescriptor): boolean {
+		const kind = descriptor.kind ?? "query-upsert";
+		return kind === "replace" || kind === "ingestion-build";
 	}
 
 	/**
@@ -1531,22 +1705,26 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Begins a building generation for every replace source before registration ACK.
+	 * Begins a generation for every declared or discovered page-builder source.
 	 * @param context Stream being prepared.
 	 */
-	private async prepareReplaceSources(
+	private async preparePageBuilderSources(
 		context: PersistenceStreamContext,
+		sourceIds: readonly Source.Id[] = context.sourceIds,
 	): Promise<void> {
 		await this.waitForAll(
-			context.sourceIds.map(async (sourceId) => {
+			sourceIds.map(async (sourceId) => {
 				const summary = await this.withCommitSlot(() =>
 					context.operation.repository.beginGeneration({
 						sourceId,
-						queryCache: context.descriptor.queryCache,
+						queryCache:
+							(context.descriptor.kind ?? "query-upsert") === "replace"
+								? context.descriptor.queryCache
+								: undefined,
 					}),
 				);
 				const generation = summary.generation;
-				context.replaceSources.set(sourceId, {
+				context.pageBuilderSources.set(sourceId, {
 					sourceId,
 					generation,
 					nextHandle: 1,
@@ -1603,7 +1781,7 @@ export class QueryPersistenceCoordinator {
 	 * @param context Dynamic non-replacement stream.
 	 * @param sourceIds Source IDs discovered in the current normalized chunk.
 	 */
-	private async prepareDiscoveredUpsertSources(
+	private async prepareDiscoveredSources(
 		context: PersistenceStreamContext,
 		sourceIds: readonly Source.Id[],
 	): Promise<void> {
@@ -1616,7 +1794,11 @@ export class QueryPersistenceCoordinator {
 		const known = new Set(context.sourceIds);
 		const discovered = sourceIds.filter((sourceId) => !known.has(sourceId));
 		if (discovered.length === 0) return;
-		await this.prepareUpsertSources(context, discovered);
+		if (this.usesPageBuilder(context.descriptor)) {
+			await this.preparePageBuilderSources(context, discovered);
+		} else {
+			await this.prepareUpsertSources(context, discovered);
+		}
 		context.sourceIds.push(...discovered);
 		context.sourceIds.sort();
 	}
@@ -1664,18 +1846,18 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Atomically transfers normalized credit into replace page builders exactly once.
+	 * Atomically transfers normalized credit into page builders exactly once.
 	 * Builders retain partial pages across chunks until finalization or global pressure.
 	 * @param context Replacement stream owning the prepared sources.
 	 * @param grouped Normalized documents grouped by their declared source.
 	 * @returns Nothing.
 	 */
-	private transferPendingDocumentsToReplaceBuilders(
+	private transferPendingDocumentsToPageBuilders(
 		context: PersistenceStreamContext,
 		grouped: ReadonlyMap<Source.Id, readonly Doc.Type[]>,
 	): void {
 		const transfers: Array<{
-			source: ReplaceSourceContext;
+			source: PageBuilderSourceContext;
 			documents: readonly Doc.Type[];
 		}> = [];
 		let transferredDocuments = 0;
@@ -1686,7 +1868,7 @@ export class QueryPersistenceCoordinator {
 					`Source ${sourceId} was not registered for this stream.`,
 				);
 			}
-			const source = context.replaceSources.get(sourceId);
+			const source = context.pageBuilderSources.get(sourceId);
 			if (!source) {
 				throw new QueryPersistenceError(
 					"storage",
@@ -1746,15 +1928,15 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Encodes and appends one exact replace page with monotonic source handles.
+	 * Encodes and appends one exact builder page with monotonic source handles.
 	 * @param context Owning persistence stream.
-	 * @param source Prepared replace source.
+	 * @param source Prepared page-builder source.
 	 * @param documents Full page or final partial page.
 	 * @returns Promise settled after page persistence and summary publication.
 	 */
-	private async appendReplacePage(
+	private async appendPageBuilderPage(
 		context: PersistenceStreamContext,
-		source: ReplaceSourceContext,
+		source: PageBuilderSourceContext,
 		documents: readonly Doc.Type[],
 	): Promise<void> {
 		if (documents.length === 0) return;
@@ -1801,23 +1983,23 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Flushes full replace pages and optionally the final partial pages.
+	 * Flushes full builder pages and optionally the final partial pages.
 	 * Under global builder pressure, the largest residual owned by this stream is
 	 * committed first so other FIFO streams can acquire normalized capacity.
 	 * @param context Stream whose builders should commit.
 	 * @param includePartialPages Whether all final residual pages must be committed.
 	 * @returns Promise settled after all currently required pages are committed.
 	 */
-	private async flushReplacePages(
+	private async flushPageBuilderPages(
 		context: PersistenceStreamContext,
 		includePartialPages: boolean,
 	): Promise<void> {
-		const sources = [...context.replaceSources.values()];
+		const sources = [...context.pageBuilderSources.values()];
 		await this.waitForAll(
 			sources.map(async (source) => {
 				while (source.pendingDocuments.length >= EVENT_PAGE_SIZE) {
 					const documents = source.pendingDocuments.splice(0, EVENT_PAGE_SIZE);
-					await this.appendReplacePage(context, source, documents);
+					await this.appendPageBuilderPage(context, source, documents);
 				}
 			}),
 		);
@@ -1829,13 +2011,13 @@ export class QueryPersistenceCoordinator {
 						0,
 						source.pendingDocuments.length,
 					);
-					await this.appendReplacePage(context, source, documents);
+					await this.appendPageBuilderPage(context, source, documents);
 				}),
 			);
 			return;
 		}
 		while (this.currentPageBuilderDocuments > this.pageBuilderLowWatermark) {
-			const source = sources.reduce<ReplaceSourceContext | null>(
+			const source = sources.reduce<PageBuilderSourceContext | null>(
 				(largest, candidate) =>
 					candidate.pendingDocuments.length >
 					(largest?.pendingDocuments.length ?? 0)
@@ -1848,12 +2030,51 @@ export class QueryPersistenceCoordinator {
 				0,
 				source.pendingDocuments.length,
 			);
-			await this.appendReplacePage(context, source, documents);
+			await this.appendPageBuilderPage(context, source, documents);
 		}
 	}
 
 	/**
-	 * Flushes, finalizes replace sources, and completes the router stream after commit.
+	 * Replaces provisional ingestion source statistics with the exact page-builder
+	 * authority. The main thread supplies query identity and the backend update marker,
+	 * while the worker alone knows when every accepted document is durable.
+	 */
+	private finalizeIngestionQueryCache(
+		context: PersistenceStreamContext,
+		sourceId: Source.Id,
+		queryCache: QueryCacheProvenance | undefined,
+	): QueryCacheProvenance | undefined {
+		if (
+			!queryCache ||
+			(context.descriptor.kind ?? "query-upsert") !== "ingestion-build"
+		) {
+			return queryCache;
+		}
+		const manifest = context.operation.manifests.get(sourceId);
+		if (!manifest) return queryCache;
+		return {
+			...queryCache,
+			query: cloneQueryForCache(queryCache.query),
+			normalization: {
+				...queryCache.normalization,
+				requestedFields: [...queryCache.normalization.requestedFields],
+			},
+			serverSnapshot: {
+				...queryCache.serverSnapshot,
+				total: manifest.eventCount,
+				minNanoseconds: (
+					BigInt(Math.round(manifest.minTimestamp)) * 1_000_000n
+				).toString(),
+				maxNanoseconds: (
+					BigInt(Math.round(manifest.maxTimestamp)) * 1_000_000n
+				).toString(),
+				millisecondPrecision: true,
+			},
+		};
+	}
+
+	/**
+	 * Flushes and finalizes page-builder sources before completing the router stream.
 	 * @param context Persistence stream reaching its durable terminal point.
 	 * @param onFinalized Callback published after terminal authority is durable.
 	 * @returns Promise settled after best-effort obsolete-generation cleanup.
@@ -1864,14 +2085,20 @@ export class QueryPersistenceCoordinator {
 	): Promise<void> {
 		if (context.completed || context.failed) return;
 		this.callbacks.onStreamFlushing(context.descriptor.requestId);
-		await this.flushReplacePages(context, true);
-		if ((context.descriptor.kind ?? "query-upsert") === "replace") {
+		if (this.usesPageBuilder(context.descriptor)) {
+			await this.flushPageBuilderPages(context, true);
 			await this.waitForAll(
-				[...context.replaceSources.values()].map(async (source) => {
+				[...context.pageBuilderSources.values()].map(async (source) => {
+					const queryCache = this.finalizeIngestionQueryCache(
+						context,
+						source.sourceId,
+						context.finalization?.queryCachesBySourceId?.[source.sourceId],
+					);
 					const summary = await this.withCommitSlot(() =>
 						context.operation.repository.finalizeGeneration(
 							source.sourceId,
 							source.generation,
+							queryCache,
 						),
 					);
 					await this.afterCommit(context, summary);
@@ -1882,7 +2109,7 @@ export class QueryPersistenceCoordinator {
 		this.callbacks.onStreamCompleted(context.descriptor.requestId);
 		onFinalized();
 		await this.waitForAll(
-			[...context.replaceSources.values()].map(async (source) => {
+			[...context.pageBuilderSources.values()].map(async (source) => {
 				const cleanup = context.operation.repository.cleanupObsoleteGenerations;
 				if (!cleanup) return;
 				try {
@@ -1895,6 +2122,7 @@ export class QueryPersistenceCoordinator {
 				}
 			}),
 		);
+		await this.clearJournalEntries(context);
 		this.releaseContext(context);
 	}
 
@@ -1949,7 +2177,7 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Marks replace generations incomplete when possible, then releases the stream.
+	 * Marks or rolls back failed page-builder generations, then releases the stream.
 	 * @param context Failed persistence stream.
 	 * @param disconnected Whether cleanup was caused by transport disconnect.
 	 */
@@ -1958,9 +2186,9 @@ export class QueryPersistenceCoordinator {
 		disconnected: boolean,
 	): Promise<void> {
 		if (context.released) return;
-		if ((context.descriptor.kind ?? "query-upsert") === "replace") {
+		if (this.usesPageBuilder(context.descriptor)) {
 			await Promise.all(
-				[...context.replaceSources.values()].map(async (source) => {
+				[...context.pageBuilderSources.values()].map(async (source) => {
 					try {
 						const manifest =
 							await context.operation.backend.get<StoredEventSourceManifest>(
@@ -1968,7 +2196,9 @@ export class QueryPersistenceCoordinator {
 								source.sourceId,
 							);
 						if (
-							disconnected &&
+							((context.descriptor.kind ?? "query-upsert") ===
+								"ingestion-build" ||
+								disconnected) &&
 							!manifest?.rollback &&
 							context.operation.repository.markGenerationIncomplete
 						) {
@@ -1994,19 +2224,20 @@ export class QueryPersistenceCoordinator {
 				}),
 			);
 		}
+		await this.clearJournalEntries(context);
 		this.releaseContext(context);
 	}
 
 	/**
-	 * Rolls back replace generations prepared before cancellation or failed registration.
+	 * Rolls back builder generations prepared before cancellation or failed registration.
 	 * @param context Stream whose building generations should be removed.
 	 */
 	private async rollbackPreparedSources(
 		context: PersistenceStreamContext,
 	): Promise<void> {
-		if ((context.descriptor.kind ?? "query-upsert") !== "replace") return;
+		if (!this.usesPageBuilder(context.descriptor)) return;
 		await Promise.all(
-			[...context.replaceSources.values()].map(async (source) => {
+			[...context.pageBuilderSources.values()].map(async (source) => {
 				try {
 					await this.withCommitSlot(() =>
 						context.operation.repository.cancelGeneration(
@@ -2034,7 +2265,7 @@ export class QueryPersistenceCoordinator {
 			this.currentPendingRawChunkBytes - context.pendingRawChunkBytes,
 		);
 		context.pendingRawChunkBytes = 0;
-		for (const source of context.replaceSources.values()) {
+		for (const source of context.pageBuilderSources.values()) {
 			this.currentPageBuilderDocuments = Math.max(
 				0,
 				this.currentPageBuilderDocuments - source.pendingDocuments.length,

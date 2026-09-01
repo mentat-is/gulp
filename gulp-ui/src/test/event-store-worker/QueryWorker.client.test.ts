@@ -288,13 +288,18 @@ describe("QueryWorkerClient", () => {
 		});
 		await diagnosticsReset;
 
-		const completion = client.completeDocumentStream("worker-request");
+		const finalization = { queryCachesBySourceId: {} };
+		const completion = client.completeDocumentStream(
+			"worker-request",
+			finalization,
+		);
 		const completeCommand = worker.commands.find(
 			(command) => command.type === "COMPLETE_STREAM",
 		);
 		if (!completeCommand || completeCommand.type !== "COMPLETE_STREAM") {
 			throw new Error("Expected COMPLETE_STREAM command.");
 		}
+		expect(completeCommand.finalization).toEqual(finalization);
 		worker.emitWorkerEvent({
 			type: "CONTROL_RESULT",
 			controlId: completeCommand.controlId,

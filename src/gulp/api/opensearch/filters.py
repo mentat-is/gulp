@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 QUERY_DEFAULT_FIELDS = [
     "_id",
     "@timestamp",
-    "event.duration",
+    "event.sequence",
     "event.code",
     "gulp.timestamp",
     "gulp.timestamp_invalid",
@@ -56,7 +56,7 @@ class GulpBaseDocumentFilter(BaseModel):
     )
 
     time_range: Annotated[
-        Optional[tuple[int|str, int|str]],
+        Optional[tuple[int | str, int | str]],
         Field(
             description="""
 a tuple representing a `gulp.timestamp` range `[ start, end ]`.
@@ -108,7 +108,7 @@ default is False (both OpenSearch and websocket receives the filtered results).
 """,
         ),
     ] = False
-    
+
     @override
     def __str__(self) -> str:
         return super().__str__()
@@ -131,13 +131,13 @@ default is False (both OpenSearch and websocket receives the filtered results).
         if not flt or flt.storage_ignore_filter:
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
-        if not flt.time_range or len (flt.time_range) != 2:
+        if not flt.time_range or len(flt.time_range) != 2:
             # no time range, accept all
             return GulpDocumentFilterResult.ACCEPT
         if int(flt.time_range[0]) == 0 and int(flt.time_range[1]) == 0:
             # empty time range, accept all
             return GulpDocumentFilterResult.ACCEPT
-        
+
         # filter based on time range
         # check if ts is within the range. either start or end can be None
         # if both are None, the filter is empty and all events are accepted
@@ -270,22 +270,22 @@ include documents matching the given `gulp.source_id`/s.
 
             if self.agent_types:
                 filters.append({"terms": {"agent.type": self.agent_types}})
-            
+
             if self.operation_ids:
                 filters.append({"terms": {"gulp.operation_id": self.operation_ids}})
-            
+
             if self.context_ids:
                 filters.append({"terms": {"gulp.context_id": self.context_ids}})
-            
+
             if self.source_ids:
                 filters.append({"terms": {"gulp.source_id": self.source_ids}})
-            
+
             if self.doc_ids:
                 filters.append({"terms": {"_id": self.doc_ids}})
 
             if self.event_codes:
                 filters.append({"terms": {"event.code": self.event_codes}})
-            
+
             if self.time_range and len(self.time_range) == 2:
                 # range query
                 field = "gulp.timestamp"
@@ -296,7 +296,7 @@ include documents matching the given `gulp.source_id`/s.
                     range_clause["lte"] = int(self.time_range[1])
                 if range_clause:
                     filters.append({"range": {field: range_clause}})
-            
+
             if self.model_extra:
                 # extra fields
                 for k, v in self.model_extra.items():
@@ -310,23 +310,13 @@ include documents matching the given `gulp.source_id`/s.
             return filters
 
         filters = _build_filters()
-        
+
         # build the query struct using bool filter
         if filters:
-            query_dict = {
-                "query": {
-                    "bool": {
-                        "filter": filters
-                    }
-                }
-            }
+            query_dict = {"query": {"bool": {"filter": filters}}}
         else:
             # empty filter, match all
-            query_dict = {
-                "query": {
-                    "match_all": {}
-                }
-            }
+            query_dict = {"query": {"match_all": {}}}
 
         # MutyLogger.get_instance().debug('resulting query=%s' % (orjson.dumps(query_dict, option=orjson.OPT_INDENT_2).decode()))
         return query_dict
@@ -355,7 +345,11 @@ include documents matching the given `gulp.source_id`/s.
 
         # now merge the provided DSL's query
         other_q = dsl.get("query", {})
-        if isinstance(other_q, dict) and "bool" in other_q and "filter" in other_q["bool"]:
+        if (
+            isinstance(other_q, dict)
+            and "bool" in other_q
+            and "filter" in other_q["bool"]
+        ):
             merged_filters.extend(other_q["bool"]["filter"])
         else:
             if other_q and not ("match_all" in other_q):
@@ -367,7 +361,7 @@ include documents matching the given `gulp.source_id`/s.
         # nothing to filter, return match_all
         return {"query": {"match_all": {}}}
 
-    def is_empty(self, check_operation_ids: bool=True) -> bool:
+    def is_empty(self, check_operation_ids: bool = True) -> bool:
         """
         Check if the filter is empty.
 
@@ -376,7 +370,7 @@ include documents matching the given `gulp.source_id`/s.
         Returns:
             bool: True if the filter is empty, False otherwise.
         """
-        to_check= [
+        to_check = [
             self.time_range,
             self.agent_types,
             self.operation_ids,

@@ -1,5 +1,6 @@
 import type {
 	DocumentStreamDescriptor,
+	DocumentStreamFinalization,
 	DocumentStreamStateChange,
 	QuerySocketCloseDetails,
 	QuerySocketErrorDetails,
@@ -46,7 +47,10 @@ export interface QueryTransport {
 	cancelDocumentStream(requestId: string): Promise<void>;
 
 	/** Completes one stream after its final durable owner action. */
-	completeDocumentStream(requestId: string): Promise<void>;
+	completeDocumentStream(
+		requestId: string,
+		finalization?: DocumentStreamFinalization,
+	): Promise<void>;
 
 	/** Cancels document streams belonging to one operation epoch. */
 	cancelOperationStreams(

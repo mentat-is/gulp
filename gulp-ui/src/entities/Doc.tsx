@@ -15,6 +15,7 @@ import { documentIdentityRegistry } from "@/store/DocumentIdentityRegistry";
 import { Refractor } from "@/ui/utils";
 import { translate } from "@/locales";
 import type { Link } from "./Link";
+import { compareEventDocuments } from "@/event-store/EventStore.order";
 
 export namespace Doc {
 	export const name = "Doc";
@@ -26,6 +27,7 @@ export namespace Doc {
 	export interface Type {
 		_id: Doc.Id;
 		gulp_timestamp: number;
+		"event.sequence"?: number;
 		"gulp.source_id": Source.Id;
 		"gulp.event_code": number;
 		number_hash: number;
@@ -234,9 +236,9 @@ export namespace Doc {
 		public static get = (_app: App.Type, id: Source.Id): Doc.Type[] =>
 			DataStore.getSourceEvents(id);
 
-		/** Sorts events in descending timestamp order (newest first). Mutates the array in place. */
+		/** Sorts events by descending timestamp and descending event sequence. */
 		public static sort = (events: Doc.Type[]) =>
-			events.sort((a, b) => b.gulp_timestamp - a.gulp_timestamp);
+			events.sort(compareEventDocuments);
 
 		/** Returns all events from currently selected sources, flattened into a single array. */
 		public static selected = (app: App.Type): Doc.Type[] =>
@@ -577,7 +579,7 @@ export namespace Doc {
 						continue;
 					}
 
-					if (incomingEvent.gulp_timestamp > existingEvent.gulp_timestamp) {
+					if (compareEventDocuments(incomingEvent, existingEvent) < 0) {
 						trackHashRange(incomingEvent);
 						mergedEvents[mergedIndex++] = incomingEvent;
 						incomingIndex++;

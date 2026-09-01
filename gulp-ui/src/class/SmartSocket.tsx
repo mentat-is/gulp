@@ -1,6 +1,7 @@
 import { Logger } from "@/dto/Logger.class";
 import type {
 	DocumentStreamDescriptor,
+	DocumentStreamFinalization,
 	DocumentStreamStateChange,
 	QueryRenderWindowDescriptor,
 	QuerySocketCloseDetails,
@@ -405,10 +406,14 @@ export namespace SmartSocket {
 		/**
 		 * Completes one document stream after its final IndexedDB commit succeeds.
 		 * @param requestId Request identifier whose stream is complete.
+		 * @param finalization Optional terminal source-cache metadata.
 		 * @returns Promise resolved after QueryWorker publishes the completed state.
 		 */
-		public completeDocumentStream(requestId: string): Promise<void> {
-			return this.transport.completeDocumentStream(requestId);
+		public completeDocumentStream(
+			requestId: string,
+			finalization?: DocumentStreamFinalization,
+		): Promise<void> {
+			return this.transport.completeDocumentStream(requestId, finalization);
 		}
 
 		/**

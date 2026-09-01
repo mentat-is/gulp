@@ -25,7 +25,7 @@ let mockNavigationUnmounts = 0;
 
 const mockApp = {
 	target: { files: [] },
-	timeline: { renderVersion: 0 },
+	timeline: { renderVersion: 0, target: null },
 } as unknown as App.Type;
 
 jest.mock("@/context/Application.context", () => ({
@@ -237,6 +237,7 @@ describe("Event Dialog rendering", () => {
 		mockShouldDelegateEventAction = false;
 		mockSetEventJson.mock.calls.splice(0);
 		mockDetachedEventDetail = null;
+		mockApp.timeline.target = null;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -263,6 +264,20 @@ describe("Event Dialog rendering", () => {
 				.querySelector("[data-navigation-event]")
 				?.getAttribute("data-navigation-event"),
 		).toBe(secondEvent._id);
+	});
+
+	it("restores the timeline target while its event remains visible", () => {
+		const event = createEvent("persistent-crosshair-event");
+		mockApp.timeline.target = event;
+
+		act(() => root.render(<DisplayEventDialog event={event} />));
+		expect(mockSetTimelineTarget).not.toHaveBeenCalled();
+
+		mockApp.timeline.target = null;
+		act(() => root.render(<DisplayEventDialog event={event} />));
+
+		expect(mockSetTimelineTarget).toHaveBeenCalledTimes(1);
+		expect(mockSetTimelineTarget).toHaveBeenCalledWith(event);
 	});
 
 	it("delegates mutating toolbar actions when the Dialog is detached", () => {

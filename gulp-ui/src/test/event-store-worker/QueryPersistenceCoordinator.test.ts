@@ -588,6 +588,133 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
+	it("builds discovered ingestion sources in full pages and promotes their terminal cache", async () => {
+		const harness = createHarness();
+		const descriptor = createDescriptor("thirty-thousand-ingestion", {
+			kind: "ingestion-build",
+			sourceIds: [],
+			completionMode: "explicit",
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		await harness.coordinator.register(descriptor);
+		const repository = harness.repositories.get(descriptor.operationId);
+		const backend = harness.backends.get(descriptor.operationId);
+		if (!repository || !backend) throw new Error("Expected operation store.");
+		const upsertDocuments = jest.spyOn(repository, "upsertDocuments");
+
+		for (let chunkIndex = 0; chunkIndex < 3; chunkIndex++) {
+			harness.coordinator.handleDocumentChunk(
+				createChunk(
+					descriptor,
+					createRawDocuments(
+						`ingestion-${chunkIndex}`,
+						10_000,
+						SOURCE_ONE,
+						1_700_000_000_000 + chunkIndex * 10_000,
+					),
+					chunkIndex === 2,
+					chunkIndex,
+				),
+			);
+		}
+		const provenance = createQueryCacheProvenance("ingestion-cache");
+		await harness.coordinator.complete(descriptor.requestId, {
+			queryCachesBySourceId: { [SOURCE_ONE]: provenance },
+		});
+
+		const manifest = await backend.get<EventSourceManifest>(
+			"sources",
+			SOURCE_ONE,
+		);
+		expect(upsertDocuments).not.toHaveBeenCalled();
+		expect(
+			manifest?.pages.map((page) => page.count).sort((left, right) => right - left),
+		).toEqual([EVENT_PAGE_SIZE, 30_000 - EVENT_PAGE_SIZE]);
+		expect(await repository.getSourceSummary(SOURCE_ONE)).toMatchObject({
+			status: "complete",
+			eventCount: 30_000,
+			activeCacheGeneration: manifest?.generation,
+		});
+		const caches = await repository.listQueryCaches(SOURCE_ONE);
+		expect(caches).toHaveLength(1);
+		expect(caches[0].provenance).toMatchObject({
+			fingerprint: "ingestion-cache",
+			normalization: { field: "gulp.event_code" },
+			serverSnapshot: {
+				total: 30_000,
+				millisecondPrecision: true,
+			},
+		});
+		expect(harness.failures).toHaveLength(0);
+		harness.coordinator.destroy();
+	});
+
+	it("persists ingestion timestamp ties in event.sequence order", async () => {
+		const harness = createHarness();
+		const descriptor = createDescriptor("sequence-ordered-ingestion", {
+			kind: "ingestion-build",
+			sourceIds: [],
+			completionMode: "explicit",
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		await harness.coordinator.register(descriptor);
+		const timestamp = 1_700_000_000_000;
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				descriptor,
+				[
+					createRawDocument("sequence-40", SOURCE_ONE, timestamp, {
+						"event.sequence": 40,
+					}),
+					createRawDocument("sequence-10", SOURCE_ONE, timestamp, {
+						"event.sequence": 10,
+					}),
+				],
+				false,
+				0,
+			),
+		);
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				descriptor,
+				[
+					createRawDocument("sequence-30", SOURCE_ONE, timestamp, {
+						"event.sequence": 30,
+					}),
+					createRawDocument("sequence-20", SOURCE_ONE, timestamp, {
+						"event.sequence": 20,
+					}),
+				],
+				true,
+				1,
+			),
+		);
+		await harness.coordinator.complete(descriptor.requestId, {
+			queryCachesBySourceId: {
+				[SOURCE_ONE]: createQueryCacheProvenance("sequence-ingestion-cache"),
+			},
+		});
+
+		const repository = harness.repositories.get(descriptor.operationId);
+		if (!repository) throw new Error("Expected operation repository.");
+		const page = await repository.queryPixelBucket(
+			SOURCE_ONE,
+			{ min: timestamp, max: timestamp },
+			10,
+		);
+		expect(page.events.map((event) => event["event.sequence"])).toEqual([
+			40, 30, 20, 10,
+		]);
+		expect(harness.failures).toHaveLength(0);
+		harness.coordinator.destroy();
+	});
+
 	it("releases raw chunks after normalization while an earlier page commit is blocked", async () => {
 		const harness = createHarness({
 			rawGlobalByteLimit: 90,
@@ -930,6 +1057,44 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
+	it("spills ingestion overflow to its journal without failing or throttling the stream", async () => {
+		const harness = createHarness({
+			rawGlobalByteLimit: 100,
+			rawStreamByteLimit: 100,
+		});
+		const descriptor = createDescriptor("journaled-ingestion", {
+			kind: "ingestion-build",
+			sourceIds: [],
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		await harness.coordinator.register(descriptor);
+		const chunk = createChunk(
+			descriptor,
+			[createRawDocument("journaled-document")],
+			true,
+			0,
+			101,
+		);
+
+		harness.coordinator.handleDocumentChunk(chunk);
+		await waitFor(() => harness.completed.includes(descriptor.requestId));
+
+		const repository = harness.repositories.get(descriptor.operationId);
+		const backend = harness.backends.get(descriptor.operationId);
+		expect(harness.failures).toHaveLength(0);
+		expect(await repository?.getSourceSummary(SOURCE_ONE)).toMatchObject({
+			status: "complete",
+			eventCount: 1,
+		});
+		expect(await backend?.getAll("stream_journal")).toEqual([]);
+		expect(chunk.message.payload?.docs).toEqual([]);
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+		harness.coordinator.destroy();
+	});
+
 	it("isolates a global raw backlog rejection from accepted concurrent streams", async () => {
 		const harness = createHarness({
 			rawGlobalByteLimit: 100,
@@ -1079,6 +1244,40 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
+	it("marks a failed ingestion build incomplete instead of exposing partial cache data", async () => {
+		const harness = createHarness();
+		const descriptor = createDescriptor("ingestion-storage-failure", {
+			kind: "ingestion-build",
+			sourceIds: [],
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		await harness.coordinator.register(descriptor);
+		const repository = harness.repositories.get(descriptor.operationId);
+		if (!repository) throw new Error("Expected operation repository.");
+		repository.appendPages = async () => {
+			throw new Error("deterministic ingestion append failure");
+		};
+
+		harness.coordinator.handleDocumentChunk(
+			createChunk(descriptor, [createRawDocument("failed-ingestion")], true),
+		);
+
+		await waitFor(() => !harness.coordinator.hasStream(descriptor.requestId));
+		expect(harness.failures[0]).toMatchObject({
+			requestId: descriptor.requestId,
+			reason: "storage",
+		});
+		expect(await repository.getSourceSummary(SOURCE_ONE)).toMatchObject({
+			status: "incomplete",
+			activeCacheGeneration: null,
+		});
+		expect(await repository.listQueryCaches(SOURCE_ONE)).toHaveLength(0);
+		harness.coordinator.destroy();
+	});
+
 	it("discovers query-upsert sources without treating hash settings as authority", async () => {
 		const harness = createHarness();
 		const descriptor = createDescriptor("dynamic-request", {
@@ -1090,6 +1289,9 @@ describe("QueryPersistenceCoordinator", () => {
 			defaultSourceSettings: { field: "category", hash_function: "djb2" },
 		});
 		await harness.coordinator.register(descriptor);
+		const repository = harness.repositories.get(descriptor.operationId);
+		if (!repository) throw new Error("Expected operation store.");
+		const upsertDocuments = jest.spyOn(repository, "upsertDocuments");
 		harness.coordinator.handleDocumentChunk(
 			createChunk(
 				descriptor,
@@ -1102,8 +1304,7 @@ describe("QueryPersistenceCoordinator", () => {
 		await waitFor(() => harness.completed.includes(descriptor.requestId));
 
 		const backend = harness.backends.get(descriptor.operationId);
-		const repository = harness.repositories.get(descriptor.operationId);
-		if (!backend || !repository) throw new Error("Expected operation store.");
+		if (!backend) throw new Error("Expected operation store.");
 		expect(
 			await backend.get("sources", "settings-only-source"),
 		).toBeUndefined();
@@ -1113,6 +1314,7 @@ describe("QueryPersistenceCoordinator", () => {
 			"gulp.source_id": "discovered-source",
 		});
 		expect(document?.number_hash).not.toBe(0);
+		expect(upsertDocuments).toHaveBeenCalledTimes(1);
 		harness.coordinator.destroy();
 	});
 

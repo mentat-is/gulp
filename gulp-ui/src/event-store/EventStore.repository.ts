@@ -26,6 +26,10 @@ import type {
 	EventTimestampRange,
 } from "./EventStore.reader";
 import {
+	compareEventOrderValues,
+	normalizeEventSequence,
+} from "./EventStore.order";
+import {
 	EVENT_MAXIMUM_SOURCE_HANDLE,
 	EVENT_DOCUMENT_HASH_PREFIX_BITS,
 	EVENT_PAGE_HEIGHT_RECORD_KIND,
@@ -232,6 +236,7 @@ export interface EventStoreWriter {
 	finalizeGeneration(
 		sourceId: Source.Id,
 		generation: number,
+		queryCache?: QueryCacheProvenance,
 	): Promise<EventSourceSummary>;
 	cleanupObsoleteGenerations?(sourceId: Source.Id): Promise<void>;
 	discardGenerationRollback(
@@ -286,6 +291,7 @@ interface EventLocation {
 	offset: number;
 	handle: number;
 	timestamp: number;
+	sequence: number;
 	revision: number;
 }
 
@@ -542,9 +548,8 @@ export class EventStoreRepository
 				deduplicatedManifest.encodedBytes +
 				pageStorageByteDelta +
 				indexUpdate.encodedByteDelta,
-			pages: [...catalogByPage.values()].sort(
-				(left, right) =>
-					right.maxTimestamp - left.maxTimestamp || left.pageId - right.pageId,
+			pages: [...catalogByPage.values()].sort((left, right) =>
+				this.compareCatalogEntries(left, right),
 			),
 			documentIndexSegments: indexUpdate.catalog,
 		});
@@ -744,7 +749,12 @@ export class EventStoreRepository
 			}
 			touchedSources.add(existing.sourceId);
 			const sameSource = existing.sourceId === targetSourceId;
-			if (sameSource && page.timestamps[existing.offset] === document.gulp_timestamp) {
+			if (
+				sameSource &&
+				page.timestamps[existing.offset] === document.gulp_timestamp &&
+				page.sequences[existing.offset] ===
+					normalizeEventSequence(document["event.sequence"])
+			) {
 				page.hashes[existing.offset] = document.number_hash;
 				page.eventCodes[existing.offset] = document["gulp.event_code"];
 				continue;
@@ -856,9 +866,8 @@ export class EventStoreRepository
 				for (const page of replacementPages) {
 					catalogByPage.set(page.pageId, createEventPageCatalogEntry(page));
 				}
-				const pages = [...catalogByPage.values()].sort(
-					(left, right) =>
-						right.maxTimestamp - left.maxTimestamp || left.pageId - right.pageId,
+				const pages = [...catalogByPage.values()].sort((left, right) =>
+					this.compareCatalogEntries(left, right),
 				);
 				const nextManifest = this.recalculateManifest({
 					...manifest,
@@ -1032,13 +1041,16 @@ export class EventStoreRepository
 	 * append a cache record and history entry; legacy replacements retain old cleanup.
 	 * @param sourceId Source being finalized.
 	 * @param generation Expected active generation.
+	 * @param queryCache Optional provenance learned only when an explicit ingestion ends.
 	 * @returns Complete source summary.
 	 */
 	public async finalizeGeneration(
 		sourceId: Source.Id,
 		generation: number,
+		queryCache?: QueryCacheProvenance,
 	): Promise<EventSourceSummary> {
 		const manifest = await this.requireBuildingManifest(sourceId, generation);
+		const finalizedQueryCache = queryCache ?? manifest.pendingQueryCache;
 		const completeGeneration: StoredEventGenerationManifest = {
 			...this.toGenerationManifest(manifest),
 			revision: manifest.revision + 1,
@@ -1046,7 +1058,7 @@ export class EventStoreRepository
 		};
 		let complete: StoredEventSourceManifest;
 		const operations: EventStoreWriteOperation[] = [];
-		if (manifest.pendingQueryCache) {
+		if (finalizedQueryCache) {
 			const retainedHistory = manifest.cacheHistory.slice(
 				0,
 				manifest.cacheHistoryCursor + 1,
@@ -1075,7 +1087,7 @@ export class EventStoreRepository
 				sourceId,
 				generation,
 				manifest: completeGeneration,
-				provenance: manifest.pendingQueryCache,
+				provenance: finalizedQueryCache,
 				state: "exact",
 				createdAt: activatedAt,
 				lastActivatedAt: activatedAt,
@@ -1789,6 +1801,7 @@ export class EventStoreRepository
 			offset: 0,
 			handle: 0,
 			timestamp,
+			sequence: Number.POSITIVE_INFINITY,
 			revision: manifest.revision,
 		};
 		const newer = await this.collectNeighborLocations(
@@ -1883,8 +1896,9 @@ export class EventStoreRepository
 
 	/**
 	 * Builds an optimistic closest-event bound for one page and neighbor side.
-	 * `null` denotes a page spanning the current timestamp whose exact nearest value
-	 * cannot be bounded from the catalog alone; such pages must be read for correctness.
+	 * `null` denotes a page spanning the current canonical order key whose exact
+	 * nearest value cannot be bounded from the catalog alone; such pages must be
+	 * read for correctness.
 	 * @param manifest Active source generation.
 	 * @param catalogEntry Candidate page metadata.
 	 * @param current Current event location.
@@ -1904,50 +1918,28 @@ export class EventStoreRepository
 			handle: catalogEntry.representativeHandle,
 			revision: catalogEntry.revision,
 		};
+		const first: EventLocation = {
+			...base,
+			offset: 0,
+			timestamp: catalogEntry.maxTimestamp,
+			sequence: catalogEntry.firstSequence,
+		};
+		const last: EventLocation = {
+			...base,
+			offset: Math.max(0, catalogEntry.count - 1),
+			timestamp: catalogEntry.minTimestamp,
+			sequence: catalogEntry.lastSequence,
+		};
+		const firstComparison = this.compareLocations(first, current);
+		const lastComparison = this.compareLocations(last, current);
 		if (side === "before") {
-			if (
-				catalogEntry.maxTimestamp < current.timestamp ||
-				(catalogEntry.maxTimestamp === current.timestamp &&
-					catalogEntry.pageId >= current.pageId)
-			) {
-				return undefined;
-			}
-			if (
-				catalogEntry.minTimestamp <= current.timestamp &&
-				catalogEntry.pageId < current.pageId
-			) {
-				return {
-					...base,
-					offset: Math.max(0, catalogEntry.count - 1),
-					timestamp: current.timestamp,
-				};
-			}
-			if (catalogEntry.minTimestamp > current.timestamp) {
-				return {
-					...base,
-					offset: Math.max(0, catalogEntry.count - 1),
-					timestamp: catalogEntry.minTimestamp,
-				};
-			}
+			if (firstComparison > 0) return undefined;
+			if (lastComparison < 0) return last;
 			return null;
 		}
 
-		if (
-			catalogEntry.minTimestamp > current.timestamp ||
-			(catalogEntry.minTimestamp === current.timestamp &&
-				catalogEntry.pageId <= current.pageId)
-		) {
-			return undefined;
-		}
-		if (
-			catalogEntry.maxTimestamp >= current.timestamp &&
-			catalogEntry.pageId > current.pageId
-		) {
-			return { ...base, offset: 0, timestamp: current.timestamp };
-		}
-		if (catalogEntry.maxTimestamp < current.timestamp) {
-			return { ...base, offset: 0, timestamp: catalogEntry.maxTimestamp };
-		}
+		if (lastComparison < 0) return undefined;
+		if (firstComparison > 0) return first;
 		return null;
 	}
 
@@ -2020,15 +2012,7 @@ export class EventStoreRepository
 			const endExclusive =
 				page.pageId === current.pageId
 					? current.offset
-					: page.pageId < current.pageId
-						? this.findFirstDescendingLessThan(
-								page.timestamps,
-								current.timestamp,
-							)
-						: this.findFirstDescendingAtMost(
-								page.timestamps,
-								current.timestamp,
-							);
+					: this.findFirstPageOffsetNotPreceding(page, current);
 			let retained = 0;
 			for (let offset = endExclusive - 1; offset >= 0 && retained < limit; offset--) {
 				if (page.tombstones[offset] !== 0) continue;
@@ -2045,9 +2029,7 @@ export class EventStoreRepository
 		const startOffset =
 			page.pageId === current.pageId
 				? current.offset + 1
-				: page.pageId > current.pageId
-					? this.findFirstDescendingAtMost(page.timestamps, current.timestamp)
-					: this.findFirstDescendingLessThan(page.timestamps, current.timestamp);
+				: this.findFirstPageOffsetFollowing(page, current);
 		let retained = 0;
 		for (
 			let offset = startOffset;
@@ -2078,6 +2060,7 @@ export class EventStoreRepository
 			offset,
 			handle: page.handles[offset],
 			timestamp: page.timestamps[offset],
+			sequence: page.sequences[offset],
 			revision: page.revision,
 		};
 	}
@@ -2162,6 +2145,7 @@ export class EventStoreRepository
 					offset: 0,
 					handle: catalogEntry.representativeHandle,
 					timestamp: catalogEntry.maxTimestamp,
+					sequence: catalogEntry.firstSequence,
 					revision: catalogEntry.revision,
 				};
 				if (this.compareLocations(bestPossibleLocation, worstSelected) >= 0) {
@@ -2190,6 +2174,7 @@ export class EventStoreRepository
 					offset,
 					handle: page.handles[offset],
 					timestamp,
+					sequence: page.sequences[offset],
 					revision: page.revision,
 				};
 				if (cursorLocation && this.compareLocations(location, cursorLocation) <= 0) {
@@ -2445,10 +2430,8 @@ export class EventStoreRepository
 					currentManifest.encodedBytes +
 					pageStorageByteDelta +
 					indexUpdate.encodedByteDelta,
-				pages: [...catalogByPage.values()].sort(
-					(left, right) =>
-						right.maxTimestamp - left.maxTimestamp ||
-						left.pageId - right.pageId,
+				pages: [...catalogByPage.values()].sort((left, right) =>
+					this.compareCatalogEntries(left, right),
 				),
 				documentIndexSegments: indexUpdate.catalog,
 			});
@@ -2831,6 +2814,7 @@ export class EventStoreRepository
 					offset,
 					handle,
 					timestamp: page.timestamps[offset],
+					sequence: page.sequences[offset],
 					revision: page.revision,
 				};
 				if (!best || this.isLocationNewer(location, best)) best = location;
@@ -2947,6 +2931,7 @@ export class EventStoreRepository
 							offset,
 							handle: page.handles[offset],
 							timestamp: page.timestamps[offset],
+							sequence: page.sequences[offset],
 							revision: page.revision,
 						};
 						const current = locations.get(candidateId);
@@ -3202,24 +3187,117 @@ export class EventStoreRepository
 		let right = locations.length;
 		while (left < right) {
 			const middle = (left + right) >>> 1;
-			if (this.compareLocations(locations[middle], location) <= 0) left = middle + 1;
-			else right = middle;
+			if (this.compareLocations(locations[middle], location) <= 0) {
+				left = middle + 1;
+			} else {
+				right = middle;
+			}
 		}
 		return left;
 	}
 
 	/**
-	 * Compares locations by descending timestamp and stable page/offset tie breakers.
+	 * Compares locations by descending timestamp, descending sequence, and stable
+	 * page/offset tie breakers.
 	 * @param left First location.
 	 * @param right Second location.
 	 * @returns Negative when left precedes right.
 	 */
 	private compareLocations(left: EventLocation, right: EventLocation): number {
 		return (
-			right.timestamp - left.timestamp ||
+			compareEventOrderValues(
+				left.timestamp,
+				left.sequence,
+				right.timestamp,
+				right.sequence,
+			) ||
 			left.pageId - right.pageId ||
 			left.offset - right.offset
 		);
+	}
+
+	/**
+	 * Orders page catalog entries by their first canonical event.
+	 * @param left First page catalog entry.
+	 * @param right Second page catalog entry.
+	 * @returns Negative when the left page begins before the right page.
+	 */
+	private compareCatalogEntries(
+		left: EventPageCatalogEntry,
+		right: EventPageCatalogEntry,
+	): number {
+		return (
+			compareEventOrderValues(
+				left.maxTimestamp,
+				left.firstSequence,
+				right.maxTimestamp,
+				right.firstSequence,
+			) || left.pageId - right.pageId
+		);
+	}
+
+	/**
+	 * Compares one encoded offset with a canonical location without decoding its ID.
+	 * @param page Page containing the candidate offset.
+	 * @param offset Candidate page offset.
+	 * @param location Reference canonical location.
+	 * @returns Canonical order comparison.
+	 */
+	private comparePageOffsetToLocation(
+		page: EncodedEventPage,
+		offset: number,
+		location: EventLocation,
+	): number {
+		return this.compareLocations(
+			this.createEventLocation(page, offset),
+			location,
+		);
+	}
+
+	/**
+	 * Finds the first offset that does not canonically precede a location.
+	 * @param page Canonically sorted exact page.
+	 * @param location Reference location.
+	 * @returns First offset whose comparison is greater than or equal to zero.
+	 */
+	private findFirstPageOffsetNotPreceding(
+		page: EncodedEventPage,
+		location: EventLocation,
+	): number {
+		let left = 0;
+		let right = page.count;
+		while (left < right) {
+			const middle = (left + right) >>> 1;
+			if (this.comparePageOffsetToLocation(page, middle, location) < 0) {
+				left = middle + 1;
+			} else {
+				right = middle;
+			}
+		}
+		return left;
+	}
+
+	/**
+	 * Finds the first offset that canonically follows a location.
+	 * @param page Canonically sorted exact page.
+	 * @param location Reference location.
+	 * @returns First offset whose comparison is greater than zero.
+	 */
+	private findFirstPageOffsetFollowing(
+		page: EncodedEventPage,
+		location: EventLocation,
+	): number {
+		let left = 0;
+		let right = page.count;
+		while (left < right) {
+			const middle = (left + right) >>> 1;
+			if (this.comparePageOffsetToLocation(page, middle, location) <= 0) {
+				left = middle + 1;
+			} else {
+				right = middle;
+			}
+		}
+		return left;
 	}
 
 	/**
@@ -3253,26 +3331,6 @@ export class EventStoreRepository
 		while (left < right) {
 			const middle = (left + right) >>> 1;
 			if (timestamps[middle] > maximum) left = middle + 1;
-			else right = middle;
-		}
-		return left;
-	}
-
-	/**
-	 * Finds the first descending timestamp strictly less than a boundary.
-	 * @param timestamps Descending timestamp column.
-	 * @param boundary Exclusive upper boundary.
-	 * @returns First strictly older offset.
-	 */
-	private findFirstDescendingLessThan(
-		timestamps: Float64Array,
-		boundary: number,
-	): number {
-		let left = 0;
-		let right = timestamps.length;
-		while (left < right) {
-			const middle = (left + right) >>> 1;
-			if (timestamps[middle] >= boundary) left = middle + 1;
 			else right = middle;
 		}
 		return left;
@@ -3641,7 +3699,9 @@ export class EventStoreRepository
 		if (
 			!Number.isFinite(document.gulp_timestamp) ||
 			!Number.isFinite(document.number_hash) ||
-			!Number.isFinite(document["gulp.event_code"])
+			!Number.isFinite(document["gulp.event_code"]) ||
+			(document["event.sequence"] !== undefined &&
+				!Number.isFinite(document["event.sequence"]))
 		) {
 			throw new TypeError("EventStore upsert numeric fields must be finite.");
 		}
@@ -3657,6 +3717,7 @@ export class EventStoreRepository
 			...page,
 			handles: page.handles.slice(),
 			timestamps: page.timestamps.slice(),
+			sequences: page.sequences.slice(),
 			hashes: page.hashes.slice(),
 			eventCodes: page.eventCodes.slice(),
 			idOffsets: page.idOffsets.slice(),
@@ -3767,6 +3828,7 @@ export class EventStoreRepository
 		if (
 			page.handles.length !== page.count ||
 			page.timestamps.length !== page.count ||
+			page.sequences.length !== page.count ||
 			page.hashes.length !== page.count ||
 			page.eventCodes.length !== page.count ||
 			page.idOffsets.length !== page.count + 1 ||
@@ -3777,9 +3839,22 @@ export class EventStoreRepository
 		}
 		let activeCount = 0;
 		for (let index = 0; index < page.count; index++) {
-			if (index > 0 && page.timestamps[index] > page.timestamps[index - 1]) {
+			if (!Number.isFinite(page.sequences[index])) {
 				throw new EventStoreCorruptionError(
-					"Encoded event page timestamps are not descending.",
+					"Encoded event page contains a non-finite event sequence.",
+				);
+			}
+			if (
+				index > 0 &&
+				compareEventOrderValues(
+					page.timestamps[index - 1],
+					page.sequences[index - 1],
+					page.timestamps[index],
+					page.sequences[index],
+				) > 0
+			) {
+				throw new EventStoreCorruptionError(
+					"Encoded event page order is not timestamp-descending and sequence-descending.",
 				);
 			}
 			if (page.idOffsets[index] > page.idOffsets[index + 1]) {

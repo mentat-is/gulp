@@ -1390,7 +1390,6 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		}
 
 		if (preferExactEvent && (await resolveOverlayClick())) return;
-		Info.setTimelineTarget(null);
 	};
 
 	useEffect(() => {

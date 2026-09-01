@@ -88,6 +88,7 @@ import {
 } from "@/class/WorkspaceSessionRepository";
 import type {
 	DocumentStreamDescriptor,
+	DocumentStreamFinalization,
 	DocumentStreamStateChange,
 	DocumentStreamSourceSettings,
 	QuerySourceSummaryEvent,
@@ -1224,9 +1225,11 @@ export class Info implements InfoProps {
 					? "replace"
 					: options.kind === "enrichment"
 						? "enrichment"
-						: options.kind === "ingestion" || options.kind === "realtime"
-							? "realtime-ingest"
-							: "query-upsert",
+						: options.kind === "ingestion"
+							? "ingestion-build"
+							: options.kind === "realtime"
+								? "realtime-ingest"
+								: "query-upsert",
 			sourceIds: options.sourceIds,
 			defaultSourceSettings: options.defaultSourceSettings,
 			sourceSettingsById:
@@ -1290,15 +1293,17 @@ export class Info implements InfoProps {
 	/**
 	 * Marks an explicitly completed request after its final storage commit.
 	 * @param requestId Request whose QueryWorker stream can become terminal.
+	 * @param finalization Optional source cache provenance learned at backend completion.
 	 * @returns Promise settled after worker acknowledgement and local cleanup.
 	 * @throws Error when the query transport is unavailable or rejects completion.
 	 */
 	completeEventDocumentStream = async (
 		requestId: Request.Id,
+		finalization?: DocumentStreamFinalization,
 	): Promise<void> => {
 		const socket = SmartSocket.Class.instance;
 		if (!socket) throw new Error("Query transport is unavailable.");
-		await socket.completeDocumentStream(requestId);
+		await socket.completeDocumentStream(requestId, finalization);
 		this.activeEventDocumentStreams.delete(requestId);
 		this.eventDocumentStreamOptions.delete(requestId);
 		this.releaseEventDocumentStream(requestId);
@@ -1469,7 +1474,9 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Cancels backend work after QueryWorker rejects storage, quota, or backlog.
+	 * Cancels backend query work after QueryWorker rejects local persistence. A
+	 * file ingestion is independent: its backend job keeps running and only its
+	 * incomplete browser cache is discarded.
 	 * @param event Terminal persistence failure containing no document payloads.
 	 * @returns Nothing.
 	 */
@@ -1480,6 +1487,13 @@ export class Info implements InfoProps {
 		const backendDispatched =
 			this.backendDispatchedEventDocumentStreams.has(requestId);
 		const options = this.eventDocumentStreamOptions.get(requestId);
+		if (backendDispatched && options?.kind === "ingestion") {
+			console.warn(
+				`Ingestion cache ${requestId} failed (${event.reason}) while backend ingestion continues: ${event.message}`,
+				Info,
+			);
+			return;
+		}
 		this.restoreSourceQueryRollback(options);
 		const recoverableSourceIds = Array.from(
 			new Set(options?.sourceIds ?? []),
@@ -1892,6 +1906,31 @@ export class Info implements InfoProps {
 			normalization,
 			serverSnapshot: this.getQueryCacheServerSnapshot(source),
 		};
+	};
+
+	/**
+	 * Describes the unfiltered cache produced while a source is ingested. Ingestion
+	 * builders intentionally use the stable event-code hash until source settings are
+	 * changed explicitly after ingestion.
+	 * @param source Newly created backend source represented in the application state.
+	 * @returns Full-source query provenance suitable for terminal cache promotion.
+	 */
+	private createIngestionQueryCacheProvenance = (
+		source: Source.Type,
+	): QueryCacheProvenance => {
+		const normalizedSource: Source.Type = {
+			...source,
+			settings: {
+				...source.settings,
+				field: "gulp.event_code",
+				hash_function: Internal.Settings.default.hash_function,
+			},
+		};
+		return this.createQueryCacheProvenance(
+			normalizedSource,
+			Filter.Entity.default(this.app, source),
+			["gulp.event_code"],
+		);
 	};
 
 	/**
@@ -4861,6 +4900,7 @@ export class Info implements InfoProps {
 		sourceId: Source.Id,
 		summary: EventSourceSummary,
 		toastedSources: Set<Source.Id>,
+		provenance?: QueryCacheProvenance,
 	): void => {
 		if (summary.status !== "complete") return;
 		const now = Date.now();
@@ -4879,6 +4919,11 @@ export class Info implements InfoProps {
 
 			files[index] = Source.Entity.normalize(draft, {
 				...file,
+				settings: {
+					...file.settings,
+					field: "gulp.event_code",
+					hash_function: Internal.Settings.default.hash_function,
+				},
 				timestamp,
 				nanotimestamp: {
 					min: Internal.Transformator.toNanos(timestamp.min),
@@ -4886,6 +4931,16 @@ export class Info implements InfoProps {
 				},
 				total: summary.eventCount,
 				selected: true,
+				...(provenance &&
+				summary.activeCacheGeneration === summary.generation
+					? {
+							appliedQuery: cloneQueryForCache(provenance.query),
+							queryCache: this.createRuntimeQueryCacheState(
+								summary,
+								"fresh",
+							),
+						}
+					: {}),
 			});
 			finalName = file.name;
 			draft.target.files = files;
@@ -4923,9 +4978,11 @@ export class Info implements InfoProps {
 	): (() => void) => {
 		const sourceIds = new Set<Source.Id>();
 		const summaries = new Map<Source.Id, EventSourceSummary>();
+		const queryCaches = new Map<Source.Id, QueryCacheProvenance>();
 		const toastedSources = new Set<Source.Id>();
 		let documentsComplete = false;
 		let statsComplete = false;
+		let cacheCaptureFailed = false;
 		let terminalFailure = false;
 		let releaseSocketListeners = (): void => undefined;
 
@@ -4937,6 +4994,7 @@ export class Info implements InfoProps {
 					sourceId,
 					summary,
 					toastedSources,
+					queryCaches.get(sourceId),
 				);
 			}
 		};
@@ -4944,7 +5002,10 @@ export class Info implements InfoProps {
 			for (const sourceId of sourceIds) finalizeSource(sourceId);
 		};
 		const releaseWhenTerminal = (): void => {
-			if (terminalFailure || (documentsComplete && statsComplete)) {
+			if (
+				terminalFailure ||
+				(statsComplete && (documentsComplete || cacheCaptureFailed))
+			) {
 				releaseSocketListeners();
 			}
 		};
@@ -5006,7 +5067,12 @@ export class Info implements InfoProps {
 					releaseWhenTerminal();
 					return;
 				}
-				if (change.state === "canceled" || change.state === "failed") {
+				if (change.state === "failed") {
+					cacheCaptureFailed = true;
+					releaseWhenTerminal();
+					return;
+				}
+				if (change.state === "canceled") {
 					clearFailedStreamState();
 				}
 			});
@@ -5039,14 +5105,48 @@ export class Info implements InfoProps {
 				}
 				statsComplete = true;
 				this.delLoading(id);
+				if (cacheCaptureFailed) {
+					for (const sourceId of sourceIds) {
+						this.ingestionProgress.delete(sourceId);
+						this.delLoadingByFile(sourceId);
+					}
+					void this.cancelEventDocumentStream(id).catch((error: unknown) => {
+						Logger.warn(
+							`Unable to release failed ingestion cache ${id}: ${(error as Error).message}`,
+							Info,
+						);
+					});
+					releaseWhenTerminal();
+					return;
+				}
+				for (const sourceId of sourceIds) {
+					const source = Source.Entity.id(this.app, sourceId);
+					if (!source) continue;
+					try {
+						queryCaches.set(
+							sourceId,
+							this.createIngestionQueryCacheProvenance(source),
+						);
+					} catch (error) {
+						Logger.warn(
+							`Unable to describe ingestion cache ${sourceId}: ${(error as Error).message}`,
+							Info,
+						);
+					}
+				}
 				if (documentsComplete) finalizeKnownSources();
-				void this.completeEventDocumentStream(id).catch((error: unknown) => {
-					Logger.warn(
-						`Unable to complete ingestion stream ${id}: ${(error as Error).message}`,
-						Info,
-					);
-					cancelFailedStream();
-				});
+				const finalization: DocumentStreamFinalization = {
+					queryCachesBySourceId: Object.fromEntries(queryCaches),
+				};
+				void this.completeEventDocumentStream(id, finalization).catch(
+					(error: unknown) => {
+						Logger.warn(
+							`Unable to complete ingestion stream ${id}: ${(error as Error).message}`,
+							Info,
+						);
+						cancelFailedStream();
+					},
+				);
 				releaseWhenTerminal();
 			},
 		);
@@ -5104,9 +5204,8 @@ export class Info implements InfoProps {
 			mode: "upsert",
 			completionMode: "explicit",
 			defaultSourceSettings: {
-				field: String(settings.field ?? Internal.Settings.default.field),
-				hash_function:
-					settings.hash_function ?? Internal.Settings.default.hash_function,
+				field: "gulp.event_code",
+				hash_function: Internal.Settings.default.hash_function,
 			},
 		});
 		if (!registered) return;

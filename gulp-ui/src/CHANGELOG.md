@@ -16,6 +16,16 @@
 
 ## Architecture and Documentation
 
+- `Ingestion EventStore build`: Combined 1,500–2,000-event ingestion chunks
+  into 16,384-event pages, journaled raw overflow in IndexedDB without backend
+  ACK/backpressure, and promoted completed ingestion generations into the
+  reusable source query-cache pool using `gulp.event_code` hashing.
+- `Independent ingestion failures`: Browser cache failures now leave partial
+  generations incomplete and keep the authoritative backend ingestion running
+  instead of issuing `/request_cancel`; realtime ingestion is unchanged.
+- `Ingestion event ordering`: Persisted `event.sequence` in EventStore schema
+  v6 and used it as the descending tie-breaker after descending timestamps,
+  including across ingestion chunks, page boundaries, cursors, and neighbors.
 - `IndexedDB`: Added `source_query_caches`, logical `authorityRevision`, bounded resumable pruning, QueryWorker cache commands, detached-window synchronization, and updated EventStore architecture documentation.
 - `IndexedDB identity`: Namespaced EventStore databases, revision channels, and writer locks by canonical backend plus authenticated user so caches survive browser restarts; retained tab-scoped WindowBridge coordination and isolated auth-user transitions.
 - `Render protocol v9`: Added `frameEventCount`, kept `loadedCount` as terminal authority, and removed obsolete cache-freshness metadata from the render-worker contract.
@@ -52,6 +62,8 @@
 
 ## Bug Fixes and Stability
 
+- `Selected Event Crosshair`: Kept the timeline crosshair on the event visible
+  in Event Detail when an empty position inside a source row is clicked.
 - `Timeline Frame Queries`: Applied the selected frame as the offset-adjusted backend range for every selected source, including in-flight rendering and subsequent structured or manual filters.
 - `Timeline Frame Counts`: Displayed the exact IndexedDB manifest count for frame-filtered queries across every source label, independently from bounded LOD representatives, while preserving the canonical source total.
 - `Frame Date Selection`: Preserved in-progress From and To edits while timeline request-loading updates rerender the frame banner.

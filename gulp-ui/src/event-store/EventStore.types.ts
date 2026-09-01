@@ -43,6 +43,7 @@ export interface EncodedEventPage {
 	hashMax: number;
 	handles: Uint32Array;
 	timestamps: Float64Array;
+	sequences: Float64Array;
 	hashes: Float64Array;
 	eventCodes: Float64Array;
 	idOffsets: Uint32Array;
@@ -60,6 +61,8 @@ export interface EventPageCatalogEntry {
 	activeCount: number;
 	minTimestamp: number;
 	maxTimestamp: number;
+	firstSequence: number;
+	lastSequence: number;
 	hashMin: number;
 	hashMax: number;
 	minimumHandle: number;

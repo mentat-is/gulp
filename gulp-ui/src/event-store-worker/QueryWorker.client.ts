@@ -1,5 +1,6 @@
 import type {
 	DocumentStreamDescriptor,
+	DocumentStreamFinalization,
 	QueryRenderWindowDescriptor,
 	QuerySocketState,
 	QueryWorkerCommand,
@@ -185,13 +186,18 @@ export class QueryWorkerClient implements QueryTransport {
 	/**
 	 * Completes one stream after its final durable owner action succeeds.
 	 * @param requestId Request identifier whose stream is complete.
+	 * @param finalization Optional terminal source-cache metadata.
 	 * @returns Promise resolved after QueryWorker publishes the completed state.
 	 */
-	public completeDocumentStream(requestId: string): Promise<void> {
+	public completeDocumentStream(
+		requestId: string,
+		finalization?: DocumentStreamFinalization,
+	): Promise<void> {
 		return this.sendControl({
 			type: "COMPLETE_STREAM",
 			controlId: this.nextControlId(),
 			requestId,
+			finalization,
 		});
 	}
 

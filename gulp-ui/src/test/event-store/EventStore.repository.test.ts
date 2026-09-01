@@ -407,6 +407,62 @@ describe("EventStoreRepository", () => {
 		expect(secondPage.nextCursor).toBeNull();
 	});
 
+	it("orders equal timestamps by sequence across ingestion page boundaries", async () => {
+		const repository = new EventStoreRepository(new MemoryEventStoreBackend());
+		await repository.beginGeneration({ sourceId: SOURCE_ID, generation: 1 });
+		await repository.appendPages({
+			sourceId: SOURCE_ID,
+			generation: 1,
+			pages: [
+				createPage(
+					0,
+					1,
+					1,
+					[
+						{ ...createDocument("sequence-30", 100), "event.sequence": 30 },
+						{ ...createDocument("sequence-10", 100), "event.sequence": 10 },
+					],
+					[1, 2],
+				),
+				createPage(
+					1,
+					1,
+					1,
+					[
+						{ ...createDocument("sequence-40", 100), "event.sequence": 40 },
+						{ ...createDocument("sequence-20", 100), "event.sequence": 20 },
+					],
+					[3, 4],
+				),
+			],
+		});
+		await repository.finalizeGeneration(SOURCE_ID, 1);
+
+		const firstPage = await repository.queryPixelBucket(
+			SOURCE_ID,
+			{ min: 100, max: 100 },
+			2,
+		);
+		expect(firstPage.events.map((event) => event["event.sequence"])).toEqual([
+			40, 30,
+		]);
+		const secondPage = await repository.queryPixelBucket(
+			SOURCE_ID,
+			{ min: 100, max: 100 },
+			2,
+			firstPage.nextCursor ?? undefined,
+		);
+		expect(secondPage.events.map((event) => event["event.sequence"])).toEqual([
+			20, 10,
+		]);
+
+		const neighbors = await repository.getNeighbors(SOURCE_ID, 4, 2, 1);
+		expect(neighbors.events.map((event) => event["event.sequence"])).toEqual([
+			40, 30, 20, 10,
+		]);
+		expect(neighbors.currentIndex).toBe(2);
+	});
+
 	it("rejects a cursor after the source revision changes", async () => {
 		const repository = new EventStoreRepository(new MemoryEventStoreBackend());
 		await repository.beginGeneration({ sourceId: SOURCE_ID, generation: 1 });

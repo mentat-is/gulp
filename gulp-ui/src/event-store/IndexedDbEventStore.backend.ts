@@ -6,11 +6,13 @@ import {
 	type EventStoreWriteOperation,
 } from "./EventStore.backend";
 
-export const EVENT_STORE_DATABASE_VERSION = 4;
+export const EVENT_STORE_DATABASE_VERSION = 6;
 const EVENT_STORE_DATABASE_PREFIX = "gulp-event-store";
 
 /**
- * Reports whether a persisted cache predates the current query-cache-pool schema.
+ * Reports whether a persisted cache predates the version-six event-sequence column.
+ * Version six changes exact-page and page-catalog records, so every older cache
+ * must be rebuilt instead of decoding an ambiguous timestamp-only order.
  * Version zero is a new database and therefore has no incompatible data to rebuild.
  * @param oldVersion Version supplied by IndexedDB during upgrade.
  * @returns True when every cache store must be recreated.
