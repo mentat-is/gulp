@@ -23,7 +23,6 @@ import muty.jsend
 import muty.log
 import muty.os
 import muty.string
-import muty.time
 import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2396,9 +2395,10 @@ class Plugin(GulpPluginBase):
             d.update(mapped)
 
         # normalize timestamp
-        timestamp: str = datetime.fromtimestamp(
-            float(record.time), tz=timezone.utc
-        ).isoformat()
+        normalized_timestamp = GulpDocument.normalize_timestamp(
+            datetime.fromtimestamp(float(record.time), tz=timezone.utc),
+            plugin_params=self._plugin_params,
+        )
 
         event_original = f"""network.protocol: {d.get("network.protocol","")}
         source.address: {d.get("source.address","")}
@@ -2414,7 +2414,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx + 1 if self._wireshark_seq_align else record_idx,
-            timestamp=timestamp,
+            normalized_timestamp=normalized_timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )

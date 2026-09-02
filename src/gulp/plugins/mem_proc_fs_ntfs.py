@@ -4,11 +4,9 @@ MemProcFS Plugin for Gulp
 This module provides a plugin for processing MemProcFS files ntfs_files.txt logs.
 """
 
-import aiofiles
-import muty.time
+import muty.file
 import re
 
-from datetime import datetime
 from typing import override, Any, Optional
 
 from muty.log import MutyLogger
@@ -59,8 +57,7 @@ class Plugin(GulpPluginBase):
         """
         d = {}
         event_original = record.pop("__line__")
-        time = record.pop("timestamp")
-        d["@timestamp"] = time
+        normalized_timestamp = record.pop("normalized_timestamp")
         for k, v in record.items():
             try:
                 mapped = await self._process_key(k, v, d, **kwargs)
@@ -77,6 +74,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,  # taken from the record
             event_sequence=record_idx,  # taken from the record
+            normalized_timestamp=normalized_timestamp,
             **d,
         )
 
@@ -138,41 +136,54 @@ class Plugin(GulpPluginBase):
         doc_idx = 0
         mapping: GulpMapping = self.selected_mapping()
         encoding = mapping.default_encoding or "utf-8"
-        async with aiofiles.open(
-            file_path, mode="r", encoding=encoding, newline=""
-        ) as f:
-            async for row in f:
-                if not row:
-                    continue
-                row = row.strip()
-                try:
-                    record = await self._parse_line(row, doc_idx)
-                except Exception as ex:
-                    MutyLogger.get_instance().warning(
-                        f"cannot parse line: {row}, error: {ex}"
-                    )
-                    continue
+        async for row in muty.file.iter_text_file_lines(
+            file_path, encoding=encoding
+        ):
+            if not row:
+                continue
+            row = row.strip()
+            try:
+                record = await self._parse_line(row, doc_idx)
+            except Exception as ex:
+                MutyLogger.get_instance().warning(
+                    f"cannot parse line: {row}, error: {ex}"
+                )
+                continue
                 
-                if not record or (
-                    "date_created" not in record and "date_modified" not in record
-                ):
-                    continue
-                if "date_created" in record and record["date_created"]:
-                    ts = muty.time.datetime_to_nanos_from_unix_epoch(
-                        datetime.strptime(record.pop("date_created"), DATE_FORMAT)
-                    )
-                    record["timestamp"] = ts
-                elif "date_modified" in record and record["date_modified"]:
-                    ts_modified = ts = muty.time.datetime_to_nanos_from_unix_epoch(
-                        datetime.strptime(record.pop("date_modified"), DATE_FORMAT)
-                    )
-                    if "timestamp" in record and not record["timestamp"]:
-                        record["timestamp"] = ts_modified
-                    else:
-                        record["date_modified"] = ts_modified
-                if not await self.process_record(record, doc_idx, flt):
-                    # stop processing (preview mode)
-                    break
-                doc_idx += 1
+            if not record or (
+                "date_created" not in record and "date_modified" not in record
+            ):
+                continue
+            if "date_created" in record and record["date_created"]:
+                normalized_timestamp = GulpDocument.normalize_timestamp(
+                    record.pop("date_created"),
+                    plugin_params=self._plugin_params,
+                    timestamp_format=DATE_FORMAT,
+                )
+                if normalized_timestamp.invalid:
+                    raise ValueError("invalid MemProcFS NTFS creation timestamp")
+                record["normalized_timestamp"] = normalized_timestamp
+            elif "date_modified" in record and record["date_modified"]:
+                use_modified_as_main = (
+                    "normalized_timestamp" in record
+                    and not record["normalized_timestamp"]
+                )
+                normalized_modified = GulpDocument.normalize_timestamp(
+                    record.pop("date_modified"),
+                    plugin_params=(
+                        self._plugin_params if use_modified_as_main else None
+                    ),
+                    timestamp_format=DATE_FORMAT,
+                )
+                if normalized_modified.invalid:
+                    raise ValueError("invalid MemProcFS NTFS modification timestamp")
+                if use_modified_as_main:
+                    record["normalized_timestamp"] = normalized_modified
+                else:
+                    record["date_modified"] = normalized_modified.nanos
+            if not await self.process_record(record, doc_idx, flt):
+                # stop processing (preview mode)
+                break
+            doc_idx += 1
 
         return stats.status

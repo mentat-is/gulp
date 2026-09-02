@@ -4,11 +4,9 @@ MemProcFS Plugin for Gulp
 This module provides a plugin for processing MemProcFS files timeline_*.txt logs.
 """
 
-import aiofiles
-import muty.time
+import muty.file
 import re
 
-from datetime import datetime
 from typing import override, Any, Optional
 
 from gulp.api.collab.structs import GulpRequestStatus
@@ -55,11 +53,6 @@ class Plugin(GulpPluginBase):
         """
         d = {}
         event_original = record["__line__"]
-        ts = muty.time.datetime_to_nanos_from_unix_epoch(
-            datetime.strptime(record["date"], DATE_FORMAT)
-        )
-        record["@timestamp"] = ts
-        d["@timestamp"] = ts
         d["agent.type"] = self.display_name()
 
         # The columns NUM, HEX and DESC have different meaning depending on the type
@@ -88,6 +81,9 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,  # taken from the record
             event_sequence=record_idx,  # taken from the record
+            timestamp=record["date"],
+            timestamp_format=DATE_FORMAT,
+            reject_invalid_timestamp=True,
             **d,
         )
 
@@ -147,18 +143,17 @@ class Plugin(GulpPluginBase):
         mapping: GulpMapping = self.selected_mapping()
         encoding = mapping.default_encoding or "utf-8"
 
-        async with aiofiles.open(
-            file_path, mode="r", encoding=encoding, newline=""
-        ) as f:
-            async for row in f:
-                if not row:
-                    continue
-                row = row.strip()
-                record = await self._parse_line(row, doc_idx)
-                if record:
-                    if not await self.process_record(record, doc_idx, flt):
-                        # stop processing (preview mode)
-                        break
-                    doc_idx += 1
+        async for row in muty.file.iter_text_file_lines(
+            file_path, encoding=encoding
+        ):
+            if not row:
+                continue
+            row = row.strip()
+            record = await self._parse_line(row, doc_idx)
+            if record:
+                if not await self.process_record(record, doc_idx, flt):
+                    # stop processing (preview mode)
+                    break
+                doc_idx += 1
 
         return stats.status

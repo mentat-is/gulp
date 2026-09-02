@@ -172,7 +172,7 @@ asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["."]
 
 # Ensure pytest loads the asyncio plugin when available
-addopts = "-p pytest_asyncio --import-mode=importlib"
+addopts = "-p pytest_asyncio --import-mode=importlib -m 'not performance'"
 asyncio_mode = "auto"
 minversion = "7.0"
 
@@ -181,4 +181,5 @@ markers = [
     "integration: Integration tests (requires live Gulp server)",
     "e2e: End-to-end tests",
     "stress: Stress tests (long-running, resource-intensive tests with ingestion/query)",
+    "performance: Opt-in performance benchmarks excluded from regular test suites",
 ]

@@ -14,12 +14,15 @@ Key classes include:
 These structures form the foundation for document handling in the Gulp OpenSearch API.
 """
 
-from typing import Annotated, Any, Optional, TypeVar, override
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import math
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional, TypeVar, override
 
 import muty.crypto
 import muty.string
 import muty.time
-import math
+from dateutil import parser as dateparser, tz
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,12 +31,20 @@ from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 from gulp.api.s3_api import GulpS3
 from gulp.structs import GulpPluginParameters, GulpSortOrder
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gulp.plugin import GulpPluginBase
 
 T = TypeVar("T", bound=GulpBaseDocumentFilter)
+
+
+@dataclass(frozen=True, slots=True)
+class GulpNormalizedTimestamp:
+    """A timestamp normalized once for direct use by ``GulpDocument``."""
+
+    iso8601: str
+    nanos: int
+    invalid: bool
 
 
 class GulpBasicDocument(BaseModel):
@@ -197,6 +208,94 @@ class GulpDocument(GulpBasicDocument):
     ] = 1
 
     @staticmethod
+    def normalize_timestamp(
+        timestamp: Any,
+        plugin_params: GulpPluginParameters = None,
+        timestamp_format: str | None = None,
+        timestamp_naive_timezone: Literal["local", "utc"] = "local",
+        fallback_on_format_error: bool = False,
+    ) -> GulpNormalizedTimestamp:
+        """Normalize a timestamp to its ISO-8601 and Unix-nanosecond forms.
+
+        ``timestamp_naive_timezone`` controls whether a parsed datetime without
+        timezone information is interpreted in the process-local timezone or as
+        UTC. A supplied format is strict unless ``fallback_on_format_error`` is
+        enabled for legacy compatibility.
+        """
+        epoch_start = "1970-01-01T00:00:00Z"
+        invalid = GulpNormalizedTimestamp(epoch_start, 0, True)
+
+        if timestamp_naive_timezone not in ("local", "utc"):
+            raise ValueError(
+                "timestamp_naive_timezone must be either 'local' or 'utc'"
+            )
+        if timestamp is None or timestamp == "":
+            return invalid
+
+        try:
+            parsed: datetime | None = None
+            raw_timestamp = str(timestamp)
+            if isinstance(timestamp, datetime):
+                parsed = timestamp
+            elif timestamp_format:
+                try:
+                    parsed = datetime.strptime(raw_timestamp, timestamp_format)
+                except Exception:
+                    if not fallback_on_format_error:
+                        return invalid
+
+            if parsed is None:
+                try:
+                    parsed = dateparser.parse(
+                        raw_timestamp,
+                        dayfirst=False,
+                        yearfirst=True,
+                        fuzzy=False,
+                        default=(
+                            datetime.now(tz=tz.UTC)
+                            if timestamp_naive_timezone == "utc"
+                            else datetime.now()
+                        ),
+                    )
+                except Exception:
+                    nanos = muty.time.number_to_nanos_from_unix_epoch(raw_timestamp)
+                else:
+                    if parsed.year < 1970:
+                        return invalid
+                    if parsed.tzinfo is None and timestamp_naive_timezone == "utc":
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    nanos = muty.time.datetime_to_nanos_from_unix_epoch(parsed)
+            else:
+                if parsed.year < 1970:
+                    return invalid
+                if parsed.tzinfo is None and timestamp_naive_timezone == "utc":
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                nanos = muty.time.datetime_to_nanos_from_unix_epoch(parsed)
+
+            if nanos < 631152000000000000:
+                return invalid
+
+            if plugin_params and plugin_params.timestamp_offset_msec:
+                nanos += int(
+                    math.ceil(
+                        plugin_params.timestamp_offset_msec
+                        * muty.time.MILLISECONDS_TO_NANOSECONDS
+                    )
+                )
+
+            if nanos > 9214646400000000000:
+                return invalid
+
+            return GulpNormalizedTimestamp(
+                muty.time.nanos_from_unix_epoch_to_iso8601(nanos),
+                nanos,
+                False,
+            )
+        except Exception as ex:
+            MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {ex}")
+            return invalid
+
+    @staticmethod
     def ensure_timestamp(
         timestamp: str,
         plugin_params: GulpPluginParameters = None,
@@ -217,43 +316,16 @@ class GulpDocument(GulpBasicDocument):
             tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
 
-        epoch_start: str = "1970-01-01T00:00:00Z"
-        # MutyLogger.get_instance().debug(f"ensure_timestamp: {timestamp}, plugin_params={plugin_params}")
-        if not timestamp:
-            # invalid timestamp
-            return epoch_start, 0, True
-
-        ns: int = 0
-
-        try:
-            ns = muty.time.string_to_nanos_from_unix_epoch(
-                timestamp, format_string=format_string
-            )
-
-            if ns < 631152000000000000:
-                # before 1990, skip
-                return epoch_start, 0, True
-
-            if plugin_params and plugin_params.timestamp_offset_msec:
-                # apply offset in milliseconds to the timestamp
-                ns += int(
-                    math.ceil(
-                        plugin_params.timestamp_offset_msec
-                        * muty.time.MILLISECONDS_TO_NANOSECONDS
-                    )
-                )
-
-            if ns > 9214646400000000000:
-                # > year 2262, skip
-                return epoch_start, 0, True
-
-            ts_string = muty.time.nanos_from_unix_epoch_to_iso8601(ns)
-            return ts_string, ns, False
-
-        except Exception as e:
-            # invalid timestamp
-            MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
-            return epoch_start, 0, True
+        normalized = GulpDocument.normalize_timestamp(
+            timestamp,
+            plugin_params=plugin_params,
+            timestamp_format=format_string,
+            # The legacy helper used an aware UTC default for autodetection and
+            # attached UTC to formatted naive values.
+            timestamp_naive_timezone="utc",
+            fallback_on_format_error=True,
+        )
+        return normalized.iso8601, normalized.nanos, normalized.invalid
 
     def __init__(
         self,
@@ -263,7 +335,11 @@ class GulpDocument(GulpBasicDocument):
         context_id: str = None,
         source_id: str = None,
         event_sequence: int = None,
-        timestamp: str = None,
+        timestamp: Any = None,
+        timestamp_format: str | None = None,
+        timestamp_naive_timezone: Literal["local", "utc"] = "local",
+        reject_invalid_timestamp: bool = False,
+        normalized_timestamp: GulpNormalizedTimestamp | None = None,
         event_code: str = "0",
         event_duration: int = 1,
         log_file_path: str = None,
@@ -279,20 +355,28 @@ class GulpDocument(GulpBasicDocument):
             context_id (str): The context id on gulp collab database. if None, it will be attempted to be set from mapping.context_fallback.
             source_id (str): The source id on gulp collab database. if None, it will be attempted to be set from mapping.source_fallback.
             event_sequence (int, optional): The sequence number of the event.
-            timestamp (str, optional): the document timestamp, expected to be in ISO8601 format.
-                - if set, the plugin handled the timestamp conversion. Defaults to None ("@timestamp" expected in **kwargs and conversion handled by core).
-                - if NOT set, "@timestamp" in **kwargs is expected to be a number (seconds/milliseconds/microseconds from the unix epoch), a numeric string (same as number), or a string in a format supported by python datetime.parse.
+            timestamp: The original document timestamp. If omitted, ``@timestamp``
+                is read from the mapped keyword arguments.
+            timestamp_format: An explicit ``datetime.strptime`` format. It takes
+                precedence over the selected mapping's ``@timestamp`` format.
+            timestamp_naive_timezone: Interpret timestamps without timezone
+                information as process-local time (default) or UTC.
+            reject_invalid_timestamp: Raise ``ValueError`` instead of constructing
+                a document marked with ``gulp.timestamp_invalid``.
+            normalized_timestamp: A timestamp already normalized by
+                :meth:`normalize_timestamp`. No parsing or offset is repeated.
             event_code (str, optional): The event code. Defaults to "0".
             event_duration (int, optional): The duration of the event. Defaults to 1.
             log_file_path (str, optional): The source log file path. Defaults to None.
-            **kwargs: the rest of the document as key/value pairs, to generate the `GulpDocument` with. This may also include the following internal flags:
+            **kwargs: the rest of the document as key/value pairs, to generate the `GulpDocument` with. This may also include the following internal flag:
                 - __ignore_default_event_code__ (bool, optional): If True, do not use the default event code from the mapping (for extra documents). Defaults to False.
-                - __timestamp_format__ (str, optional): The timestamp format to use to parse the timestamp argument or the "@timestamp" in kwargs, if needed. Defaults to None (auto-detect).
             Returns:
             None
         """
         # ensure we have non-aliased keys in kwargs (we want i.e. "operation_id" instead of "gulp.operation_id"), to pass to the GulpDocument constructor
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
+        # Drop the removed internal flag so it cannot leak into document data.
+        kwargs.pop("__timestamp_format__", None)
 
         # severe log file contains duration values in float format (fractional seconds),
         # this constructor converts them to nanoseconds for consistency in storage and processing.
@@ -345,25 +429,29 @@ class GulpDocument(GulpBasicDocument):
             data["event_sequence"] = event_sequence
 
         data.update(kwargs)
-        ts_nanos: int = 0
-        invalid: bool = False
-
-        timestamp_format: str = kwargs.pop("__timestamp_format__", None)
-        if not timestamp:
+        if normalized_timestamp is None:
             # if not explicitly passed by the plugin, this is expected to be in **kwargs as "timestamp" (aliased from "@timestamp" by GulpDocumentFieldAliasHelper)
-            timestamp: str = data.get("timestamp", None)
-            if timestamp:
-                # get the timestamp_format corresponding to the currently used mapping for @timestamp, if any (and not set explicitly in kwargs by the plugin)
-                if not timestamp_format:
-                    timestamp_format = (
-                        plugin_instance._get_timestamp_format_for_default_timestamp()
-                    )
+            if not timestamp:
+                timestamp = data.get("timestamp", None)
+            # Explicit plugin format, mapping format, then autodetection.
+            if not timestamp_format:
+                timestamp_format = (
+                    plugin_instance._get_timestamp_format_for_default_timestamp()
+                )
+            normalized_timestamp = GulpDocument.normalize_timestamp(
+                timestamp,
+                plugin_params=plugin_instance._plugin_params,
+                timestamp_format=timestamp_format,
+                timestamp_naive_timezone=timestamp_naive_timezone,
+                fallback_on_format_error=not reject_invalid_timestamp,
+            )
 
-        ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
-            str(timestamp),
-            plugin_params=plugin_instance._plugin_params,
-            format_string=timestamp_format,
-        )
+        if reject_invalid_timestamp and normalized_timestamp.invalid:
+            raise ValueError(f"invalid timestamp: {timestamp!r}")
+
+        ts = normalized_timestamp.iso8601
+        ts_nanos = normalized_timestamp.nanos
+        invalid = normalized_timestamp.invalid
         """if ts.startswith("3300"):
             MutyLogger.get_instance().error("ts=%s, ts_nanos=%s, invalid=%s, timestamp=%s, data=%s" % (ts, ts_nanos, invalid, timestamp, data))"""
 

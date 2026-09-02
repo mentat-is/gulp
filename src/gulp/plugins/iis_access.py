@@ -16,11 +16,10 @@ This plugin is registered as a GulpPluginType.INGESTION plugin and can be used
 to process IIS access logs through the Gulp ingestion pipeline.
 """
 
-import datetime
 import os
 from typing import Any, override
 
-import aiofiles
+import muty.file
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,7 +83,6 @@ class Plugin(GulpPluginBase):
   
         # map timestamp manually
         time_str = " ".join([event["Date"], event["Time"]])
-        timestamp: str = datetime.datetime.strptime(time_str, date_format).isoformat()
 
         # map
         for k, v in event.items():
@@ -96,7 +94,10 @@ class Plugin(GulpPluginBase):
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,
-            timestamp=timestamp,
+            timestamp=time_str,
+            timestamp_format=date_format,
+            timestamp_naive_timezone="utc",
+            reject_invalid_timestamp=True,
             event_original=record,
             event_sequence=record_idx,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
@@ -143,14 +144,17 @@ class Plugin(GulpPluginBase):
         date_format = self._get_timestamp_format_for_default_timestamp() or "%m/%d/%y %H:%M:%S"
         doc_idx = 0
 
-        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-            async for l in log_src:
-                # if log_format == "w3c" and l.startswith("#"):
-                # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
-                # continue
-                if not await self.process_record(l, doc_idx, flt=flt, date_format=date_format):
-                    # stop processing (preview mode)
-                    break
+        async for line in muty.file.iter_text_file_lines(
+            file_path, encoding="utf8", newline=None
+        ):
+            # if log_format == "w3c" and line.startswith("#"):
+            # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
+            # continue
+            if not await self.process_record(
+                line, doc_idx, flt=flt, date_format=date_format
+            ):
+                # stop processing (preview mode)
+                break
 
-                doc_idx += 1
-            return stats.status
+            doc_idx += 1
+        return stats.status

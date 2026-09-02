@@ -4,12 +4,12 @@ Plugin for processing MySQL general log files and ingesting their contents into 
 This plugin reads MySQL general log files, parses each record, and converts them into GulpDocument objects for further processing or indexing. It supports asynchronous file reading and integrates with the Gulp ingestion pipeline, handling errors and maintaining ingestion statistics.
 """
 
-import datetime, dateutil
+import locale
 import os
 import re
 from typing import Any, override
 
-import aiofiles
+import muty.file
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import (
@@ -22,12 +22,24 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 class MySQLLogParser:
-    def __init__(self, filename, type=None, preserve_newlines=False, separator='', pattern=None):
+    """Asynchronously group physical text lines into MySQL log records."""
+
+    def __init__(
+        self,
+        filename: str,
+        type: str | None = None,
+        preserve_newlines: bool = False,
+        separator: str = "",
+        pattern: str | None = None,
+        encoding: str | None = None,
+    ) -> None:
         self.filename = filename
         self.line_buffer = []
         self.log_pattern = re.compile(r'^(\d{6} [\d:]{8})?\s+(\d+)\s(\w+)(\s+(.*))?', re.DOTALL)
-        self._file = None
+        self._lines = None
         self._closed = False
+        # The previous text-mode reader used the process locale for this parser.
+        self.encoding = encoding or locale.getencoding()
 
         self.preserve_newlines = preserve_newlines
         self.separator = separator
@@ -45,8 +57,10 @@ class MySQLLogParser:
         if self._closed:
             raise StopAsyncIteration
             
-        if self._file is None:
-            self._file = await aiofiles.open(self.filename, 'r')
+        if self._lines is None:
+            self._lines = muty.file.iter_text_file_lines(
+                self.filename, encoding=self.encoding, newline=None
+            )
             
         try:
             while True:
@@ -63,8 +77,8 @@ class MySQLLogParser:
             raise e
             
     async def _close(self):
-        if self._file and not self._closed:
-            await self._file.close()
+        if self._lines and not self._closed:
+            await self._lines.aclose()
             self._closed = True
             
     async def _get_next_query(self):
@@ -73,8 +87,9 @@ class MySQLLogParser:
         in_block = len(self.line_buffer) == 1
         
         while not query_found and not error:
-            line = await self._file.readline()
-            if not line:  # EOF
+            try:
+                line = await anext(self._lines)
+            except StopAsyncIteration:
                 return -1
                 
             self.line_buffer.append(line)
@@ -224,11 +239,12 @@ class Plugin(GulpPluginBase):
         d = {}
         # print(record)
         time_str = record["datetime"] or 0
-        
-        try:
-            timestamp = datetime.datetime.strptime(time_str, "%y%m%d %H:%M:%S").isoformat()
-        except ValueError:
-            timestamp = 0
+        normalized_timestamp = GulpDocument.normalize_timestamp(
+            time_str,
+            plugin_params=self._plugin_params,
+            timestamp_format="%y%m%d %H:%M:%S",
+            timestamp_naive_timezone="utc",
+        )
         
         for k, v in record.items():
             mapped = await self._process_key(k, v, d, **kwargs)
@@ -242,7 +258,7 @@ class Plugin(GulpPluginBase):
             event_code=record["cmd_type"],
             event_original=record["original"],
             event_sequence=record_idx,
-            timestamp=timestamp,
+            normalized_timestamp=normalized_timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -286,7 +302,6 @@ class Plugin(GulpPluginBase):
         pattern = self._plugin_params.custom_parameters.get("pattern", None)
         separator = self._plugin_params.custom_parameters.get("separator", "")
         mtype = self._plugin_params.custom_parameters.get("type", None)
-
         doc_idx = 0
 
         async with MySQLLogParser(
@@ -294,7 +309,7 @@ class Plugin(GulpPluginBase):
             type=mtype, 
             preserve_newlines=preserve_newlines, 
             separator=separator, 
-            pattern=pattern
+            pattern=pattern,
             ) as log_src:
             
             async for l in log_src:

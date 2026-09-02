@@ -9,12 +9,11 @@ The plugin uses regex patterns to match log entries that may span multiple lines
 multi-line nature of MySQL error logs appropriately.
 """
 
-import datetime
 import os
 import re
 from typing import Any, override
 
-import aiofiles
+import muty.file
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,9 +53,6 @@ class Plugin(GulpPluginBase):
         d = {}
         # map timestamp manually
         time_str = " ".join([event.get("date"), event.get("time")])
-        timestamp: str = datetime.datetime.strptime(
-            time_str, "%Y-%m-%d %H:%M:%S"
-        ).isoformat()
 
         # map
         for k, v in event.items():
@@ -70,7 +66,10 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            timestamp=timestamp,
+            timestamp=time_str,
+            timestamp_format="%Y-%m-%d %H:%M:%S",
+            timestamp_naive_timezone="utc",
+            reject_invalid_timestamp=True,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -119,31 +118,32 @@ class Plugin(GulpPluginBase):
         )
         doc_idx = 0
 
-        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-            current_rec = None
-            async for line in log_src:
-                match = lookahead_regex.match(line)
-                if match:
-                    if current_rec:
-                        try:
-                            await self.process_record(
-                                current_rec, doc_idx, flt=flt, regex=regex
-                            )
-                            doc_idx += 1
-                        except (RequestCanceledError, SourceCanceledError) as ex:
-                            MutyLogger.get_instance().exception(ex)
-                            break
+        current_rec = None
+        async for line in muty.file.iter_text_file_lines(
+            file_path, encoding="utf8", newline=None
+        ):
+            match = lookahead_regex.match(line)
+            if match:
+                if current_rec:
+                    try:
+                        await self.process_record(
+                            current_rec, doc_idx, flt=flt, regex=regex
+                        )
+                        doc_idx += 1
+                    except (RequestCanceledError, SourceCanceledError) as ex:
+                        MutyLogger.get_instance().exception(ex)
+                        break
 
-                    current_rec = line
-                elif current_rec:
-                    current_rec += line
+                current_rec = line
+            elif current_rec:
+                current_rec += line
 
-            if current_rec:
-                if not await self.process_record(
-                    current_rec, doc_idx, flt=flt, regex=regex
-                ):
-                    # stop processing (preview mode)
-                    return None
-                doc_idx += 1
+        if current_rec:
+            if not await self.process_record(
+                current_rec, doc_idx, flt=flt, regex=regex
+            ):
+                # stop processing (preview mode)
+                return None
+            doc_idx += 1
 
         return stats.status

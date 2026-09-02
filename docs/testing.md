@@ -24,11 +24,16 @@ gulp --stop
 Run the normal suite as needed:
 
 ~~~bash
-.venv/bin/python -m pytest -v -s -x tests/
-.venv/bin/python -m pytest -v -s -x tests/integration/
+.venv/bin/python -m pytest -v -s tests/
+.venv/bin/python -m pytest -v -s tests/integration/
 # usually, test_stress.py with BIG_SIGMAS=1 is enough to dictate the overall health of the backend
 BIG_SIGMAS=1 .venv/bin/python -m pytest -v -s -x tests/integration/test_stress.py
 ~~~
+
+The full-suite commands omit pytest's `-x` option so that failures are reported
+after the remaining tests have run. Add `-x` when fail-fast behavior is desired.
+Tests requiring the dedicated internal-event probe skip during a normal
+single-instance run; use the multi-instance launcher below to exercise them.
 
 Use [run_tests.sh](../test_scripts/run_tests.sh) when a wrapper is more
 convenient:
@@ -52,6 +57,31 @@ Run it against an already running single instance:
 GULP_CONCURRENT_USERS=10 .venv/bin/pytest -v -s \
   tests/integration/test_concurrent_multi_user_scenario.py
 ~~~
+
+The two-instance launcher requires Prometheus observability to be configured.
+Enable the metrics endpoint in `$HOME/.config/gulp/gulp_cfg.json`; the launcher
+uses the same configuration for both temporary gULP instances:
+
+~~~json
+{
+  "prometheus_enabled": true,
+  "prometheus_endpoint": "/metrics"
+}
+~~~
+
+Start Prometheus before the test, using `PROMETHEUS_URL` when it is not exposed
+at the default `http://localhost:9090`:
+
+~~~bash
+docker compose --profile metrics up -d prometheus
+curl -fsS http://localhost:9090/api/v1/targets >/dev/null
+~~~
+
+The `gulp` scrape job in [prometheus.yml](../prometheus.yml) must reach both
+temporary instances on ports `8080` and `8100`. When running from a devcontainer,
+adjust the target host address if the sample address is not the host gateway for
+the current environment. See [Observability](./observability.md) for setup and
+verification details.
 
 For the complete two-instance scenario, use the launcher. It installs the
 integration-only internal-event probe, starts both backends, spreads users

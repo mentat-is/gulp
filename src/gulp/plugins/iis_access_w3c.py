@@ -11,11 +11,10 @@ to correctly map log fields to structured data.
 
 """
 
-import datetime
 import os
 from typing import Any, override
 
-import aiofiles
+import muty.file
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import (
@@ -63,7 +62,6 @@ class Plugin(GulpPluginBase):
         # map timestamp manually
         date_format = "%Y-%d-%m %H:%M:%S"
         time_str = " ".join([event.get("date"), event.get("time")])
-        timestamp: str = datetime.datetime.strptime(time_str, date_format).isoformat()
 
         # map
         for k, v in event.items():
@@ -77,7 +75,10 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            timestamp=timestamp,
+            timestamp=time_str,
+            timestamp_format=date_format,
+            timestamp_naive_timezone="utc",
+            reject_invalid_timestamp=True,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -120,22 +121,25 @@ class Plugin(GulpPluginBase):
         metadata = {"software": "", "version": "", "date": "", "fields": []}
         doc_idx = 0
 
-        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-            async for l in log_src:
-                if l.startswith("#"):
-                    l = l.split(":")
-                    k = l[0].lower().lstrip("#")
+        async for line in muty.file.iter_text_file_lines(
+            file_path, encoding="utf8", newline=None
+        ):
+            if line.startswith("#"):
+                parts = line.split(":")
+                k = parts[0].lower().lstrip("#")
 
-                    if k in ["software", "version"]:
-                        metadata[k] = "".join(l[1:]).lstrip()
-                    elif k == "date":
-                        metadata[k] = "".join(l[1:]).lstrip()
-                    elif k == "fields":
-                        metadata[k] = "".join(l[1:]).lstrip().split()
-                    continue
+                if k in ["software", "version"]:
+                    metadata[k] = "".join(parts[1:]).lstrip()
+                elif k == "date":
+                    metadata[k] = "".join(parts[1:]).lstrip()
+                elif k == "fields":
+                    metadata[k] = "".join(parts[1:]).lstrip().split()
+                continue
 
-                if not await self.process_record(l, doc_idx, flt=flt, metadata=metadata):
-                    # stop processing (preview mode)
-                    break
-                doc_idx += 1
-            return stats.status
+            if not await self.process_record(
+                line, doc_idx, flt=flt, metadata=metadata
+            ):
+                # stop processing (preview mode)
+                break
+            doc_idx += 1
+        return stats.status

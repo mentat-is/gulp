@@ -18,10 +18,10 @@ import queue
 import threading
 from typing import Any, override
 
-import aiofiles
 import orjson
 
 import muty.dict
+import muty.file
 import muty.os
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,20 +116,21 @@ class Plugin(GulpPluginBase):
         # one record per line:
         # {"a": "b"}\n
         # {"b": "c"}\n
-        async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
-            async for line in file:
-                parsed = orjson.loads(line)
+        async for line in muty.file.iter_text_file_lines(
+            file_path, encoding=encoding or "utf-8", newline=None
+        ):
+            parsed = orjson.loads(line)
 
-                if not await self.process_record(
-                    parsed,
-                    doc_idx,
-                    flt=flt,
-                    __line__=line,
-                ):
-                    # stop processing (preview mode)
-                    return None
-                doc_idx += 1
-            return stats.status
+            if not await self.process_record(
+                parsed,
+                doc_idx,
+                flt=flt,
+                __line__=line,
+            ):
+                # stop processing (preview mode)
+                return None
+            doc_idx += 1
+        return stats.status
 
     def _read_file(
         self,

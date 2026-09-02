@@ -11,6 +11,7 @@
   - [plugin internals](#plugin-internals)
     - [multiprocessing and concurrency](#multiprocessing-and-concurrency)
     - [ingestion plugins](#ingestion-plugins)
+      - [buffered text sources](#buffered-text-sources)
       - [chunk ingestion callbacks](#chunk-ingestion-callbacks)
       - [file storage](#file-storage)
     - [enrichment plugins](#enrichment-plugins)
@@ -220,6 +221,35 @@ following are basic rules to use multiprocessing and concurrency effectively in 
 
 `ingestion` plugins must implement `ingest_file` and/or `ingest_raw` (the ingestion entrypoints).
 
+#### buffered text sources
+
+Text ingestion plugins that treat each physical line as a record, or assemble
+multiline records from physical lines, should use
+`muty.file.iter_text_file_lines()` instead of iterating an `aiofiles` text
+handle. The shared iterator reads 4 MiB byte blocks and decodes incrementally,
+avoiding one thread-pool dispatch for every source line:
+
+```python
+async for line in muty.file.iter_text_file_lines(
+    file_path,
+    encoding=encoding,
+    newline=None,
+):
+    ...
+```
+
+Use `newline=None` when replacing a normal text-mode `open()`: CRLF and CR are
+then translated to LF. Omit it, or pass `newline=""`, when the parser must
+retain the exact source terminator. `errors` and `chunk_size` can be overridden
+for a format-specific decoder or focused tests. The iterator preserves an
+unterminated final line, multibyte characters split across blocks, and lines
+larger than one block.
+
+Do not use the physical-line iterator as a replacement for record-aware CSV,
+XML, JSON-list, journal, email, or packet-capture readers. Those parsers own
+record boundaries (for example quoted CSV newlines) and must retain their
+specialized streaming implementation.
+
 this is how the data flows through an `ingestion plugin` when ingesting into gulp through `ingest_file` API.
 
 ~~~mermaid
@@ -262,6 +292,53 @@ sequenceDiagram
 
     Base-->>Engine: Send completion status
 ~~~
+
+#### main timestamp normalization
+
+Ingestion plugins should pass the source timestamp directly to
+`GulpDocument`, which normalizes it once into `@timestamp` and
+`gulp.timestamp`. The constructor accepts these timestamp options:
+
+- `timestamp_format: str | None`: a `datetime.strptime` format for the source
+  value. An explicit plugin format takes precedence over the selected
+  mapping's `@timestamp` format; without either, gULP autodetects the value.
+- `timestamp_naive_timezone: Literal["local", "utc"]`: how to interpret a
+  timestamp without timezone information. The default is `"local"`.
+- `reject_invalid_timestamp: bool`: if true, invalid timestamps raise
+  `ValueError`; otherwise the document uses the epoch and sets
+  `gulp.timestamp_invalid`.
+- `normalized_timestamp: GulpNormalizedTimestamp | None`: a value already
+  normalized with `GulpDocument.normalize_timestamp()`. Use this when a plugin
+  must validate or choose between timestamp candidates before constructing the
+  document.
+
+For example, a parser with a strict source format can construct its document
+without an intermediate `strptime()`/`isoformat()` conversion:
+
+~~~python
+return GulpDocument(
+    self,
+    operation_id=self._operation_id,
+    context_id=self._context_id,
+    source_id=self._source_id,
+    event_original=line,
+    timestamp=source_timestamp,
+    timestamp_format="%Y-%m-%d %H:%M:%S",
+    timestamp_naive_timezone="utc",
+    reject_invalid_timestamp=True,
+    **mapped_fields,
+)
+~~~
+
+`timestamp_offset_msec` is applied during normalization and therefore only
+once. Passing `normalized_timestamp` bypasses parsing and offset application in
+the constructor. `GulpDocument.ensure_timestamp()` remains available as a
+compatibility wrapper for external plugins, but new code should prefer the
+constructor path or `normalize_timestamp()`. The former internal
+`__timestamp_format__` keyword is no longer supported and is discarded so it
+cannot leak into indexed document fields. Timestamp normalization does not
+change `_id` generation: the ID continues to use the resulting nanosecond
+timestamp.
 
 #### chunk ingestion callbacks
 

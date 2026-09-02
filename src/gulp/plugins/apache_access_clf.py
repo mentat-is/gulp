@@ -18,14 +18,13 @@ for ingesting and processing log files.
 
 """
 
-import datetime
 import os
 import re
 from typing import Any, override
 from urllib.parse import parse_qs, urlparse
 
-import aiofiles
 import muty.elastic
+import muty.file
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,10 +93,6 @@ class Plugin(GulpPluginBase):
 
         # map timestamp manually
         time_str = event.pop("datetime")
-        timestamp = datetime.datetime.strptime(
-            time_str,
-            date_format,
-        ).isoformat()
 
         # map
         for k, v in event.items():
@@ -124,7 +119,9 @@ class Plugin(GulpPluginBase):
             event_original=record,
             event_sequence=record_idx,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
-            timestamp=timestamp,
+            timestamp=time_str,
+            timestamp_format=date_format,
+            reject_invalid_timestamp=True,
             **d,
         )
 
@@ -184,20 +181,20 @@ class Plugin(GulpPluginBase):
         pattern = re.compile(r"\s+".join(parts) + r".*\Z")
 
         doc_idx = 0
-        l: list[dict] = []
 
         # get the timestamp format to be used, or use a default
         date_format = (
             self._get_timestamp_format_for_default_timestamp() or "%d/%b/%Y:%H:%M:%S %z"
         )
-        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-            async for l in log_src:
-                l = l.strip()
-                if not l:
-                    continue
-                if not await self.process_record(
-                    l, doc_idx, flt=flt, regex=pattern, date_format=date_format
-                ):
-                    break
-                doc_idx += 1
+        async for line in muty.file.iter_text_file_lines(
+            file_path, encoding="utf8", newline=None
+        ):
+            line = line.strip()
+            if not line:
+                continue
+            if not await self.process_record(
+                line, doc_idx, flt=flt, regex=pattern, date_format=date_format
+            ):
+                break
+            doc_idx += 1
         return stats.status

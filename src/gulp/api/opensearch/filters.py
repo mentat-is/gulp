@@ -134,7 +134,9 @@ default is False (both OpenSearch and websocket receives the filtered results).
         if not flt.time_range or len(flt.time_range) != 2:
             # no time range, accept all
             return GulpDocumentFilterResult.ACCEPT
-        if int(flt.time_range[0]) == 0 and int(flt.time_range[1]) == 0:
+        start = int(flt.time_range[0])
+        end = int(flt.time_range[1])
+        if start == 0 and end == 0:
             # empty time range, accept all
             return GulpDocumentFilterResult.ACCEPT
 
@@ -143,14 +145,14 @@ default is False (both OpenSearch and websocket receives the filtered results).
         # if both are None, the filter is empty and all events are accepted
         ts = doc["gulp.timestamp"]
 
-        if int(flt.time_range[0]) > 0 and int(flt.time_range[1]) > 0:
-            if ts >= int(flt.time_range[0]) and ts <= int(flt.time_range[1]):
+        if start > 0 and end > 0:
+            if start <= ts <= end:
                 return GulpDocumentFilterResult.ACCEPT
-        if int(flt.time_range[0]) > 0:
-            if ts >= int(flt.time_range[0]):
+        elif start > 0:
+            if ts >= start:
                 return GulpDocumentFilterResult.ACCEPT
-        if int(flt.time_range[1]) > 0:
-            if ts <= int(flt.time_range[1]):
+        elif end > 0:
+            if ts <= end:
                 return GulpDocumentFilterResult.ACCEPT
 
         return GulpDocumentFilterResult.SKIP

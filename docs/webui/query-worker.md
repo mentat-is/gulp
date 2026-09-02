@@ -335,11 +335,11 @@ the current reader and QueryWorker. Legacy databases named by random tab
 coordinators are not adopted because they do not carry a verified owner. This
 causes one post-upgrade cold load but prevents cross-user cache association.
 
-The EventStore database is version 5 and contains six object stores. Opening a
-v1-v3 database rebuilds the EventStore because those caches have no trustworthy
-query provenance. Upgrading v4 adds only the transient ingestion journal and
-preserves the existing cache pool. Browser storage remains reconstructible from
-the backend.
+The EventStore database is version 6 and contains six object stores. Opening a
+v1-v5 database rebuilds the EventStore because v6 adds the exact
+`event.sequence` column and page-order bounds. Older pages cannot reconstruct
+timestamp ties reliably. Browser storage remains reconstructible from the
+backend.
 
 ### `sources`
 
@@ -382,7 +382,7 @@ metadata can be listed and activated without decoding event pages.
 An exact page contains at most 16,384 events in columnar binary form:
 
 - `Uint32Array` source-local handles;
-- `Float64Array` timestamps, numeric hashes, and event codes;
+- `Float64Array` timestamps, event sequences, numeric hashes, and event codes;
 - UTF-8 document IDs with an offset array;
 - a tombstone bitmap;
 - page count, ranges, generation, revision, and encoded size.
@@ -392,6 +392,12 @@ keeps its partial builder across frames: for example, three 10,000-event chunks
 produce one full 16,384-event page and one final 13,616-event page. A source
 containing 14,000,000 events occupies 855 exact pages when no pressure flush is
 required.
+
+Every page and every cross-page read uses one canonical order: descending
+`gulp_timestamp`, descending `event.sequence`, then page/offset only as a final
+deterministic fallback. This preserves source order for equal ingestion
+timestamps even when the corresponding events arrive in different chunks or
+land in different 16,384-event pages.
 
 Document-index segments are prepared in separate bounded transactions. They
 remain invisible until the final page append atomically publishes the new page,
@@ -403,9 +409,10 @@ decode only the fields required for rendering. A source-local handle is a
 compact event reference; handle `0` is reserved and the largest valid value is
 `4,294,967,294`.
 
-Upserts update an existing location when its source and timestamp remain
-compatible. Moving an event creates a tombstone at the prior location and
-inserts the new value. A page is compacted when tombstones exceed 25 percent.
+Upserts update an existing location when its source, timestamp, and sequence
+remain compatible. Moving an event in time or sequence creates a tombstone at
+the prior location and inserts the new value. A page is compacted when
+tombstones exceed 25 percent.
 
 ### `page_lod`
 

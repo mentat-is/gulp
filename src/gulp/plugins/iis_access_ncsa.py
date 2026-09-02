@@ -6,12 +6,11 @@ into structured fields such as remote host, username, timestamp, HTTP verb,
 status code, and bytes sent.
 """
 
-import datetime
 import os
 import re
 from typing import Any, override
 
-import aiofiles
+import muty.file
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,7 +71,6 @@ class Plugin(GulpPluginBase):
         d = {}
         # map timestamp manually
         time_str = event.get("timestamp")
-        timestamp = datetime.datetime.strptime(time_str, date_format).isoformat()
 
         # map
         for k, v in event.items():
@@ -86,7 +84,10 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            timestamp=timestamp,
+            timestamp=time_str,
+            timestamp_format=date_format,
+            timestamp_naive_timezone="utc",
+            reject_invalid_timestamp=True,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -130,14 +131,17 @@ class Plugin(GulpPluginBase):
         # get the timestamp format to be used, or use a default
         date_format = self._get_timestamp_format_for_default_timestamp() or "%d/%b/%Y:%H:%M:%S %z"
         doc_idx = 0
-        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-            async for l in log_src:
-                # if log_format == "w3c" and l.startswith("#"):
-                # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
-                # continue
-                if not await self.process_record(l, doc_idx, flt=flt, date_format=date_format):
-                    # stop processing (preview mode)
-                    break
-                
-                doc_idx += 1
-            return stats.status
+        async for line in muty.file.iter_text_file_lines(
+            file_path, encoding="utf8", newline=None
+        ):
+            # if log_format == "w3c" and line.startswith("#"):
+            # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
+            # continue
+            if not await self.process_record(
+                line, doc_idx, flt=flt, date_format=date_format
+            ):
+                # stop processing (preview mode)
+                break
+
+            doc_idx += 1
+        return stats.status

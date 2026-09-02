@@ -1108,28 +1108,37 @@ class GulpOpenSearch:
             tuple:
             - number of skipped (because already existing=duplicated) documents
             - list of ingested documents
-            - number of failed dicynebts
+            - number of failed documents
         """
 
-        # Filter documents if needed
-        filtered_docs = docs
+        # Filter and prepare the bulk request in one pass. Keep separate loops
+        # so the common unfiltered path does not evaluate a branch per document.
+        bulk_docs: list[dict] = []
+        filtered_count = 0
         if flt and flt.time_range:
-            filtered_docs = [
-                doc
-                for doc in docs
-                if GulpIngestionFilter.filter_doc_for_ingestion(doc, flt)
-                != GulpDocumentFilterResult.SKIP
-            ]
+            for doc in docs:
+                if (
+                    GulpIngestionFilter.filter_doc_for_ingestion(doc, flt)
+                    == GulpDocumentFilterResult.SKIP
+                ):
+                    continue
 
-        if not filtered_docs:
+                source_doc = doc.copy()
+                doc_id = source_doc.pop("_id")
+                bulk_docs.append({"create": {"_id": doc_id}})
+                bulk_docs.append(source_doc)
+                filtered_count += 1
+        else:
+            filtered_count = len(docs)
+            for doc in docs:
+                source_doc = doc.copy()
+                doc_id = source_doc.pop("_id")
+                bulk_docs.append({"create": {"_id": doc_id}})
+                bulk_docs.append(source_doc)
+
+        if not bulk_docs:
             MutyLogger.get_instance().warning("no document to ingest (flt=%s)", flt)
             return 0, [], 0
-
-        # prepare bulk operation format
-        bulk_docs: list[dict] = []
-        for doc in filtered_docs:
-            bulk_docs.append({"create": {"_id": doc["_id"]}})
-            bulk_docs.append({k: v for k, v in doc.items() if k != "_id"})
 
         # set request parameters
         timeout: int = GulpConfig.get_instance().opensearch_request_timeout()
@@ -1234,7 +1243,7 @@ class GulpOpenSearch:
                 "%d docs skipped, %d docs failed in this bulk ingestion of %d docs",
                 skipped,
                 failed,
-                len(filtered_docs),
+                filtered_count,
             )
 
         if failed:

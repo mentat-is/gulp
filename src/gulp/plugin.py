@@ -539,6 +539,8 @@ class GulpPluginBase(ABC):
 
         # for ingestion, the mappings to apply
         self._mappings: dict[str, GulpMapping] = {}
+        # fallback reused when the selected mapping is unavailable
+        self._empty_mapping: GulpMapping = GulpMapping()
         # for ingestion, the key in the mappings dict to be used
         self._mapping_id: str = None
         # calling user
@@ -1992,14 +1994,16 @@ class GulpPluginBase(ABC):
 
     def selected_mapping(self) -> GulpMapping:
         """
-        Returns the selected (self._mapping_id) mapping or an empty one.
+        Returns the selected (self._mapping_id) mapping or the instance fallback.
 
-        NOTE: just a shortcut for self._mappings.get(self._mapping_id, GulpMapping())
+        The mapping lookup remains dynamic so plugins may change ``_mapping_id``
+        while processing a source. The empty fallback is allocated once per plugin
+        instance.
 
         Returns:
             GulpMapping: The selected mapping.
         """
-        return self._mappings.get(self._mapping_id, GulpMapping())
+        return self._mappings.get(self._mapping_id, self._empty_mapping)
 
     def _build_or_update_enriched_obj(
         self, doc: dict, k: str, v: Any, skip_none: bool = True

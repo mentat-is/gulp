@@ -17,8 +17,7 @@ import os
 import re
 from typing import Any, override
 
-import aiofiles
-import muty.time
+import muty.file
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,7 +86,6 @@ class Plugin(GulpPluginBase):
 
         # map timestamp manually
         time_str = event.pop("date")
-        time_str = muty.time.ensure_iso8601(time_str)
 
         # map
         for k, v in event.items():
@@ -100,6 +98,8 @@ class Plugin(GulpPluginBase):
             context_id=self._context_id,
             source_id=self._source_id,
             timestamp=time_str,
+            timestamp_naive_timezone="utc",
+            reject_invalid_timestamp=True,
             event_original=record,
             event_sequence=record_idx,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
@@ -147,14 +147,15 @@ class Plugin(GulpPluginBase):
         )
 
         doc_idx = 0
-        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-            async for l in log_src:
-                l = l.strip()
-                if not l:
-                    continue
-                if not await self.process_record(l, doc_idx, flt=flt):
-                    # stop processing (preview mode)
-                    break
+        async for line in muty.file.iter_text_file_lines(
+            file_path, encoding="utf8", newline=None
+        ):
+            line = line.strip()
+            if not line:
+                continue
+            if not await self.process_record(line, doc_idx, flt=flt):
+                # stop processing (preview mode)
+                break
 
-                doc_idx += 1
+            doc_idx += 1
         return stats.status

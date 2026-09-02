@@ -14,13 +14,11 @@ Key features:
 import os
 import re
 from typing import Any, override
-from datetime import datetime
 
-import aiofiles
 import re._constants
 import muty.dict
+import muty.file
 import muty.os
-import muty.time
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Match
@@ -86,8 +84,6 @@ class Plugin(GulpPluginBase):
         # map
         rec: dict = event.groupdict()
         ts: str = rec.pop("timestamp")
-        if ts and timestamp_format:
-            ts: str = datetime.strptime(ts, timestamp_format).isoformat()
         for k, v in rec.items():
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
@@ -100,6 +96,9 @@ class Plugin(GulpPluginBase):
             event_original=line,
             event_sequence=record_idx,
             timestamp=ts,
+            timestamp_format=timestamp_format,
+            timestamp_naive_timezone="utc",
+            reject_invalid_timestamp=bool(ts and timestamp_format),
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -164,25 +163,26 @@ class Plugin(GulpPluginBase):
 
         # we can process!
         doc_idx = 0
-        async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
-            async for line in file:
-                m = regex.match(line)
-                if m:
-                    if not await self.process_record(
-                        m,
-                        doc_idx,
-                        flt=flt,
-                        line=line,
-                        timestamp_format=timestamp_format,
-                    ):
-                        # stop processing (preview mode)
-                        break
-                else:
-                    # no match
-                    MutyLogger.get_instance().warning(f"regex did not match: {line}")
+        async for line in muty.file.iter_text_file_lines(
+            file_path, encoding=encoding, newline=None
+        ):
+            m = regex.match(line)
+            if m:
+                if not await self.process_record(
+                    m,
+                    doc_idx,
+                    flt=flt,
+                    line=line,
+                    timestamp_format=timestamp_format,
+                ):
+                    # stop processing (preview mode)
+                    break
+            else:
+                # no match
+                MutyLogger.get_instance().warning(f"regex did not match: {line}")
 
-                doc_idx += 1
-            MutyLogger.get_instance().warning(
-                f"exit from the loop with {doc_idx} readed and status {stats.status}"
-            )
-            return stats.status
+            doc_idx += 1
+        MutyLogger.get_instance().warning(
+            f"exit from the loop with {doc_idx} readed and status {stats.status}"
+        )
+        return stats.status

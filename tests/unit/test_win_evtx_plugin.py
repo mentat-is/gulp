@@ -33,7 +33,11 @@ def test_win_evtx_uses_system_time_when_parser_timestamp_is_filetime_zero():
         }
     }
 
-    assert plugin._event_timestamp(record, raw) == "2019-05-16T01:38:19.630865Z"
+    normalized = plugin._event_timestamp(record, raw)
+
+    assert normalized is not None
+    assert normalized.iso8601 == "2019-05-16T01:38:19.630865+00:00"
+    assert normalized.nanos == 1_557_970_699_630_865_000
 
 
 @pytest.mark.unit
@@ -50,7 +54,11 @@ def test_win_evtx_prefers_valid_parser_timestamp():
         }
     }
 
-    assert plugin._event_timestamp(record, raw) == "2020-08-26T05:09:33.5046471Z"
+    normalized = plugin._event_timestamp(record, raw)
+
+    assert normalized is not None
+    assert normalized.iso8601 == "2020-08-26T05:09:33.504647+00:00"
+    assert normalized.nanos == 1_598_418_573_504_647_000
 
 
 @pytest.mark.unit

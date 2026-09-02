@@ -112,10 +112,9 @@ class Plugin(GulpPluginBase):
             guessed_mimetype = mimetypes.guess_type(info.filename)[0]
             d["file.mimetype"] = guessed_mimetype or "file/unknown"
 
-        timestamp = datetime.datetime(
+        d["@timestamp"] = datetime.datetime(
             *info.date_time, tzinfo=datetime.timezone.utc
-        ).isoformat()
-        d["@timestamp"] = timestamp
+        )
 
         if calculate_hash and file_size and not info.is_dir():
             pwd = password.encode("utf-8") if password else None

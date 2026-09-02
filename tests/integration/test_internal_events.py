@@ -118,7 +118,13 @@ async def test_worker_pre_post_and_no_listener_bypass(
     """A real worker transforms pre data, notifies post, then bypasses both."""
     from gulp_sdk import GulpClient
 
-    base_url = os.getenv("GULP_INTERNAL_EVENTS_BASE_URL", "http://localhost:8100")
+    base_url = os.getenv("GULP_INTERNAL_EVENTS_BASE_URL")
+    if not base_url:
+        pytest.skip(
+            "internal-event probe test requires GULP_INTERNAL_EVENTS_BASE_URL; "
+            "run tests/integration/run_multi_instance_tests.sh"
+        )
+
     marker = uuid.uuid4().hex[:8]
     async with httpx.AsyncClient(base_url=base_url, timeout=30.0) as http:
         probe = await http.get("/internal_events_probe_status")

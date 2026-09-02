@@ -30,7 +30,7 @@ from gulp.api.collab.stats import (
 )
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.structs import GulpDocument
+from gulp.api.opensearch.structs import GulpDocument, GulpNormalizedTimestamp
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
@@ -180,23 +180,38 @@ class Plugin(GulpPluginBase):
             return None
         return value.strip() if isinstance(value, str) and value.strip() else None
 
-    def _clean_record_timestamp(self, ts: str | None) -> str | None:
+    def _clean_record_timestamp(
+        self, ts: str | None
+    ) -> GulpNormalizedTimestamp | None:
         """Normalize the parser timestamp and reject unusable sentinel values."""
         if not ts:
             return None
         ts = re.split(r"\s+UTC", ts, flags=re.IGNORECASE)[0].strip()
-        _, _, invalid = GulpDocument.ensure_timestamp(
-            ts, plugin_params=self._plugin_params
+        normalized = GulpDocument.normalize_timestamp(
+            ts,
+            plugin_params=self._plugin_params,
+            timestamp_naive_timezone="utc",
         )
-        return None if invalid else ts
+        return None if normalized.invalid else normalized
 
-    def _event_timestamp(self, record: dict, js_record: dict) -> str | None:
+    def _event_timestamp(
+        self, record: dict, js_record: dict
+    ) -> GulpNormalizedTimestamp | None:
         """Choose the best timestamp available for a Windows EVTX record."""
         # Some EVTX records expose the FILETIME zero sentinel through the parser
         # timestamp, while the embedded event payload still has valid SystemTime.
-        return self._clean_record_timestamp(record.get("timestamp")) or self._system_time(
-            js_record
+        parser_timestamp = self._clean_record_timestamp(record.get("timestamp"))
+        if parser_timestamp:
+            return parser_timestamp
+        system_time = self._system_time(js_record)
+        if not system_time:
+            return None
+        normalized = GulpDocument.normalize_timestamp(
+            system_time,
+            plugin_params=self._plugin_params,
+            timestamp_naive_timezone="utc",
         )
+        return None if normalized.invalid else normalized
 
     @override
     async def _record_to_gulp_document(
@@ -210,9 +225,7 @@ class Plugin(GulpPluginBase):
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
-        ts = self._event_timestamp(record, js_record)
-        if ts:
-            d["@timestamp"] = ts
+        normalized_timestamp = self._event_timestamp(record, js_record)
 
         # if d.get("event.code") == "0":
         #     MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2).decode())
@@ -224,6 +237,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx,
+            normalized_timestamp=normalized_timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )

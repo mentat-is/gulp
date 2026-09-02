@@ -24,11 +24,15 @@ The regex plugin is primarily designed to be used in standalone mode, applying r
 
 The regex plugin supports the following custom parameters in the `custom_parameters` dictionary:
 
-- `encoding`: Specifies the character encoding to use when opening the file (default=None, which typically falls back to system default)
-- `date_format`: Format string to parse the timestamp field; if null, tries autoparse (default=None)
 - `regex`: The regular expression pattern to apply to each line (must use named groups)
 - `flags`: Integer representing regex compilation flags (default=0)
   - Example flags: 2 (`re.IGNORECASE`), 8 (`re.MULTILINE`), 16 (`re.DOTALL`)
+- `timestamp_format`: A Python `datetime.strptime` format for the `timestamp`
+  group. When omitted, gULP autodetects the value. When supplied, an invalid
+  timestamp rejects the record instead of indexing it with an invalid marker.
+
+The file encoding comes from the selected mapping's `default_encoding` and
+defaults to UTF-8 when it is not configured.
 
 Additional parameters can be specified in the `mapping_parameters` dictionary:
 
@@ -56,8 +60,10 @@ python test_scripts/ingest.py \
   --plugin_params '{
     "custom_parameters":{
       "regex":"(?P<timestamp>\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) (?P<level>\\w+) (?P<message>.*)",
-      "flags":0
-    }'
+      "flags":0,
+      "timestamp_format":"%Y-%m-%d %H:%M:%S"
+    }
+  }'
 ```
 
 ## GulpDocument
@@ -81,7 +87,9 @@ The following are the default mappings shipping with gulp which support this plu
 
 - **No matches found**: Make sure your regex pattern correctly matches the format of your file lines
 - **Missing timestamp**: Ensure your regex includes a named group called 'timestamp'
-- **Timestamp parsing errors**: Ensure timestamp is in a format recognized by gulp, if not make a stacked plugin to convert the time format
+- **Timestamp parsing errors**: Set `timestamp_format` when the captured value
+  is not supported by autodetection; invalid values are reported as failed
+  records when this parameter is set.
 - **Performance issues**: Overly complex regex patterns may slow down processing for large files
 
 ## Regular Expression Tips

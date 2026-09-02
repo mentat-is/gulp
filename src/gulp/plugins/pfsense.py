@@ -11,6 +11,7 @@ import os
 import re
 from typing import Any, override
 
+import muty.file
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -264,28 +265,23 @@ class Plugin(GulpPluginBase):
 
         doc_idx = 0
 
-        with open(file_path, "r", encoding="utf-8") as log_file:
-            # SNIPPET: peek first line and decide pattern to use
-            # peek=log_file.readline()
-            # self.pattern = self.rfc3164
-            # if peek.startswith("<"):
-            #    self.pattern = self.rfc5424
-            # log_file.seek(0)
+        async for line in muty.file.iter_text_file_lines(
+            file_path, encoding="utf-8", newline=None
+        ):
+            # pfSense performs this check for every line because files may mix
+            # RFC3164 and RFC5424 records.
+            regex = rfc3164_regex
+            if line.startswith("<"):
+                regex = rfc5424_regex
 
-            for rr in log_file:
-                # pfsense does this check for every line in the log, we do too...
-                # is it because they expect mixed logs-formats? else we should just decide based
-                # on log's first line (see snippet above).
-                regex = rfc3164_regex
-                if rr.startswith("<"):
-                    regex = rfc5424_regex
+            match: re.Match[str] = regex.match(line)
+            if match:
+                if not await self.process_record(
+                    line, doc_idx, flt=flt, match=match
+                ):
+                    # stop processing (preview mode)
+                    break
 
-                m: re.Match[str] = regex.match(rr)
-                if m:
-                    if not await self.process_record(rr, doc_idx, flt=flt, match=m):
-                        # stop processing (preview mode)
-                        break
-
-                    doc_idx += 1
+                doc_idx += 1
 
         return stats.status

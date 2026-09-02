@@ -1,9 +1,11 @@
 """File utilities sharing implementations only when both call styles are used."""
 
 import asyncio
+import codecs
 import os
 import shutil
 import tempfile
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import aiofiles
@@ -13,6 +15,111 @@ import aioshutil
 from async_unzip.unzipper import unzip as _unzip
 
 from muty.log import MutyLogger
+
+
+DEFAULT_TEXT_READ_CHUNK_SIZE = 4 * 1024 * 1024
+_TEXT_LINE_ENDINGS = ("\n", "\r")
+
+
+def _split_text_chunk(
+    text: str, line_parts: list[str], trailing_cr: bool
+) -> tuple[list[str], bool]:
+    """Split decoded text while retaining an incomplete line between chunks."""
+    lines: list[str] = []
+
+    if trailing_cr:
+        if not text:
+            return lines, trailing_cr
+        if text[0] == "\n":
+            line_parts.append("\n")
+            lines.append("".join(line_parts))
+            line_parts.clear()
+            text = text[1:]
+        else:
+            lines.append("".join(line_parts))
+            line_parts.clear()
+        trailing_cr = False
+
+    chunks = text.splitlines(keepends=True)
+    for index, chunk in enumerate(chunks):
+        is_last = index == len(chunks) - 1
+        if is_last and text.endswith("\r"):
+            line_parts.append(chunk)
+            trailing_cr = True
+            continue
+
+        line_parts.append(chunk)
+        if not chunk.endswith(_TEXT_LINE_ENDINGS):
+            continue
+        lines.append("".join(line_parts))
+        line_parts.clear()
+    return lines, trailing_cr
+
+
+def _normalize_text_line_ending(line: str, newline: str | None) -> str:
+    """Apply TextIO-compatible universal newline translation when requested."""
+    if newline == "":
+        return line
+    if line.endswith("\r\n"):
+        return line[:-2] + "\n"
+    if line.endswith("\r"):
+        return line[:-1] + "\n"
+    return line
+
+
+async def iter_text_file_lines(
+    path: str | os.PathLike[str],
+    encoding: str = "utf-8",
+    errors: str = "strict",
+    chunk_size: int = DEFAULT_TEXT_READ_CHUNK_SIZE,
+    newline: str | None = "",
+) -> AsyncIterator[str]:
+    """Yield text lines decoded from fixed-size asynchronous byte reads.
+
+    By default line endings are retained exactly. The final line is yielded
+    even when it has no terminator, and incremental decoding keeps multibyte
+    characters intact when their bytes span adjacent chunks.
+
+    Args:
+        path: Path of the text file to read.
+        encoding: Text encoding passed to the incremental decoder.
+        errors: Decoder error-handling strategy.
+        chunk_size: Number of bytes read per asynchronous file operation.
+        newline: ``""`` preserves CRLF/CR terminators; ``None`` translates them
+            to LF like the default text-mode ``open()`` behavior.
+
+    Raises:
+        ValueError: If ``chunk_size`` is not positive or ``newline`` is not a
+            supported text-mode policy.
+    """
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than zero")
+    if newline not in (None, ""):
+        raise ValueError("newline must be either None or an empty string")
+
+    decoder = codecs.getincrementaldecoder(encoding)(errors=errors)
+    line_parts: list[str] = []
+    trailing_cr = False
+
+    async with aiofiles.open(path, "rb") as source:
+        while chunk := await source.read(chunk_size):
+            decoded = decoder.decode(chunk)
+            if not decoded:
+                continue
+            lines, trailing_cr = _split_text_chunk(
+                decoded, line_parts, trailing_cr
+            )
+            for line in lines:
+                yield _normalize_text_line_ending(line, newline)
+
+    decoded = decoder.decode(b"", final=True)
+    if decoded:
+        lines, trailing_cr = _split_text_chunk(decoded, line_parts, trailing_cr)
+        for line in lines:
+            yield _normalize_text_line_ending(line, newline)
+
+    if trailing_cr or line_parts:
+        yield _normalize_text_line_ending("".join(line_parts), newline)
 
 
 async def write_temporary_file(content: bytes, suffix: str | None = None) -> str:
