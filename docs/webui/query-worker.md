@@ -252,6 +252,12 @@ keeping the normal single-source replace densely packed. The terminal chunk,
 including an empty terminal chunk, commits every remaining residual before
 finalization.
 
+Every committed page publishes a compact `building` source summary. When empty
+sources are hidden, the first positive summary adds that source to the Canvas
+without waiting for query completion. Canvas then requests its first persisted
+LOD window, and later building summaries use the normal coalesced projection
+path while the query continues.
+
 If a query or realtime frame would cross either raw-byte boundary, the frame is
 not queued, its `payload.docs` array is cleared synchronously, and that stream
 fails with reason `backlog`. A dispatched query is then canceled. File

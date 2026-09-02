@@ -141,6 +141,7 @@ export namespace Source {
 			notesHidden: boolean;
 			renderVersion: number;
 			renderDataSequence: number;
+			documentsVersion: number;
 			result: Source.Type[];
 		} = {
 			ref: null,
@@ -149,6 +150,7 @@ export namespace Source {
 			notesHidden: false,
 			renderVersion: 0,
 			renderDataSequence: 0,
+			documentsVersion: 0,
 			result: [],
 		};
 
@@ -215,6 +217,7 @@ export namespace Source {
 			const notesHidden = app.hidden.notes;
 			const renderVersion = app.timeline.renderVersion;
 			const renderDataSequence = DataStore.getRenderSequence();
+			const documentsVersion = DataStore.getDocumentsSnapshot();
 
 			if (
 				app.target.files === Source.Entity._renderedCache.ref &&
@@ -223,7 +226,8 @@ export namespace Source {
 					Source.Entity._renderedCache.sourcesWithNoEvents &&
 				notesHidden === Source.Entity._renderedCache.notesHidden &&
 				renderVersion === Source.Entity._renderedCache.renderVersion &&
-				renderDataSequence === Source.Entity._renderedCache.renderDataSequence
+				renderDataSequence === Source.Entity._renderedCache.renderDataSequence &&
+				documentsVersion === Source.Entity._renderedCache.documentsVersion
 			) {
 				return Source.Entity._renderedCache.result;
 			}
@@ -248,6 +252,7 @@ export namespace Source {
 				notesHidden,
 				renderVersion,
 				renderDataSequence,
+				documentsVersion,
 				result,
 			};
 

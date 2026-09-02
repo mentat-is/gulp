@@ -514,6 +514,51 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
+	it("publishes the first full replacement page while the stream is still building", async () => {
+		const harness = createHarness();
+		const descriptor = createDescriptor("first-building-page", {
+			expectedEvents: EVENT_PAGE_SIZE * 2,
+		});
+		await harness.coordinator.register(descriptor);
+
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				descriptor,
+				createRawDocuments(
+					"first-building-page",
+					EVENT_PAGE_SIZE,
+					SOURCE_ONE,
+					1_700_000_000_000,
+				),
+				false,
+			),
+		);
+
+		await waitFor(
+			() =>
+				harness.summaries.some(
+					(event) =>
+						event.requestId === descriptor.requestId &&
+						event.summary.status === "building" &&
+						event.summary.eventCount === EVENT_PAGE_SIZE,
+				),
+			30_000,
+		);
+
+		expect(harness.completed.includes(descriptor.requestId)).toBe(false);
+		expect(
+			await harness.repositories
+				.get(descriptor.operationId)
+				?.getSourceSummary(SOURCE_ONE),
+		).toMatchObject({
+			status: "building",
+			eventCount: EVENT_PAGE_SIZE,
+		});
+
+		await harness.coordinator.cancel(descriptor.requestId);
+		harness.coordinator.destroy();
+	});
+
 	it("persists three queued 10k replacement chunks without treating them as backlog", async () => {
 		const harness = createHarness();
 		const descriptor = createDescriptor("thirty-thousand-replace", {
