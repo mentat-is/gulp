@@ -62,6 +62,9 @@ class GulpAPIParameter(BaseModel):
     required: Annotated[
         bool, Field(False, description="is the parameter required ?")
     ] = False
+    is_secret: Annotated[
+        bool, Field(False, description="define if value is a secret")
+    ] = False
     example: Annotated[
         Optional[Any], Field(description="an example value for the parameter, if any.")
     ] = None

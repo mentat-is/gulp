@@ -434,6 +434,9 @@ async def enrich_single_id_handler(
                 # load plugin and enrich document
                 await sess.commit()
                 mod = await GulpPluginBase.load(plugin)
+                # Single-document enrichment does not pass user_id to the plugin
+                # method, but profile selection must still enforce that user's ACL.
+                mod._user_id = user_id
                 doc = await mod.enrich_single_document(
                     sess, doc_id, operation_id, index, fields, plugin_params
                 )

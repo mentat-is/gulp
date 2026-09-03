@@ -7,20 +7,13 @@ chat completions API). It exposes a single API endpoint that accepts up to 10
 log event dictionaries and streams back an AI-generated analysis to clients
 through an internal Redis broker.
 
-Configuration:
-Requires the following configuration in the shared_object table:
-"ai_configuration": {
-    // The default model to use.
-    "default_model": "your_default_model_here",
-    // LLM api base url
-    "api_base_url": "https://openrouter.ai/api/v1",
-    // Insert your OpenRouter API key here.
-    "openrouter_key": "sk-or-your-openrouter-api-key",
-}
+Configuration resolution is read-only: first the default `ai_assistant`
+profile in the shared_object table, then the legacy `ai_configuration` row,
+then the matching gulp_cfg.json section.
 
 Behavior:
 - Registers POST /get_ai_hint during post_init when running in the main process.
-- Reads configuration from a shared object with id 'ai_configuration':
+- Reads the effective JSON configuration:
     - 'openrouter_key' (required): API key used in the Authorization header.
     - 'default_model' (required): model identifier to send in the API payload.
 - Validates read permission for the requested operation before accepting work.
@@ -61,13 +54,13 @@ and send data via body:
 
 import asyncio
 import aiohttp
-from fastapi import Body, Depends, Query
+from fastapi import Body, Depends
 import json
-from typing import Annotated, override
+from typing import Annotated, Any, override
 
 from fastapi.responses import JSONResponse
 import orjson
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
 
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats, RequestCanceledError
@@ -78,6 +71,7 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import GulpRedisBroker
+from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.plugins.extension.__shared_object import Plugin as SharedObjectPlugin
 
@@ -86,6 +80,7 @@ from muty.log import MutyLogger
 
 _CONFIG_OBJECT_ID = "ai_configuration"
 _CONFIG_OBJECT_TYPE = "plugin_configuration"
+_CONFIG_PLUGIN = "ai_assistant"
 _DEFAULT_CONFIGURATION = {
     "default_model": "your_default_model_here",
     "api_base_url": "https://openrouter.ai/api/v1",
@@ -163,7 +158,7 @@ class Plugin(GulpPluginBase):
 
     @override
     async def post_init(self, *kwargs):
-        await self._refresh_configuration_from_db(create_if_missing=True)
+        await self._refresh_configuration_from_db()
 
         if self.is_running_in_main_process():
             GulpServer.get_instance().add_api_route(
@@ -191,41 +186,92 @@ class Plugin(GulpPluginBase):
         else:
             MutyLogger.get_instance().debug("initialized in worker process")
 
-    async def _refresh_configuration_from_db(
-        self, create_if_missing: bool = False
-    ) -> bool:
-        """Refresh AI configuration from the shared-object DB row."""
+    @staticmethod
+    def _configuration_values(obj: dict[str, Any]) -> dict[str, Any]:
+        """Read a paid configuration payload as an ordinary JSON dictionary."""
+        parameters = obj.get("configuration")
+        if not isinstance(parameters, list):
+            raise ValueError("AI configuration must contain a parameter list")
+
+        values: dict[str, Any] = {}
+        for parameter in parameters:
+            if not isinstance(parameter, dict) or not isinstance(
+                parameter.get("name"), str
+            ):
+                raise ValueError("AI configuration contains an invalid parameter")
+            values[parameter["name"]] = (
+                parameter["value"]
+                if "value" in parameter
+                else parameter.get("default_value")
+            )
+        return values
+
+    async def _refresh_configuration_from_db(self) -> bool:
+        """Load DB configuration, falling back to legacy DB and then the file."""
+        shared_object = SharedObjectPlugin.GulpSharedObject
         async with GulpCollab.get_instance().session() as sess:
-            shared_obj = await SharedObjectPlugin.GulpSharedObject.get_by_id(
-                sess, _CONFIG_OBJECT_ID, throw_if_not_found=False
+            query = (
+                select(shared_object)
+                .where(
+                    shared_object.obj_type == _CONFIG_OBJECT_TYPE,
+                    func.jsonb_typeof(shared_object.obj) == "object",
+                    func.lower(shared_object.obj["plugin"].astext)
+                    == _CONFIG_PLUGIN,
+                )
+                .order_by(shared_object.time_created.asc(), shared_object.id.asc())
             )
+            result = await sess.execute(query)
+            rows = list(result.scalars().all())
 
-            if not shared_obj:
-                if create_if_missing:
-                    shared_obj = (
-                        await SharedObjectPlugin.GulpSharedObject.create_internal(
-                            sess=sess,
-                            user_id="admin",
-                            obj_id=_CONFIG_OBJECT_ID,
-                            name="AI configuration",
-                            obj=dict(_DEFAULT_CONFIGURATION),
-                            obj_type=_CONFIG_OBJECT_TYPE,
-                            private=True,
-                            on_conflict="do_nothing",
+            if rows:
+                valid_rows = []
+                for row in rows:
+                    obj = row.obj
+                    if (
+                        not isinstance(obj, dict)
+                        or obj.get("plugin") != _CONFIG_PLUGIN
+                        or not isinstance(obj.get("configuration"), list)
+                        or not isinstance(obj.get("default"), bool)
+                    ):
+                        raise ValueError(
+                            f'AI configuration profile "{row.id}" is malformed'
                         )
+                    valid_rows.append(row)
+                defaults = [row for row in valid_rows if row.obj["default"]]
+                if len(defaults) != 1:
+                    raise ValueError(
+                        'AI configuration family "ai_assistant" must have exactly '
+                        "one default"
                     )
+                loaded = self._configuration_values(defaults[0].obj)
+            else:
+                legacy = await shared_object.get_by_id(
+                    sess, _CONFIG_OBJECT_ID, throw_if_not_found=False
+                )
+                if legacy is not None:
+                    if (
+                        legacy.obj_type != _CONFIG_OBJECT_TYPE
+                        or not isinstance(legacy.obj, dict)
+                        or "plugin" in legacy.obj
+                        or "configuration" in legacy.obj
+                    ):
+                        raise ValueError(
+                            "legacy AI configuration must be a raw "
+                            "plugin_configuration object"
+                        )
+                    loaded = legacy.obj
                 else:
-                    MutyLogger.get_instance().warning(
-                        "AI configuration shared object '%s' not found",
-                        _CONFIG_OBJECT_ID,
+                    file_configuration = GulpConfig.get_instance().get(
+                        _CONFIG_OBJECT_ID, {}
                     )
-                    return self._set_configuration(dict(_DEFAULT_CONFIGURATION))
+                    loaded = (
+                        file_configuration
+                        if isinstance(file_configuration, dict)
+                        else {}
+                    )
 
-            db_configuration = (
-                shared_obj.obj if isinstance(shared_obj.obj, dict) else {}
-            )
             new_configuration = dict(_DEFAULT_CONFIGURATION)
-            new_configuration.update(db_configuration)
+            new_configuration.update(loaded)
             return self._set_configuration(new_configuration)
 
     def _set_configuration(self, configuration: dict) -> bool:
@@ -277,7 +323,7 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
                 )
                 user_id = s.user_id
 
-            await self._refresh_configuration_from_db(create_if_missing=True)
+            await self._refresh_configuration_from_db()
             self._validate_configuration()
 
             final_prompt = self._PROMPT.replace(

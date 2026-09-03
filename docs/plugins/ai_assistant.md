@@ -72,24 +72,33 @@ You must provide your analysis in Markdown using this exact structure:
 
 ### Configuration:
 
-The plugin reads its LLM configuration from a `GulpSharedObject` row, not from
-`gulp_cfg.json`.
+The open plugin is read-only with respect to configuration storage. It first
+looks for the sole default profile whose `obj.plugin` is `ai_assistant`.
 
-- shared object ID: `ai_configuration`
 - shared object type: `plugin_configuration`
-- expected `obj`:
+- preferred `obj`:
 
 ```json
 {
-  "default_model": "your_default_model_here",
-  "api_base_url": "https://openrouter.ai/api/v1",
-  "openrouter_key": "sk-or-your-openrouter-api-key"
+  "plugin": "ai_assistant",
+  "default": true,
+  "configuration": [
+    {"name": "default_model", "type": "str", "value": "provider/model"},
+    {"name": "api_base_url", "type": "str", "default_value": "https://openrouter.ai/api/v1"},
+    {"name": "openrouter_key", "type": "str", "is_secret": true, "value": "sk-or-..."}
+  ]
 }
 ```
 
-At startup the plugin creates this shared object with the base configuration if
-it does not already exist. Update the configuration through the existing
-shared-object API; the plugin refreshes it before each assistant request.
+The effective value is `value` when present, otherwise `default_value`. During
+the paid migration transition the plugin can also read the legacy raw row with
+ID `ai_configuration`. Only when neither new profiles nor that legacy row
+exists does it read the `ai_configuration` section of `gulp_cfg.json`.
+
+The core plugin treats `obj` as ordinary JSON: it does not import
+`plugin_manager` or paid models, and it never creates, updates, migrates, or
+deletes configuration rows. Configuration is refreshed before each request and
+then applied through the plugin's existing in-memory configuration flow.
 
 ### Exposed API:
 
@@ -126,4 +135,3 @@ The API operates asynchronously. Upon receiving a request, it performs permissio
 		- "ai_assistant_done": indicates the stream is finished.
 		- "ai_assistant_error": indicates an API error (payload" field contains error text).
 	- Clients are expected to subscribe to these events to reconstruct the final AI-generated response in real time.
-
