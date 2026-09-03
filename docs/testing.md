@@ -101,6 +101,25 @@ Tune load with `GULP_CONCURRENT_USERS`,
 `GULP_MULTI_INSTANCE_COLLAB_STRESS_COUNT`. Optional external services, paid
 plugins, and storage backends retain their dedicated integration suites.
 
+## Ingestion pipeline comparison
+
+`ingestion_pipeline_enabled` is a server-only startup setting. To compare the
+same workload, run it once with the setting set to `false`, stop gULP, change
+the setting to `true`, and restart before the second run. Do not pass a plugin
+parameter: clients and the Web UI intentionally cannot override this setting.
+
+Use a unique operation/source for every run so OpenSearch `create` conflicts do
+not contaminate timings. Record elapsed time, events/s, worker peak RSS, bulk
+request byte/document histograms, retries, and the indexed-document digest.
+The candidate is accepted only when the one-million-event median improves by
+at least 10% without changing counts, ordering, terminal status, or retry
+pressure. The quick live functional check is:
+
+~~~bash
+.venv/bin/python -m pytest -v -s -x \
+  tests/integration/test_ingestion_pipeline.py
+~~~
+
 ## Sigma ZIP stress harness
 
 `test_scripts/sigma_zip_big_harness.py` is the end-to-end stress harness. It

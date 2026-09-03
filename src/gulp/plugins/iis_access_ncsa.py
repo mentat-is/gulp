@@ -25,6 +25,19 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
+IIS_NCSA_PATTERN = re.compile(
+    "".join(
+        [
+            r"^(?P<remote_host>(.*)\s)-",
+            r"\s(?P<username>.+)\s",
+            r"\[(?P<timestamp>([^\]])+)\]\s",
+            r'"(?P<verb>([^ ])+) (?P<path>([^ ])+) (?P<version>[^"]+)"',
+            r"\s(?P<status_code>([0-9]+))\s",
+            r"(?P<bytes_sent>([0-9]+))$",
+        ]
+    )
+)
+
 
 class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
@@ -42,30 +55,16 @@ class Plugin(GulpPluginBase):
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         date_format = kwargs.get("date_format")
-        event: dict = {}
-        # fields = record.split(",")
-
-        # TODO: move compile regex outside _record_to_gulp_document (also in apache plugin)
-        regex = "".join(
-            [
-                r"^(?P<remote_host>(.*)\s)-",
-                r"\s(?P<username>.+)\s",
-                r"\[(?P<timestamp>([^\]])+)\]\s",
-                r"\"(?P<verb>([^ ])+) (?P<path>([^ ])+) (?P<version>[^\"]+)\"",
-                r"\s(?P<status_code>([0-9]+))\s",
-                r"(?P<bytes_sent>([0-9]+))$",
-            ]
-        )
-        pattern = re.compile(regex)
-        matches = pattern.match(record.strip("\n"))
+        matches = IIS_NCSA_PATTERN.match(record.strip("\n"))
+        groups = matches.groupdict()
 
         event = {
-            "remote_host": matches["remote_host"],
-            "username": matches["username"],
-            "timestamp": matches["timestamp"],
-            "verb": matches["verb"],
-            "status_code": matches["status_code"],
-            "bytes_sent": matches["bytes_sent"],
+            "remote_host": groups["remote_host"],
+            "username": groups["username"],
+            "timestamp": groups["timestamp"],
+            "verb": groups["verb"],
+            "status_code": groups["status_code"],
+            "bytes_sent": groups["bytes_sent"],
         }
 
         d = {}

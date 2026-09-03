@@ -2395,7 +2395,7 @@ class Plugin(GulpPluginBase):
             d.update(mapped)
 
         # normalize timestamp
-        normalized_timestamp = GulpDocument.normalize_timestamp(
+        normalized_timestamp = self._normalize_timestamp_cached(
             datetime.fromtimestamp(float(record.time), tz=timezone.utc),
             plugin_params=self._plugin_params,
         )

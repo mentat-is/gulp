@@ -345,13 +345,9 @@ class GulpConfig:
 
     def ingestion_documents_chunk_size(self) -> int:
         """
-        size of documents chunk (during ingestion) to send/request in one go
+        fixed or initial adaptive document count for one ingestion chunk
         """
-        n = self._config.get("ingestion_documents_chunk_size", None)
-        if not n:
-            n = 1000
-            # MutyLogger.get_instance().debug("using default ingestion_documents_chunk_size=%d" % (n))
-        return n
+        return self._get_int_config("ingestion_documents_chunk_size", 1000, minimum=1)
 
     def ingestion_documents_adaptive_chunk_size(self) -> bool:
         """
@@ -359,6 +355,10 @@ class GulpConfig:
         """
         n = self._config.get("ingestion_documents_adaptive_chunk_size", True)
         return n
+
+    def ingestion_pipeline_enabled(self) -> bool:
+        """Whether file parsing overlaps one active OpenSearch bulk request."""
+        return bool(self._config.get("ingestion_pipeline_enabled", True))
 
     def ingestion_evt_failure_threshold(self) -> int:
         """

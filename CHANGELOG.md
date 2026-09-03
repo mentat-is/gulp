@@ -1,5 +1,10 @@
 # v2.0.0
 
+- added a bounded, source-local consecutive timestamp cache shared by every core and paid ingestion plugin, with isolated streams for multi-timestamp parsers; also removed repeated group extraction and invariant parser setup from Apache, IIS, and Zsh record loops while preserving timestamp offsets, validation, and document IDs.
+- changed CSV Pro, JSON Lines Pro, and XRY parallel parsing to feed one source-owned ingestion pipeline, preserving bounded prefetch while restoring adaptive sizing, ordered callbacks/statistics, complete final bulk acknowledgement, and one final refresh.
+- replaced file-size-based ingestion chunk tiers with exact-NDJSON adaptive sizing, validated every bulk against OpenSearch's advertised HTTP limit, and reused the serialized request body.
+- overlapped file parsing with one OpenSearch-only bulk task, including an explicit event-loop handoff before buffered parsing resumes, while preserving chunk order, bounded ownership, final refresh, cancellation, callbacks, and ingestion statistics; the server-only pipeline is enabled by default and can be disabled in `gulp_cfg`.
+- fixed non-final OpenSearch document failures missing from request statistics and prevented acknowledged chunks from being submitted again during exception finalization.
 - refactor ingestion bulks methods to avoid unusefull duplicate loop; made the full time-range filter mutually exclusive from its one-sided cases so out-of-range documents are skipped correctly.
 - changed Web UI file ingestion from per-chunk inside indexDB cache, and no backend cancellation when browser-local cache capture fails.
 - preserved `event.sequence` in Web UI EventStore pages and used it as the descending for equal ingestion timestamps across chunks, pages, cursors, and neighbor reads.

@@ -4,6 +4,7 @@ import datetime
 import os
 import time
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 import muty.crypto
@@ -14,6 +15,14 @@ from gulp.api.opensearch.structs import GulpDocument, GulpNormalizedTimestamp
 from gulp.api.s3_api import GulpS3
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
+
+
+class _TimestampCachePlugin(GulpPluginBase):
+    def display_name(self) -> str:
+        return "timestamp_cache_test"
+
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
 
 def _document_plugin(
@@ -185,6 +194,156 @@ def test_pre_normalized_timestamp_does_not_apply_offset_twice() -> None:
 
     assert document.timestamp == normalized.iso8601
     assert document.gulp_timestamp == normalized.nanos
+
+
+@pytest.mark.unit
+def test_ingestion_documents_reuse_consecutive_string_timestamp() -> None:
+    """Every ingestion plugin uses the source-local cache through GulpDocument."""
+    plugin = _TimestampCachePlugin("/tmp/cache.py", "timestamp_cache_test")
+    plugin._plugin_params = GulpPluginParameters(timestamp_offset_msec=125)
+    raw = "2024-01-02 03:04:05"
+    timestamp_format = "%Y-%m-%d %H:%M:%S"
+
+    original_normalize = GulpDocument.normalize_timestamp
+    with patch.object(
+        GulpDocument, "normalize_timestamp", wraps=original_normalize
+    ) as normalize_timestamp:
+        documents = [
+            GulpDocument(
+                plugin,
+                operation_id="operation",
+                context_id="context",
+                source_id="source",
+                event_original=f"event-{idx}",
+                event_sequence=idx,
+                timestamp=raw,
+                timestamp_format=timestamp_format,
+                reject_invalid_timestamp=True,
+            )
+            for idx in range(2)
+        ]
+
+    assert normalize_timestamp.call_count == 1
+    assert documents[0].gulp_timestamp == documents[1].gulp_timestamp
+    assert documents[0].id != documents[1].id
+
+
+@pytest.mark.unit
+def test_timestamp_cache_separates_semantics_slots_and_invalid_values() -> None:
+    """Semantic options and named streams cannot reuse an incompatible value."""
+    plugin = _TimestampCachePlugin("/tmp/cache.py", "timestamp_cache_test")
+    params = GulpPluginParameters(timestamp_offset_msec=125)
+    raw = "2024-01-02 03:04:05"
+    timestamp_format = "%Y-%m-%d %H:%M:%S"
+
+    original_normalize = GulpDocument.normalize_timestamp
+    with patch.object(
+        GulpDocument, "normalize_timestamp", wraps=original_normalize
+    ) as normalize_timestamp:
+        first = plugin._normalize_timestamp_cached(
+            raw,
+            plugin_params=params,
+            timestamp_format=timestamp_format,
+            timestamp_naive_timezone="utc",
+            cache_slot="created",
+        )
+        repeated = plugin._normalize_timestamp_cached(
+            raw,
+            plugin_params=params,
+            timestamp_format=timestamp_format,
+            timestamp_naive_timezone="utc",
+            cache_slot="created",
+        )
+        second_slot = plugin._normalize_timestamp_cached(
+            raw,
+            plugin_params=params,
+            timestamp_format=timestamp_format,
+            timestamp_naive_timezone="utc",
+            cache_slot="modified",
+        )
+        changed_offset = plugin._normalize_timestamp_cached(
+            raw,
+            plugin_params=GulpPluginParameters(timestamp_offset_msec=250),
+            timestamp_format=timestamp_format,
+            timestamp_naive_timezone="utc",
+            cache_slot="created",
+        )
+        invalid = plugin._normalize_timestamp_cached(
+            "invalid",
+            plugin_params=params,
+            timestamp_format=timestamp_format,
+            timestamp_naive_timezone="utc",
+            cache_slot="invalid",
+        )
+        repeated_invalid = plugin._normalize_timestamp_cached(
+            "invalid",
+            plugin_params=params,
+            timestamp_format=timestamp_format,
+            timestamp_naive_timezone="utc",
+            cache_slot="invalid",
+        )
+
+    assert normalize_timestamp.call_count == 4
+    assert repeated is first
+    assert second_slot == first
+    assert changed_offset.nanos - first.nanos == 125_000_000
+    assert repeated_invalid is invalid
+    assert invalid.invalid is True
+
+
+@pytest.mark.unit
+def test_timestamp_cache_bypasses_non_string_values() -> None:
+    """Already parsed/numeric timestamps retain their low-cost direct path."""
+    plugin = _TimestampCachePlugin("/tmp/cache.py", "timestamp_cache_test")
+    value = datetime.datetime(2024, 1, 2, tzinfo=datetime.timezone.utc)
+
+    original_normalize = GulpDocument.normalize_timestamp
+    with patch.object(
+        GulpDocument, "normalize_timestamp", wraps=original_normalize
+    ) as normalize_timestamp:
+        first = plugin._normalize_timestamp_cached(value)
+        second = plugin._normalize_timestamp_cached(value)
+
+    assert normalize_timestamp.call_count == 2
+    assert first == second
+    assert plugin._normalized_timestamp_cache == {}
+
+
+@pytest.mark.unit
+def test_extra_documents_do_not_evict_primary_timestamp_stream() -> None:
+    """Mapped sibling timestamps have stable slots separate from the base event."""
+    plugin = _TimestampCachePlugin("/tmp/cache.py", "timestamp_cache_test")
+    plugin._plugin_params = GulpPluginParameters()
+    plugin._extra_docs = [
+        {
+            "event_code": "record_modified",
+            "timestamp": "2024-01-02 04:05:06",
+        }
+    ]
+
+    def _base_document(sequence: int) -> GulpDocument:
+        return GulpDocument(
+            plugin,
+            operation_id="operation",
+            context_id="context",
+            source_id="source",
+            event_original=f"event-{sequence}",
+            event_sequence=sequence,
+            timestamp="2024-01-02 03:04:05",
+        )
+
+    original_normalize = GulpDocument.normalize_timestamp
+    with patch.object(
+        GulpDocument, "normalize_timestamp", wraps=original_normalize
+    ) as normalize_timestamp:
+        plugin._finalize_process_record(_base_document(0))
+        plugin._finalize_process_record(_base_document(1))
+
+    assert normalize_timestamp.call_count == 2
+    assert set(plugin._normalized_timestamp_cache) == {
+        "primary",
+        "extra:record_modified",
+    }
 
 
 @pytest.mark.unit

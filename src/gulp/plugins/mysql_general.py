@@ -239,7 +239,7 @@ class Plugin(GulpPluginBase):
         d = {}
         # print(record)
         time_str = record["datetime"] or 0
-        normalized_timestamp = GulpDocument.normalize_timestamp(
+        normalized_timestamp = self._normalize_timestamp_cached(
             time_str,
             plugin_params=self._plugin_params,
             timestamp_format="%y%m%d %H:%M:%S",

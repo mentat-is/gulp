@@ -32,6 +32,17 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
+APACHE_ERROR_PATTERN = re.compile(
+    r"\s+".join(
+        [
+            r"^\[(?P<date>[^\]]+)\]",
+            r"\[(?P<loglevel>[^\]]+)\]",
+            r"\[(?P<pid>[^\]]+)((?=:):(?P<tid>[^\]]+)|)\]",
+            r"((?=\[)(\[(?P<client>[^\]]+)\s(?P<ip>[^\]]+)\]\s(?P<message>.*))|(?!=\[)(?P<message_only>.*))$",
+        ]
+    )
+)
+
 
 class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
@@ -50,33 +61,27 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
         # ^\[(?P<timestamp>[^\]]+)\]\s\[(?P<loglevel>[^\]]+)\]\s\[(?P<pid>[^\]:]+)((?=:):(?P<tid>[^\]]+)|)\]\s((?=\[)(\[(?P<client>[^\]]+)\s(?P<ip>[^\]]+)\]\s(?P<message>.*))|(?!=\[)(?P<message_x>.*))$
         # [Fri Sep 09 10:42:29.902022 2011] [core:error] [pid 35708:tid 4328636416] [client 72.15.99.187] File does not exist: /usr/local/apache2/htdocs/favicon.ico
-        parts = [
-            r"^\[(?P<date>[^\]]+)\]",
-            r"\[(?P<loglevel>[^\]]+)\]",
-            r"\[(?P<pid>[^\]]+)((?=:):(?P<tid>[^\]]+)|)\]",
-            r"((?=\[)(\[(?P<client>[^\]]+)\s(?P<ip>[^\]]+)\]\s(?P<message>.*))|(?!=\[)(?P<message_only>.*))$",
-        ]
-        pattern = re.compile(r"\s+".join(parts))
-        matches = pattern.match(record.strip("\n"))
+        matches = APACHE_ERROR_PATTERN.match(record.strip("\n"))
 
         # if matches is None:
         #     print(matches)
         #     print(record)
         #     print("*" * 1000)
 
-        client = matches.groupdict().get("client", "")
-        ip = matches.groupdict().get("ip", "")
-        message = matches.groupdict().get("message", None)
-        message_only = matches.groupdict().get("message_only", "")
+        groups = matches.groupdict()
+        client = groups.get("client", "")
+        ip = groups.get("ip", "")
+        message = groups.get("message", None)
+        message_only = groups.get("message_only", "")
 
         if message is None:
             message = message_only
 
         event = {
-            "date": matches["date"],
-            "loglevel": matches["loglevel"],
-            "pid": matches["pid"],
-            "tid": matches["tid"],
+            "date": groups["date"],
+            "loglevel": groups["loglevel"],
+            "pid": groups["pid"],
+            "tid": groups["tid"],
             "client": client,
             "ip": ip,
             "message": message,

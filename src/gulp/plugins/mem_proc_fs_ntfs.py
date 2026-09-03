@@ -155,10 +155,11 @@ class Plugin(GulpPluginBase):
             ):
                 continue
             if "date_created" in record and record["date_created"]:
-                normalized_timestamp = GulpDocument.normalize_timestamp(
+                normalized_timestamp = self._normalize_timestamp_cached(
                     record.pop("date_created"),
                     plugin_params=self._plugin_params,
                     timestamp_format=DATE_FORMAT,
+                    cache_slot="date_created",
                 )
                 if normalized_timestamp.invalid:
                     raise ValueError("invalid MemProcFS NTFS creation timestamp")
@@ -168,12 +169,13 @@ class Plugin(GulpPluginBase):
                     "normalized_timestamp" in record
                     and not record["normalized_timestamp"]
                 )
-                normalized_modified = GulpDocument.normalize_timestamp(
+                normalized_modified = self._normalize_timestamp_cached(
                     record.pop("date_modified"),
                     plugin_params=(
                         self._plugin_params if use_modified_as_main else None
                     ),
                     timestamp_format=DATE_FORMAT,
+                    cache_slot="date_modified",
                 )
                 if normalized_modified.invalid:
                     raise ValueError("invalid MemProcFS NTFS modification timestamp")

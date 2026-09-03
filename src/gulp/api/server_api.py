@@ -1289,7 +1289,8 @@ class GulpServer:
         )
 
         # Initialize the OpenSearch client.
-        GulpOpenSearch.get_instance()
+        opensearch = GulpOpenSearch.get_instance()
+        await opensearch.bulk_max_content_length_bytes()
 
         # Initialize the Redis client.
         GulpRedis.get_instance().initialize(self.server_id)

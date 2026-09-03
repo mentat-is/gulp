@@ -86,3 +86,22 @@ def test_instance_roles_environment_override(monkeypatch):
     monkeypatch.setenv("GULP_INSTANCE_ROLES", " query, ingest ,, ")
 
     assert cfg.instance_roles() == ["query", "ingest"]
+
+
+@pytest.mark.unit
+def test_ingestion_chunk_and_pipeline_defaults() -> None:
+    """Ingestion keeps one valid count and enables one-ahead by default."""
+    cfg = _config_with({})
+
+    assert cfg.ingestion_documents_chunk_size() == 1000
+    assert cfg.ingestion_pipeline_enabled() is True
+
+    cfg = _config_with(
+        {
+            "ingestion_documents_chunk_size": 0,
+            "ingestion_pipeline_enabled": False,
+        }
+    )
+
+    assert cfg.ingestion_documents_chunk_size() == 1
+    assert cfg.ingestion_pipeline_enabled() is False

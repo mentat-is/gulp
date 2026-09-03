@@ -64,23 +64,7 @@ class Plugin(GulpPluginBase):
         if not matches:
             return None
 
-        event = {
-            name: matches.group(name) if matches.groups(name) else None
-            for name in [
-                "host",
-                "user",
-                "datetime",
-                "date",
-                "timezone",
-                "request_method",
-                "path",
-                "request_version",
-                "status",
-                "size",
-                "referrer",
-                "agent",
-            ]
-        }
+        event = matches.groupdict()
 
         url = urlparse(event.get("path"))
         if url:

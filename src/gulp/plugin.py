@@ -5,11 +5,13 @@ import inspect
 import ipaddress
 import os
 import sys
+import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from dataclasses import dataclass
 from enum import StrEnum
 from types import ModuleType
-from typing import Annotated, Any, Callable, Optional
+from typing import Annotated, Any, Callable, Literal, Optional
 
 import json5
 from gulp.process import GulpProcess
@@ -44,10 +46,12 @@ from gulp.api.opensearch.filters import (
 )
 from gulp.api.opensearch.structs import (
     GulpDocument,
+    GulpNormalizedTimestamp,
     GulpQueryHelpers,
     GulpQueryParameters,
 )
-from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.opensearch_api import GulpOpenSearch, GulpPreparedBulk
+from gulp.api.prometheus_api import GulpMetrics
 from gulp.api.s3_api import GulpS3
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
@@ -109,6 +113,21 @@ class GulpPluginCacheMode(StrEnum):
     FORCE = "force"  # force load into cache if not already loaded
     IGNORE = "ignore"  # always load from disk
     DEFAULT = "default"  # use configuration value (cache enabled/disabled)
+
+
+@dataclass(slots=True)
+class _GulpIngestionChunk:
+    """Detached logical chunk owned by the ingestion coordinator."""
+
+    documents: list[dict]
+    records_processed: int
+    records_failed: int
+    flt: GulpIngestionFilter | None
+    sequence: int = 0
+    all_fields_on_ws: bool = False
+    prepared: GulpPreparedBulk | None = None
+    bulk_task: asyncio.Task[tuple[int, list[dict], int]] | None = None
+    totals_committed: bool = False
 
 
 class GulpPluginEntry(BaseModel):
@@ -562,6 +581,14 @@ class GulpPluginBase(ABC):
         # S3 object ID for the current stored-file ingestion.
         self._stored_file_id: str | None = None
         self._adaptive_chunk_size: int = 0
+        self._adaptive_chunk_enabled: bool = False
+        self._chunk_build_started: float | None = None
+        # One last normalized value per stable timestamp stream. Most plugins
+        # use only the implicit "primary" stream; named streams keep parsers
+        # with multiple timestamp fields from evicting one another.
+        self._normalized_timestamp_cache: dict[
+            str, tuple[tuple[Any, ...], GulpNormalizedTimestamp]
+        ] = {}
 
         # original file path, if any
         self._original_file_path: str = None
@@ -583,6 +610,9 @@ class GulpPluginBase(ABC):
         self._upper_enrich_documents_chunk_fun: Callable | None = None
         self._upper_instance: GulpPluginBase | None = None
         self._lower_instance: GulpPluginBase | None = None
+        # Stable reference used after a nested lower plugin has been unloaded
+        # and its lifecycle link has been detached.
+        self._ingestion_owner: GulpPluginBase | None = None
 
         # to bufferize gulpdocuments
         self._docs_buffer: list[dict] = []
@@ -598,6 +628,18 @@ class GulpPluginBase(ABC):
         self._records_failed_total: int = 0
         self._records_skipped_total: int = 0
         self._records_ingested_total: int = 0
+
+        # Chunk results awaiting the next collaboration-statistics update.
+        self._stats_pending_processed: int = 0
+        self._stats_pending_failed: int = 0
+        self._stats_pending_skipped: int = 0
+        self._stats_pending_ingested: int = 0
+
+        # A file ingestion may own one OpenSearch-only task while parsing the
+        # following chunk. No SQLAlchemy session is used inside this task.
+        self._pipeline_enabled: bool = False
+        self._pipeline_active_chunk: _GulpIngestionChunk | None = None
+        self._chunk_sequence_next: int = 0
 
         # to keep track of ingested chunks
         self._chunks_ingested: int = 0
@@ -802,50 +844,6 @@ class GulpPluginBase(ABC):
                 private=False,
             )
 
-    async def _send_documents_chunk_to_ws(self, docs: list[dict], last: bool) -> None:
-        """Publish an ingestion chunk, including an empty terminal raw chunk."""
-        send_empty_terminal = (
-            not docs
-            and self._raw_ingestion
-            and self._last_raw_chunk
-            and last
-            and not self._preview_mode
-        )
-        if not docs and not send_empty_terminal:
-            return
-
-        MutyLogger.get_instance().debug("adding %d docs to ws", len(docs))
-        chunk = GulpDocumentsChunkPacket(
-            docs=docs,
-            chunk_size=len(docs),
-            last=last,
-            chunk_number=self._chunks_ingested,
-        )
-        redis_broker = GulpRedisBroker.get_instance()
-        await redis_broker.put(
-            t=WSDATA_DOCUMENTS_CHUNK,
-            ws_id=self._ws_id,
-            operation_id=self._operation_id,
-            user_id=self._user_id,
-            req_id=self._req_id,
-            d=chunk.model_dump(exclude_none=True),
-        )
-        self._chunks_ingested += 1
-
-        if (
-            self._chunks_ingested % 50 == 0 or self._last_raw_chunk
-        ) and self._raw_ingestion:
-            payload = GulpIngestRawProgress(last=self._last_raw_chunk)
-            await redis_broker.put(
-                t=WSDATA_INGEST_RAW_PROGRESS,
-                ws_id=self._ws_id,
-                operation_id=self._operation_id,
-                user_id=self._user_id,
-                req_id=self._req_id,
-                d=payload.model_dump(exclude_none=True),
-                private=False,
-            )
-
     async def _flush_buffer_and_send_to_ws(
         self,
         flt: GulpIngestionFilter = None,
@@ -862,47 +860,67 @@ class GulpPluginBase(ABC):
         Returns:
             tuple[int, int, int]: the number of skipped, ingested, and failed documents
         """
-        if self._raw_ingestion:
-            # disable refresh for raw ingestion, unless it is the last chunk
-            wait_for_refresh = self._last_raw_chunk
+        chunk = self._detach_ingestion_chunk(flt=flt, all_fields_on_ws=all_fields_on_ws)
+        return await self._process_ingestion_chunk(
+            chunk, wait_for_refresh=wait_for_refresh, update_stats=False
+        )
 
-        if not self._docs_buffer:
-            if wait_for_refresh:
-                await GulpOpenSearch.get_instance().index_refresh(self._index)
-            await self._send_documents_chunk_to_ws([], last=wait_for_refresh)
-            return 0, 0, 0
+    def _detach_ingestion_chunk(
+        self,
+        flt: GulpIngestionFilter = None,
+        all_fields_on_ws: bool = False,
+    ) -> _GulpIngestionChunk:
+        """Move the current mutable buffer and counters into an owned envelope."""
+        chunk = _GulpIngestionChunk(
+            documents=self._docs_buffer,
+            records_processed=self._records_processed_per_chunk,
+            records_failed=self._records_failed_per_chunk,
+            flt=flt,
+            sequence=self._chunk_sequence_next,
+            all_fields_on_ws=all_fields_on_ws or self._external_query,
+        )
+        self._chunk_sequence_next += 1
+        self._docs_buffer = []
+        self._records_processed_per_chunk = 0
+        self._records_failed_per_chunk = 0
 
-        if self._external_query:
-            # for external queries, always send all fields to the websocket
-            all_fields_on_ws = True
+        if (
+            self._chunk_build_started is not None
+            and GulpConfig.get_instance().prometheus_enabled()
+        ):
+            try:
+                GulpMetrics.ingestion_chunk_build_duration_seconds.observe(
+                    time.perf_counter() - self._chunk_build_started
+                )
+            except Exception:
+                pass
+        self._chunk_build_started = None
+        return chunk
+
+    async def _prepare_ingestion_chunk(self, chunk: _GulpIngestionChunk) -> None:
+        """Run synchronous pre-ingestion work and serialize the exact bulk body."""
+        if not chunk.documents:
+            return
 
         MutyLogger.get_instance().debug(
             "processing chunk of %d documents with plugin=%s",
-            len(self._docs_buffer),
+            len(chunk.documents),
             self.name,
         )
-
-        el = GulpOpenSearch.get_instance()
-        skipped: int = 0
-        ingested_docs: list[dict] = []
-        # MutyLogger.get_instance().debug(orjson.dumps(self._docs_buffer, option=orjson.OPT_INDENT_2).decode())
-        # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d',len(self.buffer))
         if (
             not self._preview_mode
             and self._event_listener_mask & events.CHUNK_PRE_INGEST
         ):
-            # send pre-ingest event to allow plugins to modify the chunk before ingestion, this is a SYNCHRONOUS event (core wait for the response before ingesting the chunk)
             pre_ingest_ev = GulpChunkPrePostIngestEventData(
-                chunk=self._docs_buffer,
+                chunk=chunk.documents,
                 index=self._index,
                 req_id=self._req_id,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
                 operation_id=self._operation_id,
                 plugin=self.name,
-                flt=flt,
+                flt=chunk.flt,
             )
-
             try:
                 result = await events.emit(
                     GulpCoreEvent.CHUNK_PRE_INGEST,
@@ -913,88 +931,158 @@ class GulpPluginBase(ABC):
                     req_id=self._req_id,
                     data=pre_ingest_ev.model_dump(exclude_none=True),
                 )
-                transformed_chunk = result.result.get("chunk")
-                if not isinstance(transformed_chunk, list) or not all(
-                    isinstance(document, dict) for document in transformed_chunk
+                transformed = result.result.get("chunk")
+                if not isinstance(transformed, list) or not all(
+                    isinstance(document, dict) for document in transformed
                 ):
                     raise ValueError(
                         "chunk_pre_ingest listener returned an invalid chunk"
                     )
-                self._docs_buffer = transformed_chunk
+                chunk.documents = transformed
             except Exception:
                 self._chunk_pre_ingest_failed = True
                 raise
 
-        # perform ingestion, ingested_docs may be different from self._docs_buffer in the end due to skipped documents
-        skipped, ingested_docs, failed = await el.bulk_ingest(
+        chunk.prepared = await GulpOpenSearch.get_instance().prepare_bulk_ingest(
+            chunk.documents, flt=chunk.flt
+        )
+
+    async def _run_ingestion_bulk(
+        self,
+        chunk: _GulpIngestionChunk,
+        wait_for_refresh: bool,
+    ) -> tuple[int, list[dict], int]:
+        """Run only OpenSearch work; safe to execute beside record parsing."""
+        if self._raw_ingestion:
+            wait_for_refresh = self._last_raw_chunk
+        if chunk.prepared is None or not chunk.prepared.body:
+            if wait_for_refresh:
+                await GulpOpenSearch.get_instance().index_refresh(self._index)
+            return 0, [], 0
+        return await GulpOpenSearch.get_instance().bulk_ingest_prepared(
             self._index,
-            self._docs_buffer,
-            flt=flt,
+            chunk.prepared,
             wait_for_refresh=wait_for_refresh,
         )
-        # print(orjson.dumps(ingested_docs, option=orjson.OPT_INDENT_2).decode())
-        if failed > 0:
-            # NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
-            # ideally, function should NEVER append errors and the errors total should be the same before and
-            # after this function returns (this function may only change the skipped total, which means some duplicates were found).
-            if GulpConfig.get_instance().debug_abort_on_opensearch_ingestion_error():
-                raise Exception(
-                    "failed=%d, opensearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
-                    % (failed)
-                )
 
-        def __select_ws_doc_fields(doc: dict) -> dict:
-            """
-            patch document to send to ws, either all fields or only default fields
-            """
+    def _commit_ingestion_chunk(
+        self,
+        chunk: _GulpIngestionChunk,
+        skipped: int,
+        ingested: int,
+        failed: int,
+    ) -> None:
+        """Commit one consumed chunk exactly once to source and pending stats."""
+        if chunk.totals_committed:
+            return
+        chunk.totals_committed = True
+        self._records_processed_total += chunk.records_processed
+        self._records_failed_total += chunk.records_failed + failed
+        self._records_skipped_total += skipped
+        self._records_ingested_total += ingested
+        self._stats_pending_processed += chunk.records_processed
+        self._stats_pending_failed += chunk.records_failed + failed
+        self._stats_pending_skipped += skipped
+        self._stats_pending_ingested += ingested
+
+    async def _flush_pending_ingestion_stats(self) -> None:
+        """Persist all acknowledged results not yet reflected in request stats."""
+        if not any(
+            (
+                self._stats_pending_processed,
+                self._stats_pending_failed,
+                self._stats_pending_skipped,
+                self._stats_pending_ingested,
+            )
+        ):
+            return
+        await self._stats.update_ingestion_stats(
+            self._sess,
+            user_id=self._user_id,
+            ws_id=self._ws_id,
+            records_ingested=self._stats_pending_ingested,
+            records_skipped=self._stats_pending_skipped,
+            records_processed=self._stats_pending_processed,
+            records_failed=self._stats_pending_failed,
+        )
+        self._stats_pending_processed = 0
+        self._stats_pending_failed = 0
+        self._stats_pending_skipped = 0
+        self._stats_pending_ingested = 0
+
+    def _update_adaptive_chunk_size(self, chunk: _GulpIngestionChunk) -> None:
+        """Retarget the sole document-count boundary from observed NDJSON bytes."""
+        if (
+            not self._adaptive_chunk_enabled
+            or chunk.prepared is None
+            or not chunk.prepared.body
+            or not chunk.prepared.documents
+        ):
+            return
+
+        target_bytes = min(
+            5 * 1024 * 1024,
+            int(chunk.prepared.max_content_length_bytes * 0.8),
+        )
+        proposed = round(
+            len(chunk.prepared.documents) * target_bytes / chunk.prepared.size_bytes
+        )
+        current = self._adaptive_chunk_size
+        lower = max(1, (current + 1) // 2)
+        upper = min(8000, current * 2)
+        self._adaptive_chunk_size = max(1, min(8000, proposed, upper))
+        self._adaptive_chunk_size = max(lower, self._adaptive_chunk_size)
+        MutyLogger.get_instance().debug(
+            "adaptive ingestion chunk size changed from %d to %d "
+            "(documents=%d, ndjson_bytes=%d, target_bytes=%d)",
+            current,
+            self._adaptive_chunk_size,
+            len(chunk.prepared.documents),
+            chunk.prepared.size_bytes,
+            target_bytes,
+        )
+
+    async def _postprocess_ingestion_chunk(
+        self,
+        chunk: _GulpIngestionChunk,
+        ingested_docs: list[dict],
+        wait_for_refresh: bool,
+    ) -> None:
+        """Run ordered websocket, cancellation, callback, and event work."""
+        if self._raw_ingestion:
+            wait_for_refresh = self._last_raw_chunk
+        if not chunk.documents:
+            await self._send_documents_chunk_to_ws([], last=wait_for_refresh)
+            return
+
+        def _select_ws_doc_fields(doc: dict) -> dict:
             return (
                 doc
-                if all_fields_on_ws
+                if chunk.all_fields_on_ws
                 else {
                     field: doc[field] for field in QUERY_DEFAULT_FIELDS if field in doc
                 }
             )
 
-        # send ingested docs to websocket
-        if flt:
-            # copy filter to avoid changing the original, if any,
-            flt = deepcopy(flt)
-
-            # ensure data on ws is filtered
-            flt.storage_ignore_filter = False
-
+        if chunk.flt:
+            ws_filter = deepcopy(chunk.flt)
+            ws_filter.storage_ignore_filter = False
             ws_docs = [
-                __select_ws_doc_fields(doc)
+                _select_ws_doc_fields(doc)
                 for doc in ingested_docs
-                if GulpIngestionFilter.filter_doc_for_ingestion(doc, flt)
+                if GulpIngestionFilter.filter_doc_for_ingestion(doc, ws_filter)
                 == GulpDocumentFilterResult.ACCEPT
             ]
         else:
-            # no filter, send all ingested docs to ws
-            ws_docs = [__select_ws_doc_fields(doc) for doc in ingested_docs]
-
+            ws_docs = [_select_ws_doc_fields(doc) for doc in ingested_docs]
         await self._send_documents_chunk_to_ws(ws_docs, last=wait_for_refresh)
 
-        # check if the request is canceled
-        canceled: bool = await GulpRequestStats.is_canceled(self._sess, self._req_id)
-        if canceled:
-            self._req_canceled = True
-            MutyLogger.get_instance().warning(
-                "_process_docs_chunk: request %s canceled!", self._req_id
-            )
-
-        # MutyLogger.get_instance().debug("returning %d ingested, %d skipped, %d failed",l, skipped, failed)
-        ingested: int = len(ingested_docs)
-        self._records_skipped_total += skipped
-        self._records_ingested_total += ingested
-        self._records_failed_total += failed
-
-        # call _chunk_ingestion_callback if set in plugin_params, respecting plugin stacking
         if ingested_docs and not self._preview_mode:
-            current_plugin: GulpPluginBase = self
+            current_plugin: GulpPluginBase | None = self
             while current_plugin is not None:
-                if current_plugin._plugin_params._chunk_ingestion_callback:
-                    await current_plugin._plugin_params._chunk_ingestion_callback(
+                callback = current_plugin._plugin_params._chunk_ingestion_callback
+                if callback:
+                    await callback(
                         self._sess,
                         ingested_docs,
                         index=self._index,
@@ -1015,7 +1103,7 @@ class GulpPluginBase(ABC):
                         user_id=self._user_id,
                         operation_id=self._operation_id,
                         plugin=self.name,
-                        flt=flt,
+                        flt=chunk.flt,
                     )
                     await events.emit(
                         GulpCoreEvent.CHUNK_POST_INGEST,
@@ -1029,7 +1117,87 @@ class GulpPluginBase(ABC):
                         "failed to emit chunk-post-ingest event"
                     )
 
+    async def _acknowledge_ingestion_chunk(
+        self,
+        chunk: _GulpIngestionChunk,
+        wait_for_refresh: bool,
+        update_stats: bool,
+    ) -> tuple[int, int, int]:
+        """Acknowledge one prepared chunk and perform ordered coordinator work."""
+        try:
+            result = (
+                await chunk.bulk_task
+                if chunk.bulk_task is not None
+                else await self._run_ingestion_bulk(chunk, wait_for_refresh)
+            )
+        except Exception:
+            self._commit_ingestion_chunk(chunk, 0, 0, 0)
+            if update_stats:
+                await self._flush_pending_ingestion_stats()
+            raise
+
+        skipped, ingested_docs, failed = result
+        ingested = len(ingested_docs)
+        self._commit_ingestion_chunk(chunk, skipped, ingested, failed)
+        self._update_adaptive_chunk_size(chunk)
+
+        post_started = time.perf_counter()
+        post_error: Exception | None = None
+        if (
+            failed > 0
+            and GulpConfig.get_instance().debug_abort_on_opensearch_ingestion_error()
+        ):
+            post_error = RuntimeError(
+                "failed=%d, opensearch ingestion errors means GulpDocument contains "
+                "invalid data, review errors on collab db!" % failed
+            )
+        else:
+            try:
+                await self._postprocess_ingestion_chunk(
+                    chunk, ingested_docs, wait_for_refresh
+                )
+            except Exception as ex:
+                post_error = ex
+
+        if GulpConfig.get_instance().prometheus_enabled():
+            try:
+                GulpMetrics.ingestion_chunk_postprocess_duration_seconds.observe(
+                    time.perf_counter() - post_started
+                )
+            except Exception:
+                pass
+        if update_stats:
+            await self._flush_pending_ingestion_stats()
+        if chunk.documents:
+            canceled = await GulpRequestStats.is_canceled(self._sess, self._req_id)
+            if canceled:
+                self._req_canceled = True
+                MutyLogger.get_instance().warning(
+                    "_process_docs_chunk: request %s canceled!", self._req_id
+                )
+        if post_error is not None:
+            raise post_error
         return skipped, ingested, failed
+
+    async def _process_ingestion_chunk(
+        self,
+        chunk: _GulpIngestionChunk,
+        wait_for_refresh: bool,
+        update_stats: bool,
+    ) -> tuple[int, int, int]:
+        """Prepare and synchronously acknowledge one detached logical chunk."""
+        try:
+            await self._prepare_ingestion_chunk(chunk)
+        except Exception:
+            self._commit_ingestion_chunk(chunk, 0, 0, 0)
+            if update_stats:
+                await self._flush_pending_ingestion_stats()
+            raise
+        return await self._acknowledge_ingestion_chunk(
+            chunk,
+            wait_for_refresh=wait_for_refresh,
+            update_stats=update_stats,
+        )
 
     async def _context_id_from_doc_value(
         self, k: str, v: str, force_v_as_context_id: bool = False
@@ -1272,6 +1440,7 @@ class GulpPluginBase(ABC):
         self._raw_ingestion = True
         self._stats = stats
         self._last_raw_chunk = last
+        self._normalized_timestamp_cache.clear()
 
         MutyLogger.get_instance().debug(
             "ingesting raw, chunk size=%d, plugin %s, last=%r, user_id=%s, operation_id=%s, index=%s, ws_id=%s, req_id=%s",
@@ -1668,27 +1837,39 @@ class GulpPluginBase(ABC):
         self._file_path = file_path
         self._original_file_path = original_file_path
         self._source_id = source_id
+        self._normalized_timestamp_cache.clear()
         self._stored_file_id = (
             self._upper_instance._stored_file_id if self._upper_instance else None
         )
-
-        if GulpConfig.get_instance().ingestion_documents_adaptive_chunk_size():
-            # calculate adaptive chunk size based on file size
-            file_size: int = await muty.file.get_size(file_path)
-            file_size_mb: int = file_size / (1024 * 1024)
-            if file_size_mb < 10:
-                self._adaptive_chunk_size = 500
-            elif file_size_mb < 100:
-                self._adaptive_chunk_size = 1000
-            elif file_size_mb < 500:
-                self._adaptive_chunk_size = 1500
-            else:
-                self._adaptive_chunk_size = 2000
 
         # initialize
         await self._initialize(plugin_params=plugin_params)
         if self._plugin_params.preview_mode:
             self._preview_mode = True
+
+        config = GulpConfig.get_instance()
+        initial_chunk_size = config.ingestion_documents_chunk_size()
+        if self._plugin_params.override_chunk_size is not None:
+            self._adaptive_chunk_enabled = False
+            self._adaptive_chunk_size = self._plugin_params.override_chunk_size
+        else:
+            self._adaptive_chunk_enabled = (
+                config.ingestion_documents_adaptive_chunk_size()
+            )
+            self._adaptive_chunk_size = (
+                min(8000, initial_chunk_size)
+                if self._adaptive_chunk_enabled
+                else initial_chunk_size
+            )
+        self._pipeline_enabled = bool(
+            config.ingestion_pipeline_enabled()
+            and not self._preview_mode
+            and not self._raw_ingestion
+            and not self._external_query
+        )
+        self._pipeline_active_chunk = None
+        self._chunk_sequence_next = 0
+        self._chunk_build_started = time.perf_counter()
 
         MutyLogger.get_instance().debug(
             f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, \
@@ -1826,6 +2007,7 @@ class GulpPluginBase(ABC):
         lower._upper_enrich_documents_chunk_fun = self._enrich_documents_chunk
         lower._upper_instance = self
         self._lower_instance = lower
+        self._ingestion_owner = lower
 
         # set this plugin as stacked
         self._stacked = True
@@ -1875,6 +2057,7 @@ class GulpPluginBase(ABC):
                 self,
                 **new_doc_data,
                 __ignore_default_event_code__=True,
+                __timestamp_cache_slot__=f"extra:{new_doc_data['event_code']}",
             )
             # MutyLogger.get_instance().debug(
             #     "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
@@ -2004,6 +2187,62 @@ class GulpPluginBase(ABC):
             GulpMapping: The selected mapping.
         """
         return self._mappings.get(self._mapping_id, self._empty_mapping)
+
+    def _normalize_timestamp_cached(
+        self,
+        timestamp: Any,
+        plugin_params: GulpPluginParameters | None = None,
+        timestamp_format: str | None = None,
+        timestamp_naive_timezone: Literal["local", "utc"] = "local",
+        fallback_on_format_error: bool = False,
+        cache_slot: str = "primary",
+    ) -> GulpNormalizedTimestamp:
+        """Normalize one ingestion timestamp, reusing a consecutive string."""
+        if (
+            self.type() != GulpPluginType.INGESTION
+            or not isinstance(timestamp, str)
+        ):
+            return GulpDocument.normalize_timestamp(
+                timestamp,
+                plugin_params=plugin_params,
+                timestamp_format=timestamp_format,
+                timestamp_naive_timezone=timestamp_naive_timezone,
+                fallback_on_format_error=fallback_on_format_error,
+            )
+
+        timestamp_offset_msec = (
+            getattr(plugin_params, "timestamp_offset_msec", 0)
+            if plugin_params is not None
+            else None
+        )
+        local_timezone = (
+            time.tzname if timestamp_naive_timezone == "local" else None
+        )
+        cache_key = (
+            timestamp,
+            timestamp_format,
+            timestamp_naive_timezone,
+            fallback_on_format_error,
+            timestamp_offset_msec,
+            local_timezone,
+        )
+        cache = getattr(self, "_normalized_timestamp_cache", None)
+        if cache is None:
+            cache = {}
+            self._normalized_timestamp_cache = cache
+        cached = cache.get(cache_slot)
+        if cached is not None and cached[0] == cache_key:
+            return cached[1]
+
+        normalized = GulpDocument.normalize_timestamp(
+            timestamp,
+            plugin_params=plugin_params,
+            timestamp_format=timestamp_format,
+            timestamp_naive_timezone=timestamp_naive_timezone,
+            fallback_on_format_error=fallback_on_format_error,
+        )
+        cache[cache_slot] = (cache_key, normalized)
+        return normalized
 
     def _build_or_update_enriched_obj(
         self, doc: dict, k: str, v: Any, skip_none: bool = True
@@ -2441,16 +2680,55 @@ class GulpPluginBase(ABC):
         MutyLogger.get_instance().debug(
             "_flush_and_check_thresholds called, plugin=%s", self.name
         )
-        # flush buffer
-        skipped, ingested, failed = await self._flush_buffer_and_send_to_ws(
-            flt, wait_for_refresh
-        )
+        chunk = self._detach_ingestion_chunk(flt=flt)
+        if self._pipeline_enabled:
+            # A full next chunk is retained locally until the preceding bulk is
+            # acknowledged. It is never submitted after a preceding failure.
+            await self._acknowledge_pipeline_chunk(update_stats=True)
+            try:
+                await self._prepare_ingestion_chunk(chunk)
+            except Exception:
+                self._commit_ingestion_chunk(chunk, 0, 0, 0)
+                await self._flush_pending_ingestion_stats()
+                raise
+            chunk.bulk_task = asyncio.create_task(
+                self._run_ingestion_bulk(chunk, wait_for_refresh=False),
+                name=f"gulp_bulk_{self._req_id}_{chunk.sequence}",
+            )
+            self._pipeline_active_chunk = chunk
+            # Buffered readers and CPU-bound plugin coroutines may process many
+            # records without suspending. Give the newly scheduled bulk one
+            # turn now so it reaches OpenSearch before parsing resumes.
+            await asyncio.sleep(0)
+            self._chunk_build_started = time.perf_counter()
+            return
 
-        # check if request was canceled
+        await self._process_ingestion_chunk(
+            chunk,
+            wait_for_refresh=wait_for_refresh,
+            update_stats=True,
+        )
+        self._check_ingestion_thresholds()
+        self._chunk_build_started = time.perf_counter()
+
+    async def _acknowledge_pipeline_chunk(self, update_stats: bool) -> None:
+        """Consume the sole active OpenSearch task, if present."""
+        chunk = self._pipeline_active_chunk
+        if chunk is None:
+            return
+        self._pipeline_active_chunk = None
+        await self._acknowledge_ingestion_chunk(
+            chunk,
+            wait_for_refresh=False,
+            update_stats=update_stats,
+        )
+        self._check_ingestion_thresholds()
+
+    def _check_ingestion_thresholds(self) -> None:
+        """Raise only after the acknowledged chunk was consumed and reported."""
         if self._req_canceled:
             raise RequestCanceledError(f"request {self._req_id} canceled!")
 
-        # check failure thresholds
         failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
         if (
             not self._raw_ingestion
@@ -2465,21 +2743,6 @@ class GulpPluginBase(ABC):
                 f"tot_failed={self._records_failed_total}, threshold={failure_threshold}), "
                 f"canceling source..."
             )
-
-        # update stats
-        await self._stats.update_ingestion_stats(
-            self._sess,
-            user_id=self._user_id,
-            ws_id=self._ws_id,
-            records_ingested=ingested,
-            records_skipped=skipped,
-            records_processed=self._records_processed_per_chunk,
-            records_failed=self._records_failed_per_chunk,
-        )
-        # reset buffers and counters
-        self._docs_buffer = []
-        self._records_processed_per_chunk = 0
-        self._records_failed_per_chunk = 0
 
     async def process_record(
         self,
@@ -2519,15 +2782,12 @@ class GulpPluginBase(ABC):
             # external query, documents have been already filtered by the query
             flt = None
 
-        # get ingestion chunk size, either adaptive or fixed
-        ingestion_buffer_size: int = (
+        # This is the only active flush boundary. Adaptive mode changes the
+        # count only after observing a completed chunk's exact NDJSON body.
+        ingestion_buffer_size = (
             self._adaptive_chunk_size
-            if self._adaptive_chunk_size
-            else GulpConfig.get_instance().ingestion_documents_chunk_size()
+            or GulpConfig.get_instance().ingestion_documents_chunk_size()
         )
-        if self._plugin_params.override_chunk_size:
-            # override
-            ingestion_buffer_size = self._plugin_params.override_chunk_size
 
         self._extra_docs = []
 
@@ -2539,14 +2799,12 @@ class GulpPluginBase(ABC):
         except Exception as ex:
             # increment records failed counters
             self._records_failed_per_chunk += 1
-            self._records_failed_total += 1
             MutyLogger.get_instance().exception(ex)
 
             # continue processing anyway
             return True
 
         self._records_processed_per_chunk += 1
-        self._records_processed_total += 1
 
         if self._preview_mode:
             # MutyLogger.get_instance().debug("***PREVIEW MODE*** got %d docs", len(docs))
@@ -2957,6 +3215,29 @@ class GulpPluginBase(ABC):
             )
             await n.update(self._sess, plugin=self.name, mapping_parameters_id=mp.id)
 
+    def _ingestion_buffer_owner(self) -> "GulpPluginBase":
+        """Return the lowest stacked plugin that owns buffering and bulk tasks."""
+        owner = self
+        visited: set[int] = set()
+        while id(owner) not in visited:
+            visited.add(id(owner))
+            lower_owner = owner._ingestion_owner or owner._lower_instance
+            if lower_owner is None:
+                break
+            owner = lower_owner
+        return owner
+
+    def _copy_ingestion_owner_state(self, owner: "GulpPluginBase") -> None:
+        """Expose owner totals on the outer plugin used for terminal events."""
+        if owner is self:
+            return
+        self._records_processed_total = owner._records_processed_total
+        self._records_failed_total = owner._records_failed_total
+        self._records_skipped_total = owner._records_skipped_total
+        self._records_ingested_total = owner._records_ingested_total
+        self._req_canceled = owner._req_canceled
+        self._ctx_src_pairs = owner._ctx_src_pairs
+
     async def update_final_stats_and_flush(
         self, flt: GulpIngestionFilter = None, ex: Exception = None
     ) -> GulpRequestStatus:
@@ -2986,48 +3267,54 @@ class GulpPluginBase(ABC):
             MutyLogger.get_instance().debug("*** preview mode, no ingestion! ***")
             return GulpRequestStatus.DONE
 
+        owner = self._ingestion_buffer_owner()
         MutyLogger.get_instance().debug(
             "*** plugin=%s, file_path/source_id=%s, remaining docs to flush in docs_buffer: %d, status=%s ***",
             self.name,
             self._file_path or self._source_id,
-            len(self._docs_buffer),
+            len(owner._docs_buffer),
             self._stats.status,
         )
-        ingested: int = 0
-        skipped: int = 0
-        failed: int = 0
         errors: list[str] = []
         status: GulpRequestStatus = None
         if ex:
             if isinstance(ex, SourceCanceledError):
                 # also SourceCanceled counts as request canceled
                 self._req_canceled = True
+                owner._req_canceled = True
             else:
                 errors.append(muty.log.exception_to_string(ex))
 
-        if self._stacked:
-            # we're a stacked plugin and buffering was done in the lower instance: so, use its buffer
-            # note we walk the chain of lower instances to allow multiple stacked plugins one on top of the other
-            l: GulpPluginBase = self
-            while l._lower_instance != None:
-                l = l._lower_instance
-                # MutyLogger.get_instance().debug("*************************** self=%s, current=%s, current->lower=%s", self.name, ll.name, l.name)
-            self._docs_buffer = l._docs_buffer
+        # An already submitted chunk is always acknowledged. Work constructed
+        # after it is sent only at graceful EOF; on abort it is discarded.
+        try:
+            await owner._acknowledge_pipeline_chunk(update_stats=True)
+        except Exception as pipeline_ex:
+            MutyLogger.get_instance().exception(pipeline_ex)
+            serialized = muty.log.exception_to_string(pipeline_ex)
+            if serialized not in errors:
+                errors.append(serialized)
+            ex = ex or pipeline_ex
 
-        if not self._chunk_pre_ingest_failed:
+        if ex is None and not owner._chunk_pre_ingest_failed:
             try:
-                # flush the last chunk
-                skipped, ingested, failed = await self._flush_buffer_and_send_to_ws(
-                    flt,
+                final_chunk = owner._detach_ingestion_chunk(flt=flt)
+                await owner._process_ingestion_chunk(
+                    final_chunk,
                     wait_for_refresh=True,
+                    update_stats=False,
                 )
-            except Exception as e:
-                MutyLogger.get_instance().exception(e)
-                s: str = muty.log.exception_to_string(e)
-                if s not in errors:
-                    errors.append(s)
+            except Exception as final_ex:
+                MutyLogger.get_instance().exception(final_ex)
+                serialized = muty.log.exception_to_string(final_ex)
+                if serialized not in errors:
+                    errors.append(serialized)
+        else:
+            owner._docs_buffer = []
+            owner._records_processed_per_chunk = 0
+            owner._records_failed_per_chunk = 0
 
-        self._records_failed_per_chunk += failed
+        self._copy_ingestion_owner_state(owner)
         source_finished: bool = True
         disconnected: bool = False
         if self._raw_ingestion:
@@ -3093,10 +3380,10 @@ class GulpPluginBase(ABC):
         try:
             MutyLogger.get_instance().debug(
                 "updating ingestion stats with: ingested=%d, skipped=%d, processed=%d, failed=%d, errors=%s, status=%s, source_finished=%r, ws_disconnected=%r",
-                ingested,
-                skipped,
-                self._records_processed_per_chunk,
-                self._records_failed_per_chunk,
+                owner._stats_pending_ingested,
+                owner._stats_pending_skipped,
+                owner._stats_pending_processed,
+                owner._stats_pending_failed,
                 errors,
                 status,
                 source_finished,
@@ -3106,15 +3393,19 @@ class GulpPluginBase(ABC):
                 self._sess,
                 user_id=self._user_id,
                 ws_id=self._ws_id,
-                records_ingested=ingested,
-                records_skipped=skipped,
-                records_processed=self._records_processed_per_chunk,
-                records_failed=self._records_failed_per_chunk,
+                records_ingested=owner._stats_pending_ingested,
+                records_skipped=owner._stats_pending_skipped,
+                records_processed=owner._stats_pending_processed,
+                records_failed=owner._stats_pending_failed,
                 errors=errors,
                 status=status,
                 source_finished=source_finished,
                 ws_disconnected=disconnected,
             )
+            owner._stats_pending_ingested = 0
+            owner._stats_pending_skipped = 0
+            owner._stats_pending_processed = 0
+            owner._stats_pending_failed = 0
 
             # update source field types (in background)
             from gulp.api.server_api import GulpServer
@@ -3387,10 +3678,12 @@ class GulpPluginBase(ABC):
         lower = self._lower_instance
         self._lower_instance = None
         try:
+            await self._acknowledge_pipeline_chunk(update_stats=True)
             if lower and lower.module_name in sys.modules:
                 await lower.unload()
         finally:
             try:
+                self._normalized_timestamp_cache.clear()
                 if GulpProcess.get_instance().is_main_process():
                     events.unsubscribe(self)
                     await events.drain()

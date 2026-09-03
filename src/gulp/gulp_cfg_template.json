@@ -20,11 +20,12 @@
   // defaults to true, allows fields not defined in the mapping to be ingested (generates gulp.unmapped.* keys in the document).
   // warning: this may affect sigma rules matching if set to false, but may be useful to enforce strict mappings in some cases (i.e. eases AI workflow).
   "ingestion_allow_unmapped_fields": true,
-  // if set, ingestion chunk depends on the source file size (applies to file ingestion only)
+  // adapt the document count from the exact NDJSON bytes produced by previous chunks (file ingestion only)
   "ingestion_documents_adaptive_chunk_size": true,
-  // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
-  // on file ingestion only, this is ignored if "ingestion_documents_adaptive_chunk_size" is set.
+  // fixed document count, or the initial count when adaptive sizing is enabled (default=1000). GulpPluginParameters.override_chunk_size forces a fixed request value.
   "ingestion_documents_chunk_size": 1000,
+  // file ingestion only: overlap one OpenSearch bulk request with construction of the next logical chunk (default=true)
+  "ingestion_pipeline_enabled": true,
   // failed events in a file to consider the file ABORTED (0=disabled, ignored for raw ingestions)
   "ingestion_evt_failure_threshold": 5000,
   // after how many chunks to update raw ingestion stats (default=10)

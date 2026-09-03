@@ -91,6 +91,23 @@ PostgreSQL pool pressure, websocket enqueue timeouts, and OpenSearch health.
 Tune from observed service pressure rather than applying a generic production
 profile. Use [scaling.md](./scaling.md) to choose the tier to scale.
 
+### Ingestion pipeline metrics
+
+The `/metrics` endpoint exposes these bounded-cardinality series for comparing
+sequential and one-ahead file ingestion:
+
+- `gulp_opensearch_bulk_requests_total` and
+  `gulp_opensearch_bulk_retries_total`;
+- `gulp_opensearch_bulk_request_size_bytes` and
+  `gulp_opensearch_bulk_request_documents` histograms;
+- `gulp_opensearch_bulk_prepare_duration_seconds`,
+  `gulp_opensearch_bulk_request_duration_seconds`, and
+  `gulp_opensearch_bulk_took_seconds` histograms;
+- `gulp_ingestion_chunk_build_duration_seconds` and
+  `gulp_ingestion_chunk_postprocess_duration_seconds` histograms;
+- `gulp_worker_memory_rss_bytes`, sampled during a run to derive peak worker
+  RSS.
+
 ## 6) Visualize metrics in Grafana
 
 Grafana is a common frontend for Prometheus metrics.

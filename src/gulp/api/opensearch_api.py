@@ -20,8 +20,10 @@ operations (like bulk ingestion) and high-level functionality (like querying ope
 import asyncio
 import json
 import tempfile
+import time
+from dataclasses import dataclass
 from importlib import resources as impresources
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import aiofiles
 import muty.dict
@@ -33,6 +35,7 @@ from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch, NotFoundError
 from opensearchpy.exceptions import TransportError
+from opensearchpy.serializer import JSONSerializer
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.prometheus_api import GulpMetrics
 
@@ -66,6 +69,20 @@ if TYPE_CHECKING:
     from gulp.plugin import GulpPluginBase
 
 
+@dataclass(frozen=True, slots=True)
+class GulpPreparedBulk:
+    """Exact NDJSON request body and the accepted documents it represents."""
+
+    body: bytes
+    documents: tuple[dict, ...]
+    size_bytes: int
+    max_content_length_bytes: int
+
+
+class GulpBulkRequestTooLargeError(ValueError):
+    """Raised before HTTP submission when a prepared bulk exceeds OpenSearch."""
+
+
 class GulpOpenSearch:
     """
     singleton class to handle OpenSearch client connection.
@@ -77,8 +94,13 @@ class GulpOpenSearch:
     UNMAPPED_PREFIX: str = "gulp.unmapped"
     ENRICHED_PREFIX: str = "gulp.enriched"
 
+    DEFAULT_MAX_CONTENT_LENGTH_BYTES: int = 100 * 1024 * 1024
+
     def __init__(self):
         self._opensearch: AsyncOpenSearch = self._get_client()
+        self._bulk_limit_lock = asyncio.Lock()
+        self._bulk_limit_checked: bool = False
+        self._bulk_max_content_length_bytes: int = self.DEFAULT_MAX_CONTENT_LENGTH_BYTES
 
     def __new__(cls):
         """
@@ -1088,68 +1110,147 @@ class GulpOpenSearch:
 
         return success_count, failed_count, errors
 
-    async def bulk_ingest(
+    async def bulk_max_content_length_bytes(self) -> int:
+        """Return the smallest HTTP content limit advertised by OpenSearch nodes."""
+        if not hasattr(self, "_bulk_limit_lock"):
+            # Some focused tests construct this singleton without calling __init__.
+            self._bulk_limit_lock = asyncio.Lock()
+            self._bulk_limit_checked = False
+            self._bulk_max_content_length_bytes = self.DEFAULT_MAX_CONTENT_LENGTH_BYTES
+
+        async with self._bulk_limit_lock:
+            if self._bulk_limit_checked:
+                return self._bulk_max_content_length_bytes
+            self._bulk_limit_checked = True
+            try:
+                response = await self._opensearch.nodes.info(
+                    metric="http",
+                    params={"filter_path": "nodes.*.http.max_content_length_in_bytes"},
+                )
+                discovered = [
+                    node.get("http", {}).get("max_content_length_in_bytes")
+                    for node in response.get("nodes", {}).values()
+                    if isinstance(node, dict)
+                ]
+                discovered = [
+                    value
+                    for value in discovered
+                    if isinstance(value, int) and value > 0
+                ]
+                if discovered:
+                    self._bulk_max_content_length_bytes = min(discovered)
+                    MutyLogger.get_instance().info(
+                        "OpenSearch bulk HTTP limit=%d bytes",
+                        self._bulk_max_content_length_bytes,
+                    )
+                else:
+                    raise ValueError("response contains no valid node HTTP limit")
+            except Exception as ex:
+                MutyLogger.get_instance().warning(
+                    "cannot discover OpenSearch HTTP content limit, using the "
+                    "documented 100 MiB default: %s",
+                    ex,
+                )
+            return self._bulk_max_content_length_bytes
+
+    def _bulk_serializer(self) -> Any:
+        """Return the transport serializer used for the final request body."""
+        serializer = getattr(
+            getattr(self._opensearch, "transport", None), "serializer", None
+        )
+        if serializer is None or not callable(getattr(serializer, "dumps", None)):
+            return JSONSerializer()
+        return serializer
+
+    @staticmethod
+    def _serialize_bulk_line(serializer: Any, value: dict) -> bytes:
+        """Serialize one newline-terminated NDJSON line."""
+        encoded = serializer.dumps(value)
+        if isinstance(encoded, str):
+            encoded = encoded.encode("utf-8")
+        if not isinstance(encoded, bytes):
+            raise TypeError("OpenSearch serializer must return str or bytes")
+        return encoded.rstrip(b"\n") + b"\n"
+
+    async def prepare_bulk_ingest(
         self,
-        index: str,
         docs: list[dict],
         flt: GulpIngestionFilter = None,
+    ) -> GulpPreparedBulk:
+        """Filter and serialize one logical chunk, then validate its exact size."""
+        started = time.perf_counter()
+        serializer = self._bulk_serializer()
+        body = bytearray()
+        accepted: list[dict] = []
+
+        for doc in docs:
+            if (
+                flt
+                and flt.time_range
+                and GulpIngestionFilter.filter_doc_for_ingestion(doc, flt)
+                == GulpDocumentFilterResult.SKIP
+            ):
+                continue
+
+            source_doc = doc.copy()
+            doc_id = source_doc.pop("_id")
+            body.extend(
+                self._serialize_bulk_line(serializer, {"create": {"_id": doc_id}})
+            )
+            body.extend(self._serialize_bulk_line(serializer, source_doc))
+            accepted.append(doc)
+
+        max_content_length = await self.bulk_max_content_length_bytes()
+        prepared = GulpPreparedBulk(
+            body=bytes(body),
+            documents=tuple(accepted),
+            size_bytes=len(body),
+            max_content_length_bytes=max_content_length,
+        )
+        if prepared.size_bytes > max_content_length:
+            raise GulpBulkRequestTooLargeError(
+                "OpenSearch bulk body is "
+                f"{prepared.size_bytes} bytes, above the advertised "
+                f"{max_content_length}-byte HTTP limit; reduce "
+                "ingestion_documents_chunk_size or override_chunk_size"
+            )
+
+        if GulpConfig.get_instance().prometheus_enabled():
+            try:
+                GulpMetrics.opensearch_bulk_prepare_duration_seconds.observe(
+                    time.perf_counter() - started
+                )
+            except Exception:
+                pass
+        return prepared
+
+    async def bulk_ingest_prepared(
+        self,
+        index: str,
+        prepared: GulpPreparedBulk,
         wait_for_refresh: bool = False,
     ) -> tuple[int, list[dict], int]:
-        """
-        ingests a list of GulpDocument into OpenSearch.
-
-        Args:
-            index (str): Name of the index (or datastream) to ingest documents to.
-            docs (list[dict]): The documents to be ingested
-            flt (GulpIngestionFilter, optional): The filter parameters. Defaults to None.
-            wait_for_refresh (bool, optional): Whether to wait for the refresh(=refreshed index is available for searching) to complete. Defaults to False.
-
-        Returns:
-            tuple:
-            - number of skipped (because already existing=duplicated) documents
-            - list of ingested documents
-            - number of failed documents
-        """
-
-        # Filter and prepare the bulk request in one pass. Keep separate loops
-        # so the common unfiltered path does not evaluate a branch per document.
-        bulk_docs: list[dict] = []
-        filtered_count = 0
-        if flt and flt.time_range:
-            for doc in docs:
-                if (
-                    GulpIngestionFilter.filter_doc_for_ingestion(doc, flt)
-                    == GulpDocumentFilterResult.SKIP
-                ):
-                    continue
-
-                source_doc = doc.copy()
-                doc_id = source_doc.pop("_id")
-                bulk_docs.append({"create": {"_id": doc_id}})
-                bulk_docs.append(source_doc)
-                filtered_count += 1
-        else:
-            filtered_count = len(docs)
-            for doc in docs:
-                source_doc = doc.copy()
-                doc_id = source_doc.pop("_id")
-                bulk_docs.append({"create": {"_id": doc_id}})
-                bulk_docs.append(source_doc)
-
-        if not bulk_docs:
-            MutyLogger.get_instance().warning("no document to ingest (flt=%s)", flt)
+        """Submit one already serialized and validated OpenSearch bulk body."""
+        current_limit = await self.bulk_max_content_length_bytes()
+        body_size = len(prepared.body)
+        if prepared.size_bytes != body_size:
+            raise ValueError("prepared OpenSearch bulk size does not match its body")
+        if body_size > current_limit:
+            raise GulpBulkRequestTooLargeError(
+                "OpenSearch bulk body is "
+                f"{body_size} bytes, above the advertised "
+                f"{current_limit}-byte HTTP limit; reduce "
+                "ingestion_documents_chunk_size or override_chunk_size"
+            )
+        if not prepared.body:
             return 0, [], 0
+        if not prepared.body.endswith(b"\n"):
+            raise ValueError("OpenSearch bulk NDJSON body must end with a newline")
 
-        # set request parameters
-        timeout: int = GulpConfig.get_instance().opensearch_request_timeout()
-        if timeout > 0:
-            params = {"timeout": timeout}
-        else:
-            params = {}
-
+        timeout = GulpConfig.get_instance().opensearch_request_timeout()
+        params = {"timeout": timeout} if timeout > 0 else {}
         if wait_for_refresh:
             params["refresh"] = "wait_for"
-
         headers = {
             "accept": "application/json",
             "content-type": "application/x-ndjson",
@@ -1157,29 +1258,35 @@ class GulpOpenSearch:
 
         retry_max = GulpConfig.get_instance().ingestion_retry_max()
         retry_delay = GulpConfig.get_instance().ingestion_retry_delay()
-        res: dict | None = None
+        response: dict | None = None
+        request_started = time.perf_counter()
         for attempt in range(1, retry_max + 1):
             try:
-                res = await self._opensearch.bulk(
-                    body=bulk_docs, index=index, params=params, headers=headers
+                response = await self._opensearch.bulk(
+                    body=prepared.body,
+                    index=index,
+                    params=params,
+                    headers=headers,
                 )
-                if res["errors"]:
-                    for item in res["items"]:
-                        status = item["create"]["status"]
-                        error = item["create"].get("error")
-                        pressure_error = (
+                if response["errors"]:
+                    for item in response["items"]:
+                        result = item["create"]
+                        status = result["status"]
+                        error = result.get("error")
+                        if (
                             status == 429
                             or status >= 500
                             or self._bulk_item_is_circuit_breaker(error)
-                        )
-                        if pressure_error:
-                            raise Exception(
+                        ):
+                            raise RuntimeError(
                                 f"bulk ingestion failed with status {status}: {error}"
                             )
                 break
             except Exception as ex:
                 if attempt >= retry_max:
                     raise
+                if GulpConfig.get_instance().prometheus_enabled():
+                    GulpMetrics.opensearch_bulk_retries_total.inc()
                 MutyLogger.get_instance().warning(
                     "bulk ingestion failed, retrying in %.2fs (attempt %d/%d): %s",
                     retry_delay,
@@ -1189,63 +1296,45 @@ class GulpOpenSearch:
                 )
                 await asyncio.sleep(retry_delay)
 
-        if res is None:
+        if response is None:
             raise RuntimeError("bulk ingestion returned no response")
-
-        # process results
-        skipped: int = 0
-        failed: int = 0
-        ingested_docs: list[dict] = []
-
-        if res["errors"]:
-            # Count skipped (already exists) and failed documents
-            skipped = sum(1 for item in res["items"] if item["create"]["status"] == 409)
-            failed = sum(
-                1
-                for item in res["items"]
-                if item["create"]["status"] not in [200, 201, 409]
+        if len(response.get("items", [])) != len(prepared.documents):
+            raise RuntimeError(
+                "OpenSearch bulk response item count does not match request"
             )
 
-            if failed > 0:
-                failed_items = [
-                    item
-                    for item in res["items"]
-                    if item["create"]["status"] not in [200, 201]
-                ]
-                s: str = orjson.dumps(failed_items, option=orjson.OPT_INDENT_2).decode()
-                MutyLogger.get_instance().error(
-                    "%d docs failed ingestion, %d docs skipped: %s",
-                    failed,
-                    skipped,
-                    muty.string.make_shorter(s, max_len=1024),
-                )
+        skipped = 0
+        failed = 0
+        failed_items: list[dict] = []
+        ingested_docs: list[dict] = []
+        for doc, item in zip(prepared.documents, response["items"]):
+            result = item["create"]
+            status = result["status"]
+            if status in (200, 201):
+                ingested_docs.append(doc.copy())
+            elif status == 409:
+                skipped += 1
+            else:
+                failed += 1
+                failed_items.append(item)
 
-            # extract successfully ingested documents
-            error_ids: list[str] = {
-                item["create"]["_id"]
-                for item in res["items"]
-                if item["create"]["status"] not in [200, 201]
-            }
-            ingested_docs: list[dict] = [
-                {**doc, "_id": action["create"]["_id"]}
-                for action, doc in zip(bulk_docs[::2], bulk_docs[1::2])
-                if action["create"]["_id"] not in error_ids
-            ]
-        else:
-            # all documents successfully ingested
-            ingested_docs: list[dict] = [
-                {**doc, "_id": action["create"]["_id"]}
-                for action, doc in zip(bulk_docs[::2], bulk_docs[1::2])
-            ]
-
+        if failed_items:
+            serialized_errors = orjson.dumps(
+                failed_items, option=orjson.OPT_INDENT_2
+            ).decode()
+            MutyLogger.get_instance().error(
+                "%d docs failed ingestion, %d docs skipped: %s",
+                failed,
+                skipped,
+                muty.string.make_shorter(serialized_errors, max_len=1024),
+            )
         if skipped:
             MutyLogger.get_instance().debug(
                 "%d docs skipped, %d docs failed in this bulk ingestion of %d docs",
                 skipped,
                 failed,
-                filtered_count,
+                len(prepared.documents),
             )
-
         if failed:
             MutyLogger.get_instance().critical(
                 "failed is set (skipped=%d, ingested=%d, failed=%d), ingestion format needs to be fixed!",
@@ -1255,8 +1344,20 @@ class GulpOpenSearch:
             )
 
         if GulpConfig.get_instance().prometheus_enabled():
-            # update Prometheus counters
             try:
+                GulpMetrics.opensearch_bulk_requests_total.inc()
+                GulpMetrics.opensearch_bulk_request_size_bytes.observe(
+                    body_size
+                )
+                GulpMetrics.opensearch_bulk_request_documents.observe(
+                    len(prepared.documents)
+                )
+                GulpMetrics.opensearch_bulk_request_duration_seconds.observe(
+                    time.perf_counter() - request_started
+                )
+                took = response.get("took")
+                if isinstance(took, (int, float)):
+                    GulpMetrics.opensearch_bulk_took_seconds.observe(took / 1000)
                 GulpMetrics.opensearch_bulk_docs_total.inc(len(ingested_docs))
                 if failed:
                     GulpMetrics.opensearch_bulk_errors_total.inc(failed)
@@ -1266,6 +1367,22 @@ class GulpOpenSearch:
                 pass
 
         return skipped, ingested_docs, failed
+
+    async def bulk_ingest(
+        self,
+        index: str,
+        docs: list[dict],
+        flt: GulpIngestionFilter = None,
+        wait_for_refresh: bool = False,
+    ) -> tuple[int, list[dict], int]:
+        """Prepare and ingest one logical document chunk."""
+        prepared = await self.prepare_bulk_ingest(docs, flt=flt)
+        if not prepared.body:
+            MutyLogger.get_instance().warning("no document to ingest (flt=%s)", flt)
+            return 0, [], 0
+        return await self.bulk_ingest_prepared(
+            index, prepared, wait_for_refresh=wait_for_refresh
+        )
 
     async def opensearch_cancel_task(self, task_id: str) -> bool:
         """

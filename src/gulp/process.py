@@ -465,7 +465,8 @@ class GulpProcess:
             GulpConfig.get_instance()
 
             # in the worker process, initialize opensearch and collab clients (main process already did it)
-            GulpOpenSearch.get_instance()
+            opensearch = GulpOpenSearch.get_instance()
+            await opensearch.bulk_max_content_length_bytes()
             await GulpCollab.get_instance().init()
             GulpRedis.get_instance().initialize(
                 server_id, main_process=False

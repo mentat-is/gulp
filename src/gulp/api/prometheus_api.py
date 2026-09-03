@@ -373,6 +373,55 @@ class GulpMetrics:
         "gulp_opensearch_bulk_skipped_total",
         "Total documents skipped (duplicates) during bulk ingestion",
     )
+    opensearch_bulk_requests_total = Counter(
+        "gulp_opensearch_bulk_requests_total",
+        "Total OpenSearch bulk HTTP requests",
+    )
+    opensearch_bulk_retries_total = Counter(
+        "gulp_opensearch_bulk_retries_total",
+        "Total retries of OpenSearch bulk HTTP requests",
+    )
+    opensearch_bulk_request_size_bytes = Histogram(
+        "gulp_opensearch_bulk_request_size_bytes",
+        "Exact uncompressed NDJSON bytes in an OpenSearch bulk request",
+        buckets=(
+            64 * 1024,
+            256 * 1024,
+            1024 * 1024,
+            2 * 1024 * 1024,
+            5 * 1024 * 1024,
+            8 * 1024 * 1024,
+            16 * 1024 * 1024,
+            32 * 1024 * 1024,
+            64 * 1024 * 1024,
+            100 * 1024 * 1024,
+        ),
+    )
+    opensearch_bulk_request_documents = Histogram(
+        "gulp_opensearch_bulk_request_documents",
+        "Documents in an OpenSearch bulk request",
+        buckets=(100, 500, 1000, 2000, 4000, 6000, 8000),
+    )
+    opensearch_bulk_prepare_duration_seconds = Histogram(
+        "gulp_opensearch_bulk_prepare_duration_seconds",
+        "Time spent filtering and serializing one OpenSearch bulk request",
+    )
+    opensearch_bulk_request_duration_seconds = Histogram(
+        "gulp_opensearch_bulk_request_duration_seconds",
+        "Wall time spent submitting an OpenSearch bulk request, including retries",
+    )
+    opensearch_bulk_took_seconds = Histogram(
+        "gulp_opensearch_bulk_took_seconds",
+        "OpenSearch-reported bulk processing time",
+    )
+    ingestion_chunk_build_duration_seconds = Histogram(
+        "gulp_ingestion_chunk_build_duration_seconds",
+        "Wall time spent parsing and building one logical ingestion chunk",
+    )
+    ingestion_chunk_postprocess_duration_seconds = Histogram(
+        "gulp_ingestion_chunk_postprocess_duration_seconds",
+        "Wall time spent on websocket, callbacks, events, and chunk accounting",
+    )
 
     # ── PostgreSQL connection pool ──
     postgres_pool_size = Gauge(

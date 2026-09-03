@@ -370,6 +370,8 @@ class GulpDocument(GulpBasicDocument):
             log_file_path (str, optional): The source log file path. Defaults to None.
             **kwargs: the rest of the document as key/value pairs, to generate the `GulpDocument` with. This may also include the following internal flag:
                 - __ignore_default_event_code__ (bool, optional): If True, do not use the default event code from the mapping (for extra documents). Defaults to False.
+                - __timestamp_cache_slot__ (str, optional): Isolate normalization
+                  for a stable secondary timestamp stream. Defaults to "primary".
             Returns:
             None
         """
@@ -377,6 +379,9 @@ class GulpDocument(GulpBasicDocument):
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
         # Drop the removed internal flag so it cannot leak into document data.
         kwargs.pop("__timestamp_format__", None)
+        # Mapping-generated sibling documents use independent timestamp streams
+        # so they do not evict the main event's consecutive-value cache.
+        timestamp_cache_slot = kwargs.pop("__timestamp_cache_slot__", "primary")
 
         # severe log file contains duration values in float format (fractional seconds),
         # this constructor converts them to nanoseconds for consistency in storage and processing.
@@ -438,13 +443,26 @@ class GulpDocument(GulpBasicDocument):
                 timestamp_format = (
                     plugin_instance._get_timestamp_format_for_default_timestamp()
                 )
-            normalized_timestamp = GulpDocument.normalize_timestamp(
-                timestamp,
-                plugin_params=plugin_instance._plugin_params,
-                timestamp_format=timestamp_format,
-                timestamp_naive_timezone=timestamp_naive_timezone,
-                fallback_on_format_error=not reject_invalid_timestamp,
+            cached_normalizer = getattr(
+                plugin_instance, "_normalize_timestamp_cached", None
             )
+            if callable(cached_normalizer):
+                normalized_timestamp = cached_normalizer(
+                    timestamp,
+                    plugin_params=plugin_instance._plugin_params,
+                    timestamp_format=timestamp_format,
+                    timestamp_naive_timezone=timestamp_naive_timezone,
+                    fallback_on_format_error=not reject_invalid_timestamp,
+                    cache_slot=timestamp_cache_slot,
+                )
+            else:
+                normalized_timestamp = GulpDocument.normalize_timestamp(
+                    timestamp,
+                    plugin_params=plugin_instance._plugin_params,
+                    timestamp_format=timestamp_format,
+                    timestamp_naive_timezone=timestamp_naive_timezone,
+                    fallback_on_format_error=not reject_invalid_timestamp,
+                )
 
         if reject_invalid_timestamp and normalized_timestamp.invalid:
             raise ValueError(f"invalid timestamp: {timestamp!r}")

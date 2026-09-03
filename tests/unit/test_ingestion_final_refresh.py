@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from gulp.api.opensearch_api import GulpPreparedBulk
 from gulp.plugin import GulpPluginBase, GulpPluginType
 
 
@@ -96,7 +97,15 @@ async def test_last_raw_chunk_emits_terminal_packet_when_all_docs_are_skipped(
     plugin._docs_buffer = [{"_id": "skipped"}]
 
     opensearch = MagicMock(
-        bulk_ingest=AsyncMock(return_value=(1, [], 0)),
+        prepare_bulk_ingest=AsyncMock(
+            return_value=GulpPreparedBulk(
+                body=b"prepared\n",
+                documents=tuple(plugin._docs_buffer),
+                size_bytes=9,
+                max_content_length_bytes=100 * 1024 * 1024,
+            )
+        ),
+        bulk_ingest_prepared=AsyncMock(return_value=(1, [], 0)),
     )
     redis_broker = MagicMock(put=AsyncMock())
     monkeypatch.setattr(

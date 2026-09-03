@@ -139,8 +139,11 @@ remove the container with `docker container rm some_container_id` and run the co
   - scale up OpenSearch and increase `workers_max` only when the cluster can absorb more concurrent ingest work **OR**
   - reduce parallelism with `workers_max` **AND/OR** `workers_concurrency_max` **OR**
   - tune `ingestion_documents_chunk_size` configuration parameter (i.e. default is 1000, try with 500 to reduce per-request pressure)
-    - for file ingestion, this only applies when `ingestion_documents_adaptive_chunk_size` is false
-    - keep in mind, though, that a too big `ingestion_documents_chunk_size` may cause client websocket disconnections (`PayloadTooBig`)
+    - with `ingestion_documents_adaptive_chunk_size=true`, this is the initial count and subsequent chunks target the smaller of 5 MiB and 80% of OpenSearch's HTTP limit, measured as exact NDJSON data
+    - with adaptive sizing disabled, or when `override_chunk_size` is supplied, the value remains fixed
+    - gULP checks the serialized body against the smallest OpenSearch node HTTP limit before sending it; an oversized fixed chunk fails with an instruction to lower the count
+  - set `ingestion_pipeline_enabled=false` and restart gULP to diagnose whether one-ahead parsing/OpenSearch overlap contributes to pressure; this setting is server-only and cannot be changed by clients or the UI
+    - when enabled, the coordinator explicitly starts each scheduled bulk before resuming buffered record parsing, including plugins whose per-record coroutine has no suspension point
 
 #### query
 
@@ -220,11 +223,11 @@ remove the container with `docker container rm some_container_id` and run the co
   websockets.exceptions.ConnectionClosedError: sent 1009 (message too big); no close frame received
   ~~~
 
-  diminish the ingestion chunk size in the configuration, which by default is 1000 (i.e. set it to 500)
+  diminish the initial/fixed ingestion chunk size in the configuration, which by default is 1000 (i.e. set it to 500)
 
   ~~~json
   {
-    // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
+    // fixed count, or initial count when adaptive sizing is enabled
     "ingestion_documents_chunk_size": 1000
   }
   ~~~

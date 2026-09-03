@@ -34,6 +34,24 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
+IIS_HEADER = (
+    "ClientIP",
+    "Username",
+    "Date",
+    "Time",
+    "Service",
+    "ServerName",
+    "ServerIP",
+    "TimeTaken",
+    "ClientBytesSent",
+    "ServerBytesSent",
+    "ServiceStatusCode",
+    "WindowsStatusCode",
+    "RequestType",
+    "TargetOfOperation",
+    "Parameters",
+)
+
 
 class Plugin(GulpPluginBase):
     """
@@ -57,26 +75,8 @@ class Plugin(GulpPluginBase):
         date_format = kwargs.get("date_format")
         event: dict = {}
         fields = record.split(",")
-        header = [
-            "ClientIP",
-            "Username",
-            "Date",
-            "Time",
-            "Service",
-            "ServerName",
-            "ServerIP",
-            "TimeTaken",
-            "ClientBytesSent",
-            "ServerBytesSent",
-            "ServiceStatusCode",
-            "WindowsStatusCode",
-            "RequestType",
-            "TargetOfOperation",
-            "Parameters",
-        ]
 
-        for k in header:
-            i = header.index(k)
+        for i, k in enumerate(IIS_HEADER):
             event[k] = fields[i].lstrip()
 
         d = {}

@@ -93,5 +93,3 @@ class Plugin(GulpPluginBase):
         )
         await lower.unload()
         return res
-        await lower.unload()
-        return res

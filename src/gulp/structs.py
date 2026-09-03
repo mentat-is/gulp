@@ -326,6 +326,7 @@ class GulpPluginParameters(BaseModel):
         Field(
             description="""this is used to override, on a request basis, the bufferized size of chunk before flushing to OpenSearch and possibly send to websocket.
             by default, this is set as configuration 'ingestion_documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
+            gt=0,
         ),
     ] = None
     override_allow_unmapped_fields: Annotated[

@@ -16,6 +16,8 @@ async def test_apache_and_regex_custom_timestamps_are_normalized_once(
     apache_path = tmp_path / "access.log"
     apache_path.write_text(
         '172.18.1.2 - - [20/Nov/2024:17:15:42 +0100] "GET / HTTP/1.1" '
+        '200 12 "-" "agent"\n'
+        '172.18.1.2 - - [20/Nov/2024:17:15:42 +0100] "GET /cached HTTP/1.1" '
         '200 12 "-" "agent"\n',
         encoding="utf-8",
     )
@@ -76,21 +78,31 @@ async def test_apache_and_regex_custom_timestamps_are_normalized_once(
                 },
             )
             docs = response["data"]["docs"]
-            assert response["data"]["total_hits"] == 2
+            assert response["data"]["total_hits"] == 3
 
-            docs_by_agent = {doc["agent.type"]: doc for doc in docs}
-            apache_doc = docs_by_agent["apache_access_clf"]
-            regex_doc = docs_by_agent["regex"]
+            apache_docs = [
+                doc for doc in docs if doc["agent.type"] == "apache_access_clf"
+            ]
+            regex_doc = next(doc for doc in docs if doc["agent.type"] == "regex")
 
-            assert apache_doc["@timestamp"] == expected_apache.isoformat()
-            assert apache_doc["gulp.timestamp"] == int(
-                expected_apache.timestamp() * 1_000_000_000
+            assert len(apache_docs) == 2
+            assert len({doc["_id"] for doc in apache_docs}) == 2
+            assert all(
+                doc["@timestamp"] == expected_apache.isoformat()
+                for doc in apache_docs
+            )
+            assert all(
+                doc["gulp.timestamp"]
+                == int(expected_apache.timestamp() * 1_000_000_000)
+                for doc in apache_docs
             )
             assert regex_doc["@timestamp"] == expected_regex.isoformat()
             assert regex_doc["gulp.timestamp"] == int(
                 expected_regex.timestamp() * 1_000_000_000
             )
-            assert not apache_doc.get("gulp.timestamp_invalid", False)
+            assert all(
+                not doc.get("gulp.timestamp_invalid", False) for doc in apache_docs
+            )
             assert not regex_doc.get("gulp.timestamp_invalid", False)
         finally:
             await client.operations.delete(operation.id)

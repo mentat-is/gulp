@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.opensearch_api import GulpPreparedBulk
 from gulp.events import GulpCoreEvent, GulpEventError, GulpEventResult, events
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
@@ -35,10 +36,19 @@ def plugin(monkeypatch) -> _IngestionPlugin:
 
     opensearch = MagicMock()
 
-    async def bulk_ingest(_index, documents, **kwargs):
-        return 0, list(documents), 0
+    async def prepare_bulk_ingest(documents, **kwargs):
+        return GulpPreparedBulk(
+            body=b"prepared\n",
+            documents=tuple(documents),
+            size_bytes=9,
+            max_content_length_bytes=100 * 1024 * 1024,
+        )
 
-    opensearch.bulk_ingest = AsyncMock(side_effect=bulk_ingest)
+    async def bulk_ingest_prepared(_index, prepared, **kwargs):
+        return 0, list(prepared.documents), 0
+
+    opensearch.prepare_bulk_ingest = AsyncMock(side_effect=prepare_bulk_ingest)
+    opensearch.bulk_ingest_prepared = AsyncMock(side_effect=bulk_ingest_prepared)
     monkeypatch.setattr(
         plugin_module.GulpOpenSearch, "get_instance", staticmethod(lambda: opensearch)
     )
@@ -90,11 +100,13 @@ async def test_pre_only_transforms_before_ingestion(plugin, monkeypatch):
 
     await plugin._flush_buffer_and_send_to_ws()
 
-    assert plugin._docs_buffer == transformed
-    bulk_documents = (
-        plugin_module.GulpOpenSearch.get_instance().bulk_ingest.await_args.args[1]
+    assert plugin._docs_buffer == []
+    prepared_documents = (
+        plugin_module.GulpOpenSearch.get_instance().prepare_bulk_ingest.await_args.args[
+            0
+        ]
     )
-    assert bulk_documents == transformed
+    assert prepared_documents == transformed
     emit.assert_awaited_once()
     assert emit.await_args.args[0] == GulpCoreEvent.CHUNK_PRE_INGEST
     assert emit.await_args.kwargs["wait"] is True
@@ -133,7 +145,8 @@ async def test_pre_invalid_error_and_timeout_fail_ingestion(
 
     with pytest.raises(error):
         await plugin._flush_buffer_and_send_to_ws()
-    plugin_module.GulpOpenSearch.get_instance().bulk_ingest.assert_not_awaited()
+    plugin_module.GulpOpenSearch.get_instance().prepare_bulk_ingest.assert_not_awaited()
+    plugin_module.GulpOpenSearch.get_instance().bulk_ingest_prepared.assert_not_awaited()
 
 
 @pytest.mark.unit

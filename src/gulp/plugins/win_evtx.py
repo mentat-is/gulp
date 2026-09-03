@@ -187,10 +187,11 @@ class Plugin(GulpPluginBase):
         if not ts:
             return None
         ts = re.split(r"\s+UTC", ts, flags=re.IGNORECASE)[0].strip()
-        normalized = GulpDocument.normalize_timestamp(
+        normalized = self._normalize_timestamp_cached(
             ts,
             plugin_params=self._plugin_params,
             timestamp_naive_timezone="utc",
+            cache_slot="parser_timestamp",
         )
         return None if normalized.invalid else normalized
 
@@ -206,10 +207,11 @@ class Plugin(GulpPluginBase):
         system_time = self._system_time(js_record)
         if not system_time:
             return None
-        normalized = GulpDocument.normalize_timestamp(
+        normalized = self._normalize_timestamp_cached(
             system_time,
             plugin_params=self._plugin_params,
             timestamp_naive_timezone="utc",
+            cache_slot="system_time",
         )
         return None if normalized.invalid else normalized
 
