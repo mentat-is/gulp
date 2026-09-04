@@ -19,6 +19,13 @@ jest.mock("@/context/Application.context", () => ({
 	Application: { use: jest.fn() },
 }));
 
+jest.mock("@/context/Extension.context", () => ({
+	Extension: {
+		Slot: { QueryExternal: "query-external" },
+		getBySlot: () => [],
+	},
+}));
+
 jest.mock("@/banners/Preview.banner", () => ({ Preview: {} }));
 jest.mock("@/banners/SelectFiles.banner", () => ({ SelectFiles: {} }));
 jest.mock("@/components/AdvancedPluginParams", () => ({
@@ -51,7 +58,7 @@ const externalPlugin: GulpDataset.PluginList.Interface = {
 	desc: "External query plugin",
 	path: ".",
 	data: {},
-	filename: "query_external.py",
+	filename: "query_external",
 	sigma_support: [],
 	custom_parameters: [
 		{

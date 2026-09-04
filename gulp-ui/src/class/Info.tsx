@@ -7725,10 +7725,10 @@ export class Info implements InfoProps {
 	 */
 	query_external = async (
 		plugin: string,
-		plugin_params?: Record<string, any>,
+		plugin_params?: Record<string, unknown>,
 		preview_mode = false,
-		q?: string,
-		q_options?: Record<string, any>,
+		q?: unknown,
+		q_options?: Record<string, unknown>,
 		lifecycle?: QueryExternalLifecycleOptions,
 	): Promise<{
 		total_hits: number;

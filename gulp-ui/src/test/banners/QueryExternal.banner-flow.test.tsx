@@ -41,7 +41,7 @@ type MockQueryExternalArguments = [
 	plugin: string,
 	pluginParams?: Record<string, unknown>,
 	previewMode?: boolean,
-	query?: string,
+	query?: unknown,
 	queryOptions?: Record<string, unknown>,
 	lifecycle?: QueryExternalLifecycleOptions,
 ];
@@ -58,7 +58,7 @@ const mockExternalPlugin: GulpDataset.PluginList.Interface = {
 	desc: "External query plugin",
 	path: ".",
 	data: {},
-	filename: "query_external.py",
+	filename: "query_external",
 	sigma_support: [],
 	custom_parameters: [],
 	depends_on: [],
@@ -79,6 +79,15 @@ jest.mock("@/context/Application.context", () => ({
 			spawnBanner: mockSpawnBanner,
 			app: mockApp,
 		}),
+	},
+}));
+
+jest.mock("@/context/Extension.context", () => ({
+	Extension: {
+		Slot: { QueryExternal: "query-external" },
+		use: () => ({ extensions: {}, ready: true }),
+		getBySlot: () => [],
+		Component: (): null => null,
 	},
 }));
 
@@ -218,15 +227,18 @@ describe("QueryExternal banner transitions", () => {
 		const customParameters: CustomParameters.ValueMap = { limit: 25 };
 		const query = { query: { match_all: {} } };
 		const queryOptions = { limit: 500 };
+		const initialRequest: QueryExternal.PreparedRequest = {
+			q: query,
+			plugin_params: { custom_parameters: customParameters },
+			q_options: queryOptions,
+		};
 		const originalOnClose = jest.fn();
 
 		act(() => {
 			root.render(
 				<QueryExternal.Banner
 					preselectedOption={mockExternalPlugin}
-					preparams={customParameters}
-					preQ={query}
-					preQOptions={queryOptions}
+					initialRequest={initialRequest}
 					onClose={originalOnClose}
 				/>,
 			);
@@ -261,11 +273,7 @@ describe("QueryExternal banner transitions", () => {
 		>;
 		expect(restoredQuery.type).toBe(QueryExternal.Banner);
 		expect(restoredQuery.props.preselectedOption).toBe(mockExternalPlugin);
-		expect(restoredQuery.props.preparams).toBe(customParameters);
-		expect(restoredQuery.props.preQ).toBe(
-			QueryExternal.restoredQueryText(query),
-		);
-		expect(restoredQuery.props.preQOptions).toBe(queryOptions);
+		expect(restoredQuery.props.initialRequest).toEqual(initialRequest);
 		expect(restoredQuery.props.onClose).toBe(originalOnClose);
 
 		await act(async () => {

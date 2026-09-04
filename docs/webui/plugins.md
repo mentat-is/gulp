@@ -19,6 +19,8 @@ Supported UI slots include:
 
 - `operation-menu`: renders an entry in the operation menu Plugins section.
 - `send-data`: renders as a Send IOC destination from the event detail view.
+- `query-external`: replaces the default request editor for an associated
+  external-query backend plugin.
 - `event-actions`: renders in the event action area.
 - `sigma-upload-mode`: adds an upload mode to the Sigma banner.
 - `dashboard-view`: mounts dashboard-related UI.
@@ -34,13 +36,19 @@ export a button, open a banner, and close the banner from inside the plugin UI.
 
 ## Creating a Custom UI Plugin
 
-Create a component file and a metadata JSON file in `src/plugins`.
+Create a component entrypoint and its metadata JSON in `src/plugins`. Larger
+plugins can keep their implementation in a dedicated subfolder, but retain a
+root entrypoint that imports or re-exports that implementation. This is the
+same bootstrap layout used by CyberSousChef.
 
 Example files:
 
 ```text
 src/plugins/MyPlugin.tsx
 src/plugins/MyPlugin.tsx.json
+src/plugins/MyPlugin.locale.en.json
+src/plugins/my-plugin/MyPlugin.tsx
+src/plugins/my-plugin/MyPlugin.module.css
 ```
 
 The component file must default export a React component:
@@ -79,7 +87,15 @@ The metadata file must describe the plugin:
 
 Use existing UI components from `src/ui`, CSS modules for non-trivial styling,
 and locale JSON files for visible text. Do not hardcode user-facing strings when
-the text belongs in localization.
+the text belongs in localization. Keep locale files beside the root entrypoint.
+The root entrypoint may be a minimal static bridge:
+
+```tsx
+export { default } from "./my-plugin/MyPlugin";
+```
+
+This bridge makes the implementation subfolder part of the production bundle
+while `/ui_plugin_list` continues to publish the root filename.
 
 ## Home Section Plugin Contract
 
@@ -166,3 +182,57 @@ calls that method when the analyst confirms.
 
 The plugin receives the current event in its props and owns destination-specific
 validation, API calls, and success/error handling.
+
+## Query External Plugin Contract
+
+A plugin targeting `query-external` replaces the complete default request form
+for one external-query backend plugin. The manifest `plugin` value must exactly
+match the backend plugin's `filename` returned by `/plugin_list`, including its
+`.py` suffix when present. For example:
+
+```json
+{
+  "display_name": "Elasticsearch query editor",
+  "plugin": "query_elasticsearch.py",
+  "extension": false,
+  "version": "1.0.0",
+  "desc": "Builds Elasticsearch requests for Query External.",
+  "path": ".",
+  "filename": "QueryElasticsearch.plugin.tsx",
+  "type": ["query-external"]
+}
+```
+
+Only one UI plugin should be associated with a backend plugin. If multiple
+matches are registered, the first plugin in normal slot order is mounted and a
+warning is logged. A missing or failed UI plugin leaves the default custom
+parameters, Advanced Plugin Params, query, and query-options editor available.
+
+The default export implements the controlled props exported by
+`QueryExternal.banner.tsx`:
+
+```tsx
+interface PreparedRequest {
+  q: unknown;
+  plugin_params: Record<string, unknown>;
+  q_options: Record<string, unknown>;
+}
+
+interface PluginEditorProps {
+  backendPlugin: GulpDataset.PluginList.Interface;
+  value: PreparedRequest;
+  onChange: (value: PreparedRequest) => void;
+  onValidityChange: (isValid: boolean) => void;
+}
+```
+
+The component must treat `value` as immutable, publish the complete next request
+through `onChange`, and report its initial validity immediately after mounting.
+It must report every later validity change as well. Query-dependent state that
+must survive Preview or Ingest navigation must be represented in the prepared
+request.
+
+The parent banner owns the selected backend plugin, Preview and Ingest buttons,
+loading state, API invocation, notifications, and navigation. It also owns
+`preview_mode`, so a UI plugin must not invoke `/query_external` directly or use
+`q_options.preview_mode` to select the action.

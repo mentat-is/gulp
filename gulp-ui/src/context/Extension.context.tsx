@@ -188,6 +188,7 @@ export namespace Extension {
 	export const Slot = {
 		OperationMenu: "operation-menu",
 		SendData: "send-data",
+		QueryExternal: "query-external",
 		EventActions: "event-actions",
 		EventContextMenu: "event-context-menu",
 		SigmaUploadMode: "sigma-upload-mode",

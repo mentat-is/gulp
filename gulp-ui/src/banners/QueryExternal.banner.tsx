@@ -1,9 +1,18 @@
 import type { GulpDataset } from "@/class/Info";
 import { Application } from "@/context/Application.context";
+import { Extension } from "@/context/Extension.context";
 import { Banner as UIBanner } from "@/ui/Banner";
 import { Select } from "@/ui/Select";
 import { Icon } from "@/ui/Icon";
-import { useEffect, useState } from "react";
+import {
+	type Dispatch,
+	type SetStateAction,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import s from "./styles/QueryExternalBanner.module.css";
 import { Label } from "@/ui/Label";
 import { Preview } from "./Preview.banner";
@@ -73,9 +82,7 @@ export namespace QueryExternal {
 	}: {
 		selectedOption: GulpDataset.PluginList.Interface | null;
 		params: CustomParameters.ValueMap;
-		setParams: React.Dispatch<
-			React.SetStateAction<CustomParameters.ValueMap>
-		>;
+		setParams: Dispatch<SetStateAction<CustomParameters.ValueMap>>;
 		onValidityChange?: (isValid: boolean) => void;
 	}) => {
 		if (!selectedOption) return null;
@@ -113,31 +120,253 @@ export namespace QueryExternal {
 		return typeof query === "string" ? query : JSON.stringify(query, null, 2);
 	}
 
+	/** Request fields prepared by either the default editor or a dedicated UI plugin. */
+	export interface PreparedRequest {
+		q: unknown;
+		plugin_params: Record<string, unknown>;
+		q_options: Record<string, unknown>;
+	}
+
+	/** Props supplied to a UI plugin mounted in the Query External slot. */
+	export interface PluginEditorProps extends Extension.ComponentProps {
+		backendPlugin: GulpDataset.PluginList.Interface;
+		value: PreparedRequest;
+		onChange: (value: PreparedRequest) => void;
+		onValidityChange: (isValid: boolean) => void;
+	}
+
+	/**
+	 * Creates an isolated request value suitable for a controlled query editor.
+	 * @param initialRequest Optional request restored after banner navigation.
+	 * @returns A shallow copy of the restored request or a new empty request.
+	 */
+	export function createPreparedRequest(
+		initialRequest?: PreparedRequest,
+	): PreparedRequest {
+		if (!initialRequest) {
+			return {
+				q: "",
+				plugin_params: { custom_parameters: {} },
+				q_options: {},
+			};
+		}
+
+		return {
+			q: initialRequest.q,
+			plugin_params: { ...initialRequest.plugin_params },
+			q_options: { ...initialRequest.q_options },
+		};
+	}
+
+	/**
+	 * Returns Query External UI extensions associated with one backend plugin.
+	 * @param extensions Loaded UI extension registry.
+	 * @param backendPlugin Selected backend external-query plugin.
+	 * @returns Exact manifest matches in deterministic slot order.
+	 */
+	export function getPluginEditors(
+		extensions: Record<string, Extension.Interface>,
+		backendPlugin: GulpDataset.PluginList.Interface | null,
+	): Extension.Interface[] {
+		if (!backendPlugin) return [];
+
+		return Extension.getBySlot(extensions, Extension.Slot.QueryExternal).filter(
+			(extension) => extension.plugin === backendPlugin.filename,
+		);
+	}
+
+	/**
+	 * Reads the fallback editor's custom parameters from the shared request.
+	 * @param request Current prepared request.
+	 * @returns The typed custom-parameter value map, or an empty map when absent.
+	 */
+	function getCustomParameters(
+		request: PreparedRequest,
+	): CustomParameters.ValueMap {
+		const customParameters = request.plugin_params.custom_parameters;
+		if (
+			typeof customParameters !== "object" ||
+			customParameters === null ||
+			Array.isArray(customParameters)
+		) {
+			return {};
+		}
+
+		return customParameters as CustomParameters.ValueMap;
+	}
+
+	/**
+	 * Renders the standard Query External request form as the extension fallback.
+	 * @param props Controlled editor contract owned by the Query External banner.
+	 * @returns The existing custom, advanced, query, and query-options controls.
+	 */
+	export function DefaultRequestEditor({
+		backendPlugin,
+		value,
+		onChange,
+		onValidityChange,
+	}: PluginEditorProps) {
+		const { t } = Locale.use();
+		const [qText, setQText] = useState(restoredQueryText(value.q));
+		const [qOptionsText, setQOptionsText] = useState(
+			Object.keys(value.q_options).length > 0
+				? JSON.stringify(value.q_options, null, 2)
+				: "",
+		);
+		const [showAdvanced, setShowAdvanced] = useState(false);
+		const customParameters = getCustomParameters(value);
+
+		/** Applies typed custom-parameter updates to the shared request. */
+		const setCustomParameters: Dispatch<
+			SetStateAction<CustomParameters.ValueMap>
+		> = useCallback(
+			(update) => {
+				const nextCustomParameters =
+					typeof update === "function"
+						? update(customParameters)
+						: update;
+				onChange({
+					...value,
+					plugin_params: {
+						...value.plugin_params,
+						custom_parameters: nextCustomParameters,
+					},
+				});
+			},
+			[customParameters, onChange, value],
+		);
+
+		/** Replaces advanced plugin parameters in the shared request. */
+		const updatePluginParams = useCallback(
+			(nextPluginParams: Record<string, unknown>): void => {
+				onChange({ ...value, plugin_params: nextPluginParams });
+			},
+			[onChange, value],
+		);
+
+		return (
+			<>
+				<DynamicRequestBuilder
+					selectedOption={backendPlugin}
+					params={customParameters}
+					setParams={setCustomParameters}
+					onValidityChange={onValidityChange}
+				/>
+				<AdvancedPluginParams
+					plugin={backendPlugin}
+					pluginParams={value.plugin_params}
+					updatePluginParams={updatePluginParams}
+				/>
+				<Stack
+					dir="column"
+					className={s.wrapper}
+					ai="stretch"
+					gap={16}
+				>
+					<Button
+						onClick={() => setShowAdvanced(!showAdvanced)}
+						variant="tertiary"
+						icon={showAdvanced ? "ChevronUp" : "ChevronDown"}
+					>
+						{t("queryExternal.advancedOptions")}
+					</Button>
+					{showAdvanced && (
+						<>
+							<Stack
+								dir="column"
+								gap={8}
+								ai="stretch"
+							>
+								<Label value={t("queryExternal.queryJson")} />
+								<Textarea
+									value={qText}
+									onChange={(event) => setQText(event.target.value)}
+									onBlur={(event) => {
+										const nextQuery = event.currentTarget.value.trim();
+										setQText(nextQuery);
+										onChange({ ...value, q: nextQuery });
+									}}
+									placeholder='{"query": {"match_all": {}}}'
+									className={s.jsonInput}
+								/>
+								<span className={s.description}>
+									{t("queryExternal.queryLanguageHint")}
+								</span>
+							</Stack>
+							<Stack
+								dir="column"
+								gap={8}
+								ai="stretch"
+							>
+								<Label value={t("queryExternal.queryOptionsJson")} />
+								<Textarea
+									value={qOptionsText}
+									onChange={(event) => setQOptionsText(event.target.value)}
+									onBlur={(event) => {
+										const nextOptionsText = event.currentTarget.value.trim();
+										try {
+											const parsedOptions: unknown = nextOptionsText
+												? JSON.parse(nextOptionsText)
+												: {};
+											if (
+												typeof parsedOptions !== "object" ||
+												parsedOptions === null ||
+												Array.isArray(parsedOptions)
+											) {
+												throw new Error("Query options must be an object.");
+											}
+											const nextOptions = parsedOptions as Record<string, unknown>;
+											onChange({ ...value, q_options: nextOptions });
+											setQOptionsText(
+												Object.keys(nextOptions).length > 0
+													? JSON.stringify(nextOptions, null, 2)
+													: "",
+											);
+										} catch {
+											setQOptionsText(
+												Object.keys(value.q_options).length > 0
+													? JSON.stringify(value.q_options, null, 2)
+													: "",
+											);
+										}
+									}}
+									placeholder='{"limit": 1000, "fields": ["@timestamp", "event.id"]}'
+									className={s.jsonInput}
+								/>
+								<span className={s.description}>
+									{t("queryExternal.queryOptionsHint")}
+								</span>
+							</Stack>
+						</>
+					)}
+				</Stack>
+				<p className={s.hint}>
+					{t("queryExternal.requiredParams")} <Icon name="Asterisk" />
+				</p>
+			</>
+		);
+	}
+
 	export namespace Banner {
 		export interface Props extends UIBanner.Props {
 			preselectedOption?: GulpDataset.PluginList.Interface;
-			preparams?: CustomParameters.ValueMap;
-			preQ?: any;
-			preQOptions?: Record<string, any>;
+			initialRequest?: PreparedRequest;
 		}
 	}
 
 	/**
-	 * Renders the external query workflow with typed plugin parameters.
+	 * Renders the external query workflow with a dedicated UI plugin or fallback editor.
 	 * @param props.preselectedOption Optional plugin restored by back navigation.
-	 * @param props.preparams Optional restored custom parameter values.
-	 * @param props.preQ Optional restored query payload.
-	 * @param props.preQOptions Optional restored query options.
+	 * @param props.initialRequest Optional complete request restored by back navigation.
 	 * @returns The external query banner.
 	 */
 	export const Banner = ({
 		preselectedOption,
-		preparams,
-		preQ,
-		preQOptions,
+		initialRequest,
 		...props
 	}: QueryExternal.Banner.Props) => {
 		const { Info, spawnBanner, app } = Application.use();
+		const { extensions, ready: extensionsReady } = Extension.use();
 		const { t } = Locale.use();
 		const [options, setOptions] = useState<
 			GulpDataset.PluginList.Interface[] | null
@@ -145,50 +374,92 @@ export namespace QueryExternal {
 		const [selectedOption, setSelectedOption] = useState(
 			preselectedOption ?? null,
 		);
+		const selectedPluginFilenameRef = useRef<string | null>(
+			preselectedOption?.filename ?? null,
+		);
 		const [loading, setLoading] = useState<number>(0);
-		const [params, setParams] = useState<CustomParameters.ValueMap>(
-			preparams ?? {},
+		const [preparedRequest, setPreparedRequest] = useState<PreparedRequest>(
+			() => createPreparedRequest(initialRequest),
 		);
-		const [areCustomParametersValid, setAreCustomParametersValid] =
-			useState(true);
-		const [q, setQ] = useState<string>(restoredQueryText(preQ));
-		const [qOptions, setQOptions] = useState(preQOptions ?? {});
-		const [qText, setQText] = useState(restoredQueryText(preQ));
-		const [qOptionsText, setQOptionsText] = useState(
-			preQOptions && Object.keys(preQOptions).length > 0
-				? JSON.stringify(preQOptions, null, 2)
-				: "",
-		);
-		const [showAdvanced, setShowAdvanced] = useState(false);
-		const [pluginParams, setPluginParams] = useState<Record<string, any>>({
-			custom_parameters: preparams ?? {},
-		});
-
-		useEffect(() => {
-			setPluginParams((prev) => ({
-				...prev,
-				custom_parameters: params,
-			}));
-		}, [params]);
+		const [editorValidation, setEditorValidation] = useState<{
+			key: string;
+			isValid: boolean;
+		} | null>(null);
 
 		useEffect(() => {
 			setOptions(app.target.plugins.filter((i) => i.type.includes("external")));
 		}, [app.target.plugins]);
 
+		const matchingPluginEditors = useMemo(
+			() => getPluginEditors(extensions, selectedOption),
+			[extensions, selectedOption],
+		);
+		const selectedPluginEditor = matchingPluginEditors[0] ?? null;
+		const editorKey =
+			selectedOption && extensionsReady
+				? `${selectedOption.filename}:${selectedPluginEditor?.filename ?? "fallback"}`
+				: null;
+		const isEditorValid =
+			editorKey !== null && editorValidation?.key === editorKey
+				? editorValidation.isValid
+				: editorKey !== null && selectedPluginEditor === null;
+
+		useEffect(() => {
+			if (!extensionsReady || matchingPluginEditors.length < 2) return;
+			console.warn(
+				`Multiple Query External UI plugins target ${selectedOption?.filename}. Using ${selectedPluginEditor?.filename}.`,
+			);
+		}, [
+			extensionsReady,
+			matchingPluginEditors,
+			selectedOption?.filename,
+			selectedPluginEditor?.filename,
+		]);
+
+		/** Accepts request updates only from the currently selected backend plugin. */
+		const handleEditorChange = useCallback(
+			(nextRequest: PreparedRequest): void => {
+				if (
+					!selectedOption ||
+					selectedPluginFilenameRef.current !== selectedOption.filename
+				) {
+					return;
+				}
+				setPreparedRequest(createPreparedRequest(nextRequest));
+			},
+			[selectedOption],
+		);
+
+		/** Records validity only for the currently mounted request editor. */
+		const handleEditorValidityChange = useCallback(
+			(isValid: boolean): void => {
+				if (
+					!editorKey ||
+					!selectedOption ||
+					selectedPluginFilenameRef.current !== selectedOption.filename
+				) {
+					return;
+				}
+				setEditorValidation({ key: editorKey, isValid });
+			},
+			[editorKey, selectedOption],
+		);
+
 		/**
-		 * Executes or previews the current external query when its parameters are valid.
+		 * Executes or previews the prepared external query when its editor is valid.
 		 * @param preview Whether to request preview results instead of normal execution.
 		 * @returns A promise that settles after the request and loading-state cleanup.
 		 */
 		const handleQuery = async (preview = false): Promise<void> => {
-			if (!selectedOption || !areCustomParametersValid) return;
+			if (!selectedOption || !isEditorValid) return;
+			const requestSnapshot = createPreparedRequest(preparedRequest);
 			setLoading(preview ? 2 : 1);
 			Info.query_external(
 				selectedOption.filename,
-				pluginParams,
+				requestSnapshot.plugin_params,
 				preview,
-				q,
-				qOptions,
+				requestSnapshot.q,
+				requestSnapshot.q_options,
 				preview
 					? undefined
 					: {
@@ -198,10 +469,8 @@ export namespace QueryExternal {
 										onClose={() =>
 											spawnBanner(
 												<QueryExternal.Banner
-													preparams={params}
 													preselectedOption={selectedOption}
-													preQ={q}
-													preQOptions={qOptions}
+													initialRequest={requestSnapshot}
 													{...props}
 												/>,
 											)
@@ -221,10 +490,8 @@ export namespace QueryExternal {
 								back={() =>
 									spawnBanner(
 										<QueryExternal.Banner
-											preparams={params}
 											preselectedOption={selectedOption}
-											preQ={q}
-											preQOptions={qOptions}
+											initialRequest={requestSnapshot}
 											{...props}
 										/>,
 									)
@@ -250,34 +517,21 @@ export namespace QueryExternal {
 				.finally(() => setLoading(0));
 		};
 
-		const updatePluginParams = (next: Record<string, any>) => {
-			setPluginParams(next);
-
-			if (
-				next.custom_parameters &&
-				typeof next.custom_parameters === "object"
-			) {
-				setParams(next.custom_parameters);
-			}
-		};
-
 		/**
-		 * Selects a query plugin and clears values owned by the previous plugin.
+		 * Selects a backend query plugin and resets editor-owned request state.
 		 * @param name Filename of the selected plugin.
 		 * @returns Nothing.
 		 */
 		const handlePluginSelect = (name: string): void => {
 			const option = options?.find((candidate) => candidate.filename === name);
 			if (!option) return;
-			setParams({});
-			setAreCustomParametersValid(true);
+			selectedPluginFilenameRef.current = option.filename;
+			setPreparedRequest(createPreparedRequest());
+			setEditorValidation(null);
 			setSelectedOption(option);
 		};
 
-		const submissionDisabled = isSubmissionDisabled(
-			selectedOption,
-			areCustomParametersValid,
-		);
+		const submissionDisabled = isSubmissionDisabled(selectedOption, isEditorValid);
 
 		const done = (
 			<Button
@@ -311,103 +565,28 @@ export namespace QueryExternal {
 					selectedOption={selectedOption}
 					onSelect={handlePluginSelect}
 				/>
-				<DynamicRequestBuilder
-					selectedOption={selectedOption}
-					params={params}
-					setParams={setParams}
-					onValidityChange={setAreCustomParametersValid}
-				/>
-				<AdvancedPluginParams
-					plugin={selectedOption}
-					pluginParams={pluginParams}
-					updatePluginParams={updatePluginParams}
-				/>
-				<Stack
-					dir="column"
-					className={s.wrapper}
-					ai="stretch"
-					gap={16}
-				>
-					<Button
-						onClick={() => setShowAdvanced(!showAdvanced)}
-						variant="tertiary"
-						icon={showAdvanced ? "ChevronUp" : "ChevronDown"}
-					>
-						{t("queryExternal.advancedOptions")}
-					</Button>
-					{showAdvanced && (
-						<>
-							<Stack
-								dir="column"
-								gap={8}
-								ai="stretch"
-							>
-								<Label value={t("queryExternal.queryJson")} />
-								<Textarea
-									value={qText}
-									onChange={(e) => {
-										setQText(e.target.value);
-									}}
-									onBlur={(e) => {
-										const value = e.currentTarget.value.trim();
-										if (!value) {
-											setQ("");
-											setQText("");
-											return;
-										}
-										setQ(value);
-										setQText(value);
-									}}
-									placeholder='{"query": {"match_all": {}}}'
-									className={s.jsonInput}
-								/>
-								<span className={s.description}>
-									{t("queryExternal.queryLanguageHint")}
-								</span>
-							</Stack>
-							<Stack
-								dir="column"
-								gap={8}
-								ai="stretch"
-							>
-								<Label value={t("queryExternal.queryOptionsJson")} />
-								<Textarea
-									value={qOptionsText}
-									onChange={(e) => {
-										setQOptionsText(e.target.value);
-									}}
-									onBlur={(e) => {
-										const value = e.currentTarget.value.trim();
-										try {
-											if (value) {
-												const parsed = JSON.parse(value);
-												setQOptions(parsed);
-												setQOptionsText(JSON.stringify(parsed, null, 2));
-											} else {
-												setQOptions({});
-												setQOptionsText("");
-											}
-										} catch {
-											setQOptionsText(
-												Object.keys(qOptions).length > 0
-													? JSON.stringify(qOptions, null, 2)
-													: "",
-											);
-										}
-									}}
-									placeholder='{"limit": 1000, "fields": ["@timestamp", "event.id"]}'
-									className={s.jsonInput}
-								/>
-								<span className={s.description}>
-									{t("queryExternal.queryOptionsHint")}
-								</span>
-							</Stack>
-						</>
-					)}
-				</Stack>
-				<p className={s.hint}>
-					{t("queryExternal.requiredParams")} <Icon name="Asterisk" />
-				</p>
+				{selectedOption && !extensionsReady && <Skeleton />}
+				{selectedOption && extensionsReady && selectedPluginEditor && (
+					<Extension.Component
+						key={editorKey}
+						name={selectedPluginEditor.filename}
+						props={{
+							backendPlugin: selectedOption,
+							value: preparedRequest,
+							onChange: handleEditorChange,
+							onValidityChange: handleEditorValidityChange,
+						}}
+					/>
+				)}
+				{selectedOption && extensionsReady && !selectedPluginEditor && (
+					<DefaultRequestEditor
+						key={editorKey}
+						backendPlugin={selectedOption}
+						value={preparedRequest}
+						onChange={handleEditorChange}
+						onValidityChange={handleEditorValidityChange}
+					/>
+				)}
 			</UIBanner>
 		);
 	};

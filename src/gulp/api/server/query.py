@@ -941,11 +941,13 @@ async def _query_raw_sync(
     index: str = None,
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
+    user_id: str = None,
 ) -> tuple[int, list[dict]]:
     """
     runs a preview query (no ingestion) and returns the results directly.
 
-    plugin and plugin_params are meant for external queries only, index is ignored for external queries.
+    plugin, plugin_params, and user_id are meant for external queries only;
+    index is ignored for external queries.
 
     Returns:
         tuple[int, list[dict]]: total hits, list of documents
@@ -972,7 +974,7 @@ async def _query_raw_sync(
             total_hits, _ = await mod.query_external(
                 sess,
                 stats=None,
-                user_id=None,
+                user_id=user_id,
                 req_id=None,
                 ws_id=None,
                 operation_id="preview" if q_options.preview_mode else "query_sync_raw",
@@ -1573,6 +1575,7 @@ async def query_external_handler(
                     index=index,
                     plugin=plugin,
                     plugin_params=plugin_params,
+                    user_id=user_id,
                 )
                 return JSONResponse(
                     JSendResponse.success(
@@ -1606,6 +1609,8 @@ async def query_external_handler(
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except JSendException:
+        raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

@@ -13,21 +13,29 @@ Query External runs backend-provided plugins whose type includes `external`.
 The banner supports:
 
 - external plugin selection;
-- dynamic request fields based on the selected plugin's custom parameters;
-- advanced plugin parameters through the shared Advanced Plugin Params editor;
-- optional raw query JSON;
-- optional query options JSON;
+- a dedicated `query-external` UI editor associated through the UI manifest's
+  `plugin` field, when available;
+- a fallback form with dynamic custom-parameter fields, Advanced Plugin Params,
+  optional raw query JSON, and optional query-options JSON;
 - preview mode;
 - run mode.
+
+The dedicated editor prepares the shared `q`, `plugin_params`, and `q_options`
+request object and reports whether it is valid. The parent banner always owns the
+selected backend plugin, preview mode, submission buttons, API lifecycle, and
+notifications. Preview and Run remain disabled until the active dedicated
+editor reports a valid initial state. While UI plugin discovery is pending, the
+request area remains in a loading state; a missing or failed matching UI plugin
+activates the fallback form.
 
 Preview mode opens a Preview banner with returned documents and total hits. Run
 mode registers an ingestion stream before starting the external query. As soon
 as the backend accepts the request, source selection opens so newly created or
 updated sources and contexts can be followed and selected while ingestion is
 still running. Closing source selection returns to Query External with the
-selected plugin, custom parameters, query, and query options restored; the
-ingestion continues independently and reports its final result through the
-normal notification flow.
+selected plugin and complete prepared request restored; the ingestion continues
+independently and reports its final result through the normal notification flow.
+Preview back navigation restores the same state.
 
 External queries use the same live progress and EventStore lifecycle as file
 ingestion. QueryWorker publishes cumulative per-source counts after every

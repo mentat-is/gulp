@@ -2,6 +2,14 @@
 interface JestMock<TResult, TArguments extends unknown[]> {
 	(...arguments_: TArguments): TResult;
 	readonly mock: { calls: TArguments[] };
+	/** Clears calls and configured behavior from this mock. */
+	mockReset(): JestMock<TResult, TArguments>;
+	/** Configures the value returned by subsequent calls. */
+	mockReturnValue(value: TResult): JestMock<TResult, TArguments>;
+	/** Configures the resolved value returned by an asynchronous mock. */
+	mockResolvedValue(
+		value: TResult extends Promise<infer TValue> ? TValue : never,
+	): JestMock<TResult, TArguments>;
 }
 
 /** Minimal method-spy surface used by lifecycle tests. */
@@ -25,9 +33,13 @@ interface JestMatchers<TActual> {
 	toBeUndefined(): void;
 	toBeNull(): void;
 	toHaveLength(expected: number): void;
+	/** Checks that a collection or string contains the expected value. */
+	toContain(expected: unknown): void;
 	toHaveBeenCalled(): void;
 	/** Checks that a mock received the expected arguments in at least one call. */
 	toHaveBeenCalledWith(...expected: unknown[]): void;
+	/** Checks the arguments received by the most recent mock call. */
+	toHaveBeenLastCalledWith(...expected: unknown[]): void;
 	toHaveBeenCalledTimes(expected: number): void;
 }
 
@@ -63,7 +75,11 @@ declare function afterEach(action: () => void | Promise<void>): void;
 /** Minimal Jest mock factory bundled transitively by React Scripts. */
 declare const jest: {
 	/** Replaces one imported module with a deterministic test factory. */
-	mock(moduleName: string, factory: () => unknown): void;
+	mock(
+		moduleName: string,
+		factory: () => unknown,
+		options?: { virtual?: boolean },
+	): void;
 	fn<TResult = void, TArguments extends unknown[] = []>(
 		implementation?: (...arguments_: TArguments) => TResult,
 	): JestMock<TResult, TArguments>;
