@@ -15,6 +15,9 @@ jest.mock("@/ui/Input", () => ({
 	Input: ({
 		label,
 		icon: _icon,
+		endIcon,
+		onEndIconClick,
+		endIconTitle,
 		variant: _variant,
 		valid: _valid,
 		skeleton: _skeleton,
@@ -22,6 +25,9 @@ jest.mock("@/ui/Input", () => ({
 	}: import("react").InputHTMLAttributes<HTMLInputElement> & {
 		label?: string;
 		icon?: string;
+		endIcon?: string;
+		onEndIconClick?: () => void;
+		endIconTitle?: string;
 		variant?: string;
 		valid?: boolean;
 		skeleton?: boolean;
@@ -29,6 +35,14 @@ jest.mock("@/ui/Input", () => ({
 		<label>
 			{label}
 			<input {...props} />
+			{endIcon ? (
+				<button
+					type="button"
+					data-end-icon={endIcon}
+					title={endIconTitle}
+					onClick={onEndIconClick}
+				/>
+			) : null}
 		</label>
 	),
 }));
@@ -309,7 +323,21 @@ describe("CustomParameters.Editor", () => {
 		expect(container.querySelector<HTMLInputElement>('input[name="enabled"]')?.checked).toBe(false);
 		expect(container.querySelector<HTMLInputElement>('input[name="retries"]')?.type).toBe("number");
 		expect(container.querySelector<HTMLInputElement>('input[name="ratio"]')?.step).toBe("any");
-		expect(container.querySelector<HTMLInputElement>('input[name="token"]')?.type).toBe("password");
+		const tokenInput = container.querySelector<HTMLInputElement>(
+			'input[name="token"]',
+		);
+		expect(tokenInput?.type).toBe("password");
+		const showSecretButton = container.querySelector<HTMLButtonElement>(
+			'button[data-end-icon="Eye"]',
+		);
+		expect(showSecretButton?.title).toBe("auth.showPassword");
+		act(() => showSecretButton?.click());
+		expect(tokenInput?.type).toBe("text");
+		expect(
+			container.querySelector<HTMLButtonElement>(
+				'button[data-end-icon="EyeOff"]',
+			)?.title,
+		).toBe("auth.hidePassword");
 		expect(container.querySelector<HTMLTextAreaElement>('textarea[name="payload"]')).not.toBeNull();
 
 		act(() => {

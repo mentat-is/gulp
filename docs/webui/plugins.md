@@ -157,7 +157,6 @@ interface HomeSectionPluginProps {
 
 The component owns the main section body. The Home shell owns the surrounding
 menu, localized heading, back navigation, and optional docked dialog area.
-input.
 
 ## Send Data Plugin Contract
 

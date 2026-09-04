@@ -59,6 +59,12 @@ export namespace CustomParameters {
 		onValidityChange: (name: string, isValid: boolean) => void;
 	}
 
+	interface SecretInputProps {
+		parameter: Interface;
+		value: JsonValue;
+		onValueChange: (value: JsonValue) => void;
+	}
+
 	const emptyParameters: readonly Interface[] = [];
 
 	/**
@@ -218,6 +224,44 @@ export namespace CustomParameters {
 	function Description({ parameter }: { parameter: Interface }) {
 		if (!parameter.desc) return null;
 		return <span className={s.description}>{parameter.desc}</span>;
+	}
+
+	/**
+	 * Renders a secret parameter with an explicit visibility toggle.
+	 * @param props.parameter Secret parameter definition.
+	 * @param props.value Current masked or user-entered value.
+	 * @param props.onValueChange Callback receiving the edited value.
+	 * @returns A password input that can temporarily reveal its displayed value.
+	 */
+	function SecretInput({
+		parameter,
+		value,
+		onValueChange,
+	}: SecretInputProps) {
+		const { t } = Locale.use();
+		const [showSecret, setShowSecret] = useState(false);
+
+		return (
+			<Stack className={s.field} dir="column" gap={6} ai="stretch">
+				<Input
+					name={parameter.name}
+					type={showSecret ? "text" : "password"}
+					onChange={(event) => onValueChange(event.target.value)}
+					value={formatTextValue(value)}
+					variant="highlighted"
+					label={parameter.name}
+					placeholder={t("queryExternal.stringPlaceholder")}
+					icon="Status"
+					endIcon={showSecret ? "EyeOff" : "Eye"}
+					endIconTitle={
+						showSecret ? t("auth.hidePassword") : t("auth.showPassword")
+					}
+					onEndIconClick={() => setShowSecret((current) => !current)}
+					required={parameter.required}
+				/>
+				<Description parameter={parameter} />
+			</Stack>
+		);
 	}
 
 	/**
@@ -404,20 +448,14 @@ export namespace CustomParameters {
 
 					if (parameter.is_secret) {
 						return (
-							<Stack key={parameter.name} className={s.field} dir="column" gap={6} ai="stretch">
-								<Input
-									name={parameter.name}
-									type="password"
-									onChange={(event) => updateValue(parameter.name, event.target.value)}
-									value={formatTextValue(value)}
-									variant="highlighted"
-									label={parameter.name}
-									placeholder={t("queryExternal.stringPlaceholder")}
-									icon="Status"
-									required={parameter.required}
-								/>
-								<Description parameter={parameter} />
-							</Stack>
+							<SecretInput
+								key={parameter.name}
+								parameter={parameter}
+								value={value}
+								onValueChange={(nextValue) =>
+									updateValue(parameter.name, nextValue)
+								}
+							/>
 						);
 					}
 
