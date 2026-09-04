@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "वैश्विक फ़िल्टर उपयोग करें",
     "dashboard.value": "मान",
     "common.configuration": "कॉन्फ़िगरेशन",
-    "home.pluginConfigurations.title": "[ प्लगइन कॉन्फ़िगरेशन ]",
-    "home.pluginConfigurations.menu": "प्लगइन कॉन्फ़िगरेशन",
-    "home.pluginConfigurations.empty": "कोई प्लगइन कॉन्फ़िगरेशन नहीं मिला।",
-    "home.pluginConfigurations.loading": "प्लगइन कॉन्फ़िगरेशन लोड हो रहे हैं...",
-    "home.pluginConfigurations.deleted": "प्लगइन कॉन्फ़िगरेशन {objId} सफलतापूर्वक हटा दिया गया",
-    "home.pluginConfigurations.deleteFailed": "प्लगइन कॉन्फ़िगरेशन {objId} हटाने में विफल",
-    "home.pluginConfigurations.deleteSelected": "चयनित प्लगइन कॉन्फ़िगरेशन हटाएँ ({count})",
-    "home.pluginConfigurations.updated": "प्लगइन कॉन्फ़िगरेशन सफलतापूर्वक अपडेट किया गया",
-    "home.pluginConfigurations.updateFailed": "प्लगइन कॉन्फ़िगरेशन अपडेट करने में विफल",
-    "home.pluginConfigurations.readOnlyValue": "इस मान को सुरक्षित रूप से संपादित नहीं किया जा सकता",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

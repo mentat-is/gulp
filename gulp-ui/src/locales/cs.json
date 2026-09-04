@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "Použít globální filtry",
     "dashboard.value": "Hodnota",
     "common.configuration": "Konfigurace",
-    "home.pluginConfigurations.title": "[ Konfigurace pluginů ]",
-    "home.pluginConfigurations.menu": "Konfigurace pluginů",
-    "home.pluginConfigurations.empty": "Nebyly nalezeny žádné konfigurace pluginů.",
-    "home.pluginConfigurations.loading": "Načítání konfigurací pluginů...",
-    "home.pluginConfigurations.deleted": "Konfigurace pluginu {objId} byla úspěšně odstraněna",
-    "home.pluginConfigurations.deleteFailed": "Nepodařilo se odstranit konfiguraci pluginu {objId}",
-    "home.pluginConfigurations.deleteSelected": "Odstranit vybrané konfigurace pluginů ({count})",
-    "home.pluginConfigurations.updated": "Konfigurace pluginu byla úspěšně aktualizována",
-    "home.pluginConfigurations.updateFailed": "Nepodařilo se aktualizovat konfiguraci pluginu",
-    "home.pluginConfigurations.readOnlyValue": "Tuto hodnotu nelze bezpečně upravit",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

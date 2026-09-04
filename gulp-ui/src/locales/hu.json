@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "Globális szűrők használata",
     "dashboard.value": "Érték",
     "common.configuration": "Konfiguráció",
-    "home.pluginConfigurations.title": "[ Bővítménykonfiguráció ]",
-    "home.pluginConfigurations.menu": "Bővítménykonfiguráció",
-    "home.pluginConfigurations.empty": "Nem találhatók bővítménykonfigurációk.",
-    "home.pluginConfigurations.loading": "Bővítménykonfigurációk betöltése...",
-    "home.pluginConfigurations.deleted": "A(z) {objId} bővítménykonfiguráció sikeresen törölve",
-    "home.pluginConfigurations.deleteFailed": "A(z) {objId} bővítménykonfiguráció törlése sikertelen",
-    "home.pluginConfigurations.deleteSelected": "Kijelölt bővítménykonfigurációk törlése ({count})",
-    "home.pluginConfigurations.updated": "A bővítménykonfiguráció sikeresen frissítve",
-    "home.pluginConfigurations.updateFailed": "A bővítménykonfiguráció frissítése sikertelen",
-    "home.pluginConfigurations.readOnlyValue": "Ez az érték nem szerkeszthető biztonságosan",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

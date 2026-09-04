@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "使用全局过滤器",
     "dashboard.value": "值",
     "common.configuration": "配置",
-    "home.pluginConfigurations.title": "[ 插件配置 ]",
-    "home.pluginConfigurations.menu": "插件配置",
-    "home.pluginConfigurations.empty": "未找到插件配置。",
-    "home.pluginConfigurations.loading": "正在加载插件配置...",
-    "home.pluginConfigurations.deleted": "插件配置 {objId} 已成功删除",
-    "home.pluginConfigurations.deleteFailed": "删除插件配置 {objId} 失败",
-    "home.pluginConfigurations.deleteSelected": "删除选定的插件配置 ({count})",
-    "home.pluginConfigurations.updated": "插件配置已成功更新",
-    "home.pluginConfigurations.updateFailed": "更新插件配置失败",
-    "home.pluginConfigurations.readOnlyValue": "无法安全地编辑此值",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

@@ -77,16 +77,6 @@
     "dashboard.useGlobalFilters": "استخدام عوامل التصفية العامة",
     "dashboard.value": "القيمة",
     "common.configuration": "التكوين",
-    "home.pluginConfigurations.title": "[ تكوين المكوّنات الإضافية ]",
-    "home.pluginConfigurations.menu": "تكوين المكوّنات الإضافية",
-    "home.pluginConfigurations.empty": "لم يتم العثور على تكوينات للمكوّنات الإضافية.",
-    "home.pluginConfigurations.loading": "جارٍ تحميل تكوينات المكوّنات الإضافية...",
-    "home.pluginConfigurations.deleted": "تم حذف تكوين المكوّن الإضافي {objId} بنجاح",
-    "home.pluginConfigurations.deleteFailed": "فشل حذف تكوين المكوّن الإضافي {objId}",
-    "home.pluginConfigurations.deleteSelected": "حذف تكوينات المكوّنات الإضافية المحددة ({count})",
-    "home.pluginConfigurations.updated": "تم تحديث تكوين المكوّن الإضافي بنجاح",
-    "home.pluginConfigurations.updateFailed": "فشل تحديث تكوين المكوّن الإضافي",
-    "home.pluginConfigurations.readOnlyValue": "لا يمكن تحرير هذه القيمة بأمان",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

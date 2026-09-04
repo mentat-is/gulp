@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "使用全域篩選器",
     "dashboard.value": "值",
     "common.configuration": "設定",
-    "home.pluginConfigurations.title": "[ 外掛設定 ]",
-    "home.pluginConfigurations.menu": "外掛設定",
-    "home.pluginConfigurations.empty": "找不到外掛設定。",
-    "home.pluginConfigurations.loading": "正在載入外掛設定...",
-    "home.pluginConfigurations.deleted": "外掛設定 {objId} 已成功刪除",
-    "home.pluginConfigurations.deleteFailed": "刪除外掛設定 {objId} 失敗",
-    "home.pluginConfigurations.deleteSelected": "刪除選取的外掛設定 ({count})",
-    "home.pluginConfigurations.updated": "外掛設定已成功更新",
-    "home.pluginConfigurations.updateFailed": "更新外掛設定失敗",
-    "home.pluginConfigurations.readOnlyValue": "無法安全地編輯此值",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

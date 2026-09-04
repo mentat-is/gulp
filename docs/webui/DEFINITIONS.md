@@ -187,8 +187,15 @@ frontend slots. See [Plugins](plugins.md).
 ## UI Plugin Slot
 
 A UI plugin slot is a frontend mount point such as `operation-menu`,
-`send-data`, `event-actions`, `sigma-upload-mode`, `dashboard-view`, or
-`ai-assistant-window`.
+`send-data`, `event-actions`, `sigma-upload-mode`, `dashboard-view`,
+`ai-assistant-window`, or `home-section`.
+
+## Home Section
+
+A Home section is a routed main-content view registered by a UI plugin through
+the `home-section` slot. Its manifest supplies the route, localized menu label
+and title, icon, category, order, and required permissions. The Home shell owns
+navigation and access checks; the plugin owns the section content.
 
 ## Operation Menu
 

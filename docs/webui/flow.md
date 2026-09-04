@@ -1,9 +1,25 @@
 # Flow
 
-The operation flow starts from the operations page, moves through source/context
-selection, and ends in the timeline workspace where events are investigated.
+The application flow starts in the authenticated Home shell, moves from the
+operations section through source/context selection, and ends in the timeline
+workspace where events are investigated.
 
 ![Operations list and detail](images/operations-list-detail.png)
+
+## Home
+
+The Home shell provides the left navigation, page heading, main content area,
+and docked detail area. Operations, Users, and Groups are built-in sections.
+Additional sections can be supplied by UI plugins targeting `home-section`.
+
+Plugin Home entries use localized labels, headings, icons, groups, ordering, and
+permission requirements from their manifests. The same manifest route is used
+for menu navigation, direct links, and browser refreshes. The shell waits for
+plugin discovery and user restoration before resolving a plugin route. Missing,
+invalid, failed, or unauthorized plugin routes return to the Operations section.
+
+See [Plugins](plugins.md#home-section-plugin-contract) for the manifest and
+component contract.
 
 ## Operations
 

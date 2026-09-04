@@ -1,0 +1,30 @@
+.wrapper,
+.field {
+	width: 100%;
+}
+
+.description,
+.invalid {
+	font-family: var(--font-mono);
+	font-size: 10px;
+}
+
+.description {
+	color: var(--gray-600);
+}
+
+.invalid {
+	color: var(--red-800);
+}
+
+.required::after {
+	content: " *";
+	color: var(--red-800);
+}
+
+.dictionary {
+	box-sizing: border-box;
+	min-height: 96px;
+	width: 100%;
+	font-family: var(--font-mono);
+}

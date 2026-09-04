@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "Użyj filtrów globalnych",
     "dashboard.value": "Wartość",
     "common.configuration": "Konfiguracja",
-    "home.pluginConfigurations.title": "[ Konfiguracja wtyczek ]",
-    "home.pluginConfigurations.menu": "Konfiguracja wtyczek",
-    "home.pluginConfigurations.empty": "Nie znaleziono konfiguracji wtyczek.",
-    "home.pluginConfigurations.loading": "Ładowanie konfiguracji wtyczek...",
-    "home.pluginConfigurations.deleted": "Konfiguracja wtyczki {objId} została pomyślnie usunięta",
-    "home.pluginConfigurations.deleteFailed": "Nie udało się usunąć konfiguracji wtyczki {objId}",
-    "home.pluginConfigurations.deleteSelected": "Usuń wybrane konfiguracje wtyczek ({count})",
-    "home.pluginConfigurations.updated": "Konfiguracja wtyczki została pomyślnie zaktualizowana",
-    "home.pluginConfigurations.updateFailed": "Nie udało się zaktualizować konfiguracji wtyczki",
-    "home.pluginConfigurations.readOnlyValue": "Tej wartości nie można bezpiecznie edytować",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

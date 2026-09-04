@@ -42,7 +42,10 @@ const ACTIVE_HEARTBEAT_MSEC = 30_000;
 const RECONNECT_HEARTBEAT_MSEC = 1_000;
 // Storage is recovery-only; let the normal coalesced private bootstrap arrive first.
 const STORAGE_BOOTSTRAP_FALLBACK_MSEC = 250;
-const EMPTY_EXTENSION_CONTEXT: Extension.Export = { extensions: {} };
+const EMPTY_EXTENSION_CONTEXT: Extension.Export = {
+	extensions: {},
+	ready: true,
+};
 
 type DetachedPayloadDomain =
 	| "bootstrap"

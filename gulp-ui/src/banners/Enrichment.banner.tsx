@@ -379,14 +379,9 @@ export namespace Enrichment {
 			setFile(lockedSource);
 		}, [lockedSource]);
 
-		// Initialize custom parameters when plugin changes
-		useEffect(() => {
-			if (!plugin) return setCustomParameters({});
-			const parameters: Record<string, any> = {};
-			plugin.custom_parameters.forEach((p) => {
-				parameters[p.name] = null;
-			});
-			setCustomParameters(parameters);
+		// Reset values so the shared editor can initialize the selected plugin defaults.
+		useEffect(() => {			
+			setCustomParameters({});
 		}, [plugin]);
 
 		// Load and filter enrichment plugins

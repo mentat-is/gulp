@@ -23,6 +23,7 @@ function _({ children, filenames, slots }: Extension.Provider.Props) {
 	const [extensions, setExtensions] = useState<
 		Record<string, Extension.Interface>
 	>({});
+	const [ready, setReady] = useState<boolean>(false);
 
 	const filenameSignature = filenames
 		? [...filenames].sort().join("\u0000")
@@ -42,7 +43,8 @@ function _({ children, filenames, slots }: Extension.Provider.Props) {
 		const cacheKey =
 			`files:${filenameSignature ?? "*"}:slots:${slotSignature ?? "*"}`;
 
-		const load = async () => {
+		/** Creates and caches the extension request for the active capability scope. */
+		const createExtensionPromise = () => {
 			const promise = (async () => {
 				const new_extensions: Record<string, Extension.Interface> = {};
 
@@ -89,17 +91,18 @@ function _({ children, filenames, slots }: Extension.Provider.Props) {
 								return;
 							}
 
-							if (component.default) {
-								console.log(
-									`Component ${plugin.filename} has been successfully loaded and memorized`,
-									_,
-								);
-							} else {
+							if (!component.default) {
 								console.warn(
 									`Component ${plugin.filename} loaded but has no default export`,
 									_,
 								);
+								return;
 							}
+
+							console.log(
+								`Component ${plugin.filename} has been successfully loaded and memorized`,
+								_,
+							);
 
 							const types = Extension.normalizeTypeList(plugin.type);
 
@@ -121,7 +124,12 @@ function _({ children, filenames, slots }: Extension.Provider.Props) {
 				return new_extensions;
 			})();
 			extensionPromises.set(cacheKey, promise);
+			return promise;
+		};
 
+		/** Applies one cached or newly created extension request to this provider. */
+		const load = async () => {
+			const promise = extensionPromises.get(cacheKey) ?? createExtensionPromise();
 			try {
 				const data = await promise;
 				if (isMounted) {
@@ -129,23 +137,23 @@ function _({ children, filenames, slots }: Extension.Provider.Props) {
 				}
 			} catch (err) {
 				console.error("Failed to resolve extensions promise:", err);
+				if (isMounted) {
+					setExtensions({});
+				}
+			} finally {
+				if (isMounted) {
+					setReady(true);
+				}
 			}
 		};
 
-		const cachedPromise = extensionPromises.get(cacheKey);
-		if (!cachedPromise) {
-			load();
-		} else {
-			cachedPromise.then((data) => {
-				if (isMounted) {
-					setExtensions(data);
-				}
-			});
-		}
+		setReady(false);
+		void load();
 
 		const handleServerChanged = () => {
 			extensionPromises.delete(cacheKey);
-			load();
+			setReady(false);
+			void load();
 		};
 
 		window.addEventListener("gulp-server-changed", handleServerChanged);
@@ -158,6 +166,7 @@ function _({ children, filenames, slots }: Extension.Provider.Props) {
 
 	const extensionProps: Extension.Export = {
 		extensions,
+		ready,
 	};
 
 	return (
@@ -184,6 +193,7 @@ export namespace Extension {
 		SigmaUploadMode: "sigma-upload-mode",
 		AIAssistantWindow: "ai-assistant-window",
 		DashboardView: "dashboard-view",
+		HomeSection: "home-section",
 	} as const;
 
 	export interface MountTarget {
@@ -192,7 +202,23 @@ export namespace Extension {
 		group?: string;
 		variant?: string;
 		labelKey?: string;
+		titleKey?: string;
 		icon?: string;
+		route?: string;
+		requiredPermissions?: string[];
+	}
+
+	export interface HomeSectionTarget extends MountTarget {
+		slot: typeof Slot.HomeSection;
+		route: string;
+		labelKey: string;
+		titleKey: string;
+		icon: string;
+	}
+
+	export interface HomeSectionMount {
+		extension: Interface;
+		target: HomeSectionTarget;
 	}
 
 	export interface Payload {
@@ -219,6 +245,8 @@ export namespace Extension {
 
 	export interface Export {
 		extensions: Record<string, Extension.Interface>;
+		/** Whether the current extension discovery request has settled. */
+		ready: boolean;
 	}
 
 	export const use = () => {
@@ -247,11 +275,16 @@ export namespace Extension {
 	 */
 	export function normalizeTypeList(type?: Type | Type[]): Type[] {
 		if (Array.isArray(type)) {
-			return type.filter((item) => item.trim().length > 0);
+			return type
+				.filter(
+					(item): item is string =>
+						typeof item === "string" && item.trim().length > 0,
+				)
+				.map((item) => item.trim());
 		}
 
-		if (type && type.trim().length > 0) {
-			return [type];
+		if (typeof type === "string" && type.trim().length > 0) {
+			return [type.trim()];
 		}
 
 		return [];
@@ -283,7 +316,9 @@ export namespace Extension {
 		const normalizedTargets = Array.isArray(targets)
 			? targets
 				.filter(
-					(target) =>
+					(target): target is MountTarget =>
+						typeof target === "object" &&
+						target !== null &&
 						typeof target.slot === "string" &&
 						target.slot.trim().length > 0,
 				)
@@ -345,6 +380,214 @@ export namespace Extension {
 					second.display_name || second.filename,
 				);
 			});
+	}
+
+	const ReservedHomeRoutes = new Set([
+		"/",
+		"/groups",
+		"/login",
+		"/renderer-test",
+		"/users",
+	]);
+	const ReservedHomeRoutePrefixes = ["/detached", "/operations"];
+
+	/**
+	 * Converts a manifest value to a trimmed non-empty string.
+	 *
+	 * @param value - Raw metadata value received from the backend.
+	 * @returns The normalized string, or null when the value is invalid.
+	 */
+	function normalizeTargetText(value: unknown): string | null {
+		if (typeof value !== "string") return null;
+		const normalizedValue = value.trim();
+		return normalizedValue.length > 0 ? normalizedValue : null;
+	}
+
+	/**
+	 * Normalizes a manifest-provided Home route for exact pathname matching.
+	 *
+	 * @param route - Raw route read from one Home mount target.
+	 * @returns A normalized absolute path, or null when the route is unsafe or reserved.
+	 */
+	export function normalizeHomeRoute(route: unknown): string | null {
+		if (typeof route !== "string") return null;
+
+		const trimmedRoute = route.trim();
+		if (
+			!/^\/[A-Za-z0-9][A-Za-z0-9/_-]*$/.test(trimmedRoute) ||
+			trimmedRoute.includes("//")
+		) {
+			return null;
+		}
+
+		const normalizedRoute = trimmedRoute.replace(/\/+$/, "");
+		if (ReservedHomeRoutes.has(normalizedRoute)) return null;
+		if (
+			ReservedHomeRoutePrefixes.some(
+				(prefix) =>
+					normalizedRoute === prefix ||
+					normalizedRoute.startsWith(`${prefix}/`),
+			)
+		) {
+			return null;
+		}
+
+		return normalizedRoute;
+	}
+
+	/**
+	 * Checks whether the current user satisfies every permission declared by a target.
+	 *
+	 * @param target - Home target whose permission policy should be evaluated.
+	 * @param permissions - Permission names assigned to the authenticated user.
+	 * @returns True when the target has no restriction or every requirement is present.
+	 */
+	export function canAccessHomeSection(
+		target: HomeSectionTarget,
+		permissions: readonly string[],
+	): boolean {
+		return (target.requiredPermissions ?? []).every((permission) =>
+			permissions.includes(permission),
+		);
+	}
+
+	/**
+	 * Builds validated, deterministically ordered Home mounts from loaded extensions.
+	 *
+	 * Invalid targets and duplicate routes are omitted. For a duplicate route, the
+	 * first target by order, display name, and filename remains authoritative.
+	 *
+	 * @param extensions - Loaded extension registry.
+	 * @returns Valid Home section mounts with unique normalized routes.
+	 */
+	export function getHomeSectionMounts(
+		extensions: Record<string, Extension.Interface>,
+	): HomeSectionMount[] {
+		const mounts: HomeSectionMount[] = [];
+
+		for (const extension of Object.values(extensions)) {
+			for (const rawTarget of extension.targets) {
+				if (rawTarget.slot !== Slot.HomeSection) continue;
+
+				const route = normalizeHomeRoute(rawTarget.route);
+				const labelKey = normalizeTargetText(rawTarget.labelKey);
+				const titleKey = normalizeTargetText(rawTarget.titleKey);
+				const icon = normalizeTargetText(rawTarget.icon);
+				const group = rawTarget.group === undefined
+					? undefined
+					: normalizeTargetText(rawTarget.group);
+				const requiredPermissions = rawTarget.requiredPermissions;
+				const hasValidPermissions =
+					requiredPermissions === undefined ||
+					(Array.isArray(requiredPermissions) &&
+						requiredPermissions.every(
+							(permission) =>
+								typeof permission === "string" &&
+								permission.trim().length > 0,
+						));
+
+				const hasValidOrder =
+					rawTarget.order === undefined ||
+					(typeof rawTarget.order === "number" &&
+						Number.isFinite(rawTarget.order));
+				const hasValidGroup = rawTarget.group === undefined || group !== null;
+
+				if (
+					!route ||
+					!labelKey ||
+					!titleKey ||
+					!icon ||
+					!hasValidPermissions ||
+					!hasValidOrder ||
+					!hasValidGroup
+				) {
+					console.warn(
+						`Extension ${extension.filename} has an invalid home-section target. Skipping...`,
+					);
+					continue;
+				}
+
+				mounts.push({
+					extension,
+					target: {
+						...rawTarget,
+						slot: Slot.HomeSection,
+						route,
+						labelKey,
+						titleKey,
+						icon,
+						group: group ?? undefined,
+						requiredPermissions: requiredPermissions?.map((permission) =>
+							permission.trim(),
+						),
+					},
+				});
+			}
+		}
+
+		mounts.sort((first, second) => {
+			const orderDifference =
+				(first.target.order ?? Number.MAX_SAFE_INTEGER) -
+				(second.target.order ?? Number.MAX_SAFE_INTEGER);
+			if (orderDifference !== 0) return orderDifference;
+
+			const nameDifference = (
+				first.extension.display_name || first.extension.filename
+			).localeCompare(
+				second.extension.display_name || second.extension.filename,
+			);
+			if (nameDifference !== 0) return nameDifference;
+			return first.extension.filename.localeCompare(second.extension.filename);
+		});
+
+		const uniqueMounts: HomeSectionMount[] = [];
+		const knownRoutes = new Set<string>();
+		for (const mount of mounts) {
+			if (knownRoutes.has(mount.target.route)) {
+				console.warn(
+					`Home extension route ${mount.target.route} is already registered. Skipping ${mount.extension.filename}...`,
+				);
+				continue;
+			}
+
+			knownRoutes.add(mount.target.route);
+			uniqueMounts.push(mount);
+		}
+
+		return uniqueMounts;
+	}
+
+	/**
+	 * Returns validated Home mounts visible to a user in manifest order.
+	 *
+	 * @param extensions - Loaded extension registry.
+	 * @param permissions - Permission names assigned to the authenticated user.
+	 * @returns Ordered Home mounts whose complete permission policy is satisfied.
+	 */
+	export function getAccessibleHomeSectionMounts(
+		extensions: Record<string, Extension.Interface>,
+		permissions: readonly string[],
+	): HomeSectionMount[] {
+		return getHomeSectionMounts(extensions).filter((mount) =>
+			canAccessHomeSection(mount.target, permissions),
+		);
+	}
+
+	/**
+	 * Resolves an exact normalized pathname against accessible Home mounts.
+	 *
+	 * @param mounts - Validated and permission-filtered Home mounts.
+	 * @param pathname - Browser pathname to resolve.
+	 * @returns The matching mount, or undefined for an unknown or invalid route.
+	 */
+	export function resolveHomeSectionRoute(
+		mounts: readonly HomeSectionMount[],
+		pathname: string,
+	): HomeSectionMount | undefined {
+		const route = normalizeHomeRoute(pathname);
+		return route
+			? mounts.find((mount) => mount.target.route === route)
+			: undefined;
 	}
 
 	/**

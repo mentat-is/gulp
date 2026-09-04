@@ -1,14 +1,11 @@
-import { GulpDataset } from "@/class/Info";
+import type { GulpDataset } from "@/class/Info";
 import { Application } from "@/context/Application.context";
 import { Banner as UIBanner } from "@/ui/Banner";
 import { Select } from "@/ui/Select";
-import { Switch } from "@/ui/Switch";
 import { Icon } from "@/ui/Icon";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import s from "./styles/QueryExternalBanner.module.css";
 import { Label } from "@/ui/Label";
-import { Input } from "@/ui/Input";
-import { cn } from "@/ui/utils";
 import { Preview } from "./Preview.banner";
 import { SelectFiles } from "./SelectFiles.banner";
 import { Skeleton } from "@/ui/Skeleton";
@@ -18,6 +15,7 @@ import { Textarea } from "@/ui/Textarea";
 import { toast } from "sonner";
 import { AdvancedPluginParams } from "@/components/AdvancedPluginParams";
 import { Locale } from "@/locales";
+import { CustomParameters } from "@/components/CustomParameters";
 
 export namespace QueryExternal {
 	export const PluginSelection = ({
@@ -59,126 +57,69 @@ export namespace QueryExternal {
 		);
 	};
 
+	/**
+	 * Renders external-plugin parameters through the shared typed editor.
+	 * @param props.selectedOption Currently selected external query plugin.
+	 * @param props.params Current typed custom parameter values.
+	 * @param props.setParams State setter for typed custom parameter values.
+	 * @param props.onValidityChange Callback reporting aggregate editor validity.
+	 * @returns The shared custom parameter editor, or null without a plugin.
+	 */
 	export const DynamicRequestBuilder = ({
 		selectedOption,
 		params,
 		setParams,
+		onValidityChange,
 	}: {
 		selectedOption: GulpDataset.PluginList.Interface | null;
-		params: Record<string, any>;
-		setParams: React.Dispatch<React.SetStateAction<Record<string, any>>>;
+		params: CustomParameters.ValueMap;
+		setParams: React.Dispatch<
+			React.SetStateAction<CustomParameters.ValueMap>
+		>;
+		onValidityChange?: (isValid: boolean) => void;
 	}) => {
-		const { t } = Locale.use();
-		const typesMap = useMemo(
-			() => ({
-				list: t("queryExternal.listPlaceholder"),
-				int: t("queryExternal.numberPlaceholder"),
-				str: t("queryExternal.stringPlaceholder"),
-				bool: "",
-				dict: "",
-			}),
-			[t],
-		);
-
-		const handleInputChange =
-			(name: string) => (event: ChangeEvent<HTMLInputElement>) => {
-				setParams((prev) => ({ ...prev, [name]: event.target.value }));
-			};
-
-		const handleCheckChange = (name: string) => (bool: boolean) =>
-			setParams((prev) => ({ ...prev, [name]: bool }));
-
-		const handleCheckboxChange = (name: string, value: string) =>
-			setParams((prev) => ({ ...prev, [name]: value }));
-
 		if (!selectedOption) return null;
 
 		return (
-			<Stack
-				dir="column"
-				className={s.wrapper}
-				ai="stretch"
-				gap={16}
-			>
-				{selectedOption.custom_parameters.map((custom) =>
-					custom.values ? (
-						<Stack
-							dir="column"
-							gap={6}
-							ai="flex-start"
-							data-input
-						>
-							<Label value={custom.name} />
-							<Select.Root
-								onValueChange={(value) =>
-									handleCheckboxChange(custom.name, value)
-								}
-							>
-								<Select.Trigger
-									value={params[custom.name]}
-									data-no-icon
-								>
-									{params[custom.name]}
-								</Select.Trigger>
-								<Select.Content>
-									{custom.values!.map((value) => (
-										<Select.Item
-											key={value}
-											value={value}
-										>
-											{value}
-										</Select.Item>
-									))}
-								</Select.Content>
-							</Select.Root>
-							<span className={s.description}>{custom.desc}</span>
-						</Stack>
-					) : custom.type === "bool" ? (
-						<Stack
-							dir="column"
-							gap={6}
-							ai="flex-start"
-							data-input
-						>
-							<Label value={custom.name} />
-							<Switch
-								checked={params[custom.name]}
-								onCheckedChange={handleCheckChange(custom.name)}
-							/>
-							<span className={s.description}>{custom.desc}</span>
-						</Stack>
-					) : (
-						<Stack
-							dir="column"
-							gap={8}
-							ai="stretch"
-						>
-							<Input
-								onChange={handleInputChange(custom.name)}
-								variant="highlighted"
-								label={custom.name}
-								className={cn(custom.required && s.required)}
-								placeholder={typesMap[custom.type]}
-								icon="CircleDashed"
-								value={params[custom.name]}
-							/>
-							<span className={s.description}>{custom.desc}</span>
-						</Stack>
-					),
-				)}
-			</Stack>
+			<CustomParameters.Editor
+				plugin={selectedOption}
+				customParameters={params}
+				setCustomParameters={setParams}
+				onValidityChange={onValidityChange}
+			/>
 		);
 	};
+
+	/**
+	 * Determines whether external-query actions must be disabled.
+	 * @param selectedOption Currently selected plugin.
+	 * @param areCustomParametersValid Aggregate custom parameter validity.
+	 * @returns True when the query cannot be submitted safely.
+	 */
+	export function isSubmissionDisabled(
+		selectedOption: GulpDataset.PluginList.Interface | null,
+		areCustomParametersValid: boolean,
+	): boolean {
+		return !selectedOption || !areCustomParametersValid;
+	}
 
 	export namespace Banner {
 		export interface Props extends UIBanner.Props {
 			preselectedOption?: GulpDataset.PluginList.Interface;
-			preparams?: Record<string, any>;
+			preparams?: CustomParameters.ValueMap;
 			preQ?: any;
 			preQOptions?: Record<string, any>;
 		}
 	}
 
+	/**
+	 * Renders the external query workflow with typed plugin parameters.
+	 * @param props.preselectedOption Optional plugin restored by back navigation.
+	 * @param props.preparams Optional restored custom parameter values.
+	 * @param props.preQ Optional restored query payload.
+	 * @param props.preQOptions Optional restored query options.
+	 * @returns The external query banner.
+	 */
 	export const Banner = ({
 		preselectedOption,
 		preparams,
@@ -186,7 +127,7 @@ export namespace QueryExternal {
 		preQOptions,
 		...props
 	}: QueryExternal.Banner.Props) => {
-		const { Info, spawnBanner, destroyBanner, app } = Application.use();
+		const { Info, spawnBanner, app } = Application.use();
 		const { t } = Locale.use();
 		const [options, setOptions] = useState<
 			GulpDataset.PluginList.Interface[] | null
@@ -195,7 +136,11 @@ export namespace QueryExternal {
 			preselectedOption ?? null,
 		);
 		const [loading, setLoading] = useState<number>(0);
-		const [params, setParams] = useState(preparams ?? {});
+		const [params, setParams] = useState<CustomParameters.ValueMap>(
+			preparams ?? {},
+		);
+		const [areCustomParametersValid, setAreCustomParametersValid] =
+			useState(true);
 		const [q, setQ] = useState<string>(
 			preQ ? JSON.stringify(preQ, null, 2) : "",
 		);
@@ -224,8 +169,13 @@ export namespace QueryExternal {
 			setOptions(app.target.plugins.filter((i) => i.type.includes("external")));
 		}, [app.target.plugins]);
 
-		const handleQuery = async (preview = false) => {
-			if (!selectedOption) return;
+		/**
+		 * Executes or previews the current external query when its parameters are valid.
+		 * @param preview Whether to request preview results instead of normal execution.
+		 * @returns A promise that settles after the request and loading-state cleanup.
+		 */
+		const handleQuery = async (preview = false): Promise<void> => {
+			if (!selectedOption || !areCustomParametersValid) return;
 			setLoading(preview ? 2 : 1);
 			Info.query_external(
 				selectedOption.filename,
@@ -286,24 +236,29 @@ export namespace QueryExternal {
 			}
 		};
 
-		useEffect(() => {
-			if (!selectedOption) {
-				return setParams({});
-			}
-			const params: Record<string, any> = {};
-			selectedOption.custom_parameters.forEach((param) => {
-				params[param.name] = preparams
-					? preparams[param.name]
-					: param.default_value;
-			});
+		/**
+		 * Selects a query plugin and clears values owned by the previous plugin.
+		 * @param name Filename of the selected plugin.
+		 * @returns Nothing.
+		 */
+		const handlePluginSelect = (name: string): void => {
+			const option = options?.find((candidate) => candidate.filename === name);
+			if (!option) return;
+			setParams({});
+			setAreCustomParametersValid(true);
+			setSelectedOption(option);
+		};
 
-			setParams(params);
-		}, [selectedOption]);
+		const submissionDisabled = isSubmissionDisabled(
+			selectedOption,
+			areCustomParametersValid,
+		);
 
 		const done = (
 			<Button
 				icon="Check"
 				loading={loading === 1}
+				disabled={submissionDisabled}
 				onClick={() => handleQuery()}
 				variant="glass"
 			/>
@@ -314,6 +269,7 @@ export namespace QueryExternal {
 				icon="PreviewEye"
 				variant="tertiary"
 				loading={loading === 2}
+				disabled={submissionDisabled}
 				onClick={() => handleQuery(true)}
 			/>
 		);
@@ -328,14 +284,13 @@ export namespace QueryExternal {
 				<PluginSelection
 					options={options}
 					selectedOption={selectedOption}
-					onSelect={(name) =>
-						setSelectedOption(options?.find((op) => op.filename === name)!)
-					}
+					onSelect={handlePluginSelect}
 				/>
 				<DynamicRequestBuilder
 					selectedOption={selectedOption}
 					params={params}
 					setParams={setParams}
+					onValidityChange={setAreCustomParametersValid}
 				/>
 				<AdvancedPluginParams
 					plugin={selectedOption}

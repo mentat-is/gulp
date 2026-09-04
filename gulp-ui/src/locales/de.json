@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "Globale Filter verwenden",
     "dashboard.value": "Wert",
     "common.configuration": "Konfiguration",
-    "home.pluginConfigurations.title": "[ Plugin-Konfiguration ]",
-    "home.pluginConfigurations.menu": "Plugin-Konfiguration",
-    "home.pluginConfigurations.empty": "Keine Plugin-Konfigurationen gefunden.",
-    "home.pluginConfigurations.loading": "Plugin-Konfigurationen werden geladen...",
-    "home.pluginConfigurations.deleted": "Plugin-Konfiguration {objId} wurde erfolgreich gelöscht",
-    "home.pluginConfigurations.deleteFailed": "Plugin-Konfiguration {objId} konnte nicht gelöscht werden",
-    "home.pluginConfigurations.deleteSelected": "Ausgewählte Plugin-Konfigurationen löschen ({count})",
-    "home.pluginConfigurations.updated": "Plugin-Konfiguration wurde erfolgreich aktualisiert",
-    "home.pluginConfigurations.updateFailed": "Plugin-Konfiguration konnte nicht aktualisiert werden",
-    "home.pluginConfigurations.readOnlyValue": "Dieser Wert kann nicht sicher bearbeitet werden",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

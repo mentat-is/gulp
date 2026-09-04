@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Application } from "@/context/Application.context";
+import { Extension } from "@/context/Extension.context";
 import { Menu, MenuItem } from "@/components/menu";
 import { Session } from "@/banners/Session.banner";
 import { Settings } from "@/banners/Settings.banner";
@@ -14,15 +15,18 @@ import {
 	HeaderAction,
 	HomeContent,
 	OperationsList,
-	PluginConfigurationsList,
 	UsersList,
 } from "@/components/HomeContent";
+
+const EmptyPermissions: readonly string[] = [];
 
 export namespace Home {
 	export namespace Page {
 		export interface Props {
-			/** Section rendered by the Home shell for the current route. */
+			/** Built-in section rendered by the Home shell for the current route. */
 			section?: HomeContent.Section;
+			/** Whether the current pathname must resolve through a Home extension target. */
+			extensionRoute?: boolean;
 		}
 	}
 
@@ -37,17 +41,34 @@ export namespace Home {
 	 *    - Right: docked detail drawer when a row detail view is open.
 	 */
 
-	export function Page({ section = "operations" }: Home.Page.Props) {
+	export function Page({
+		section = "operations",
+		extensionRoute = false,
+	}: Home.Page.Props) {
 		const { Info, app, spawnBanner, spawnDialog, dialog, banner } =
 			Application.use();
+		const { extensions, ready: extensionsReady } = Extension.use();
 		const { t } = Locale.use();
 		const navigate = useNavigate();
 		const location = useLocation();
 		const dialogRef = useRef<HTMLDivElement>(null);
 		const [loading, setLoading] = useState(true);
-		const isAdmin = Array.isArray(app.general.user?.permission)
-			? app.general.user.permission.includes("admin")
-			: false;
+		const userPermissions = app.general.user?.permission ?? EmptyPermissions;
+		const accessibleHomeSectionMounts = useMemo(
+			() =>
+				Extension.getAccessibleHomeSectionMounts(
+					extensions,
+					userPermissions,
+				),
+			[extensions, userPermissions],
+		);
+		const activeHomeSectionMount = useMemo(() => {
+			if (!extensionRoute) return undefined;
+			return Extension.resolveHomeSectionRoute(
+				accessibleHomeSectionMounts,
+				location.pathname,
+			);
+		}, [accessibleHomeSectionMounts, extensionRoute, location.pathname]);
 
 		/**
 		 * On mount, initializes shared application state, mirroring OperationView's exact
@@ -103,9 +124,21 @@ export namespace Home {
 					operations: "/",
 					users: "/users",
 					groups: "/groups",
-					pluginConfigurations: "/plugin-configurations",
 				};
 				navigate(routes[nextSection]);
+			},
+			[navigate, spawnDialog],
+		);
+
+		/**
+		 * Opens a manifest-provided Home extension route and clears the current drawer.
+		 *
+		 * @param route - Validated route owned by a Home extension target.
+		 */
+		const handleHomeSectionChange = useCallback(
+			(route: string) => {
+				spawnDialog(null);
+				navigate(route);
 			},
 			[navigate, spawnDialog],
 		);
@@ -116,14 +149,17 @@ export namespace Home {
 		 * @returns A bracketed page title matching the existing Home style.
 		 */
 		const pageTitle = useMemo(() => {
+			if (activeHomeSectionMount) {
+				return t(activeHomeSectionMount.target.titleKey);
+			}
+
 			const titles: Record<HomeContent.Section, string> = {
 				operations: t("home.operations.title"),
 				users: `[ ${t("common.users")} ]`,
 				groups: `[ ${t("common.groups")} ]`,
-				pluginConfigurations: t("home.pluginConfigurations.title"),
 			};
 			return titles[section];
-		}, [section, t]);
+		}, [activeHomeSectionMount, section, t]);
 
 		/**
 		 * Whether the current Home shell route should expose a shortcut back to
@@ -136,12 +172,18 @@ export namespace Home {
 		 * unrelated parent re-renders such as banner or dialog state changes.
 		 */
 		const mainContent =
-			section === "users" ? (
+			activeHomeSectionMount ? (
+				<Extension.Component
+					name={activeHomeSectionMount.extension.filename}
+					props={{
+						slot: Extension.Slot.HomeSection,
+						target: activeHomeSectionMount.target,
+					}}
+				/>
+			) : section === "users" ? (
 				<UsersList />
 			) : section === "groups" ? (
 				<GroupsList />
-			) : section === "pluginConfigurations" ? (
-				<PluginConfigurationsList />
 			) : (
 				<OperationsList loading={loading} />
 			);
@@ -172,17 +214,22 @@ export namespace Home {
 				},
 			];
 
-			if (isAdmin) {
+			for (const mount of accessibleHomeSectionMounts) {
 				items.push({
-					label: t("home.pluginConfigurations.menu"),
-					icon: "AcronymJson",
-					category: t("common.administration"),
-					action: () => handleSectionChange("pluginConfigurations"),
+					label: t(mount.target.labelKey),
+					icon: mount.target.icon,
+					category: t(mount.target.group ?? "common.plugins"),
+					action: () => handleHomeSectionChange(mount.target.route),
 				});
 			}
 
 			return items;
-		}, [handleSectionChange, isAdmin, t]);
+		}, [
+			accessibleHomeSectionMounts,
+			handleHomeSectionChange,
+			handleSectionChange,
+			t,
+		]);
 
 		/**
 		 * Bottom area menu items for the Home page.
@@ -216,6 +263,19 @@ export namespace Home {
 			[spawnBanner, t],
 		);
 
+		if (extensionRoute && (!extensionsReady || loading)) {
+			return null;
+		}
+
+		if (extensionRoute && !activeHomeSectionMount) {
+			return (
+				<Navigate
+					to="/"
+					replace
+				/>
+			);
+		}
+
 		return (
 			<div className={s.wrapper}>
 				{/* Left navigation — data-driven Menu component */}
@@ -232,7 +292,9 @@ export namespace Home {
 							<p className={s.pageTitle}>{pageTitle}</p>
 						</div>
 						<div className={s.pageActions}>
-							<HeaderAction section={section} />
+							{activeHomeSectionMount ? null : (
+								<HeaderAction section={section} />
+							)}
 						</div>
 					</div>
 					{mainContent}

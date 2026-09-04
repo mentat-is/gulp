@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "Använd globala filter",
     "dashboard.value": "Värde",
     "common.configuration": "Konfiguration",
-    "home.pluginConfigurations.title": "[ Plugin-konfiguration ]",
-    "home.pluginConfigurations.menu": "Plugin-konfiguration",
-    "home.pluginConfigurations.empty": "Inga plugin-konfigurationer hittades.",
-    "home.pluginConfigurations.loading": "Laddar plugin-konfigurationer...",
-    "home.pluginConfigurations.deleted": "Plugin-konfigurationen {objId} har tagits bort",
-    "home.pluginConfigurations.deleteFailed": "Det gick inte att ta bort plugin-konfigurationen {objId}",
-    "home.pluginConfigurations.deleteSelected": "Ta bort markerade plugin-konfigurationer ({count})",
-    "home.pluginConfigurations.updated": "Plugin-konfigurationen har uppdaterats",
-    "home.pluginConfigurations.updateFailed": "Det gick inte att uppdatera plugin-konfigurationen",
-    "home.pluginConfigurations.readOnlyValue": "Det här värdet kan inte redigeras på ett säkert sätt",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

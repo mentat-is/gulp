@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "השתמש במסננים גלובליים",
     "dashboard.value": "ערך",
     "common.configuration": "תצורה",
-    "home.pluginConfigurations.title": "[ תצורת תוספים ]",
-    "home.pluginConfigurations.menu": "תצורת תוספים",
-    "home.pluginConfigurations.empty": "לא נמצאו תצורות תוספים.",
-    "home.pluginConfigurations.loading": "טוען תצורות תוספים...",
-    "home.pluginConfigurations.deleted": "תצורת התוסף {objId} נמחקה בהצלחה",
-    "home.pluginConfigurations.deleteFailed": "מחיקת תצורת התוסף {objId} נכשלה",
-    "home.pluginConfigurations.deleteSelected": "מחק תצורות תוספים שנבחרו ({count})",
-    "home.pluginConfigurations.updated": "תצורת התוסף עודכנה בהצלחה",
-    "home.pluginConfigurations.updateFailed": "עדכון תצורת התוסף נכשל",
-    "home.pluginConfigurations.readOnlyValue": "לא ניתן לערוך ערך זה בבטחה",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

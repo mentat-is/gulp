@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "Usar filtros globales",
     "dashboard.value": "Valor",
     "common.configuration": "Configuración",
-    "home.pluginConfigurations.title": "[ Configuración de plugins ]",
-    "home.pluginConfigurations.menu": "Configuración de plugins",
-    "home.pluginConfigurations.empty": "No se encontraron configuraciones de plugins.",
-    "home.pluginConfigurations.loading": "Cargando configuraciones de plugins...",
-    "home.pluginConfigurations.deleted": "La configuración del plugin {objId} se eliminó correctamente",
-    "home.pluginConfigurations.deleteFailed": "Error al eliminar la configuración del plugin {objId}",
-    "home.pluginConfigurations.deleteSelected": "Eliminar configuraciones de plugins seleccionadas ({count})",
-    "home.pluginConfigurations.updated": "La configuración del plugin se actualizó correctamente",
-    "home.pluginConfigurations.updateFailed": "Error al actualizar la configuración del plugin",
-    "home.pluginConfigurations.readOnlyValue": "Este valor no se puede editar de forma segura",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

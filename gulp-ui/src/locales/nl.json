@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "Globale filters gebruiken",
     "dashboard.value": "Waarde",
     "common.configuration": "Configuratie",
-    "home.pluginConfigurations.title": "[ Pluginconfiguratie ]",
-    "home.pluginConfigurations.menu": "Pluginconfiguratie",
-    "home.pluginConfigurations.empty": "Geen pluginconfiguraties gevonden.",
-    "home.pluginConfigurations.loading": "Pluginconfiguraties laden...",
-    "home.pluginConfigurations.deleted": "Pluginconfiguratie {objId} is succesvol verwijderd",
-    "home.pluginConfigurations.deleteFailed": "Verwijderen van pluginconfiguratie {objId} is mislukt",
-    "home.pluginConfigurations.deleteSelected": "Geselecteerde pluginconfiguraties verwijderen ({count})",
-    "home.pluginConfigurations.updated": "Pluginconfiguratie is succesvol bijgewerkt",
-    "home.pluginConfigurations.updateFailed": "Bijwerken van pluginconfiguratie is mislukt",
-    "home.pluginConfigurations.readOnlyValue": "Deze waarde kan niet veilig worden bewerkt",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

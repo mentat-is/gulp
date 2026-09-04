@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "Folosește filtre globale",
     "dashboard.value": "Valoare",
     "common.configuration": "Configurare",
-    "home.pluginConfigurations.title": "[ Configurare plugin ]",
-    "home.pluginConfigurations.menu": "Configurare plugin",
-    "home.pluginConfigurations.empty": "Nu s-au găsit configurări de plugin.",
-    "home.pluginConfigurations.loading": "Se încarcă configurările pluginurilor...",
-    "home.pluginConfigurations.deleted": "Configurarea pluginului {objId} a fost ștearsă cu succes",
-    "home.pluginConfigurations.deleteFailed": "Nu s-a putut șterge configurarea pluginului {objId}",
-    "home.pluginConfigurations.deleteSelected": "Ștergeți configurările de plugin selectate ({count})",
-    "home.pluginConfigurations.updated": "Configurarea pluginului a fost actualizată cu succes",
-    "home.pluginConfigurations.updateFailed": "Nu s-a putut actualiza configurarea pluginului",
-    "home.pluginConfigurations.readOnlyValue": "Această valoare nu poate fi editată în siguranță",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

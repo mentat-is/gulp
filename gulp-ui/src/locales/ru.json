@@ -875,16 +875,6 @@
     "dashboard.useGlobalFilters": "Использовать глобальные фильтры",
     "dashboard.value": "Значение",
     "common.configuration": "Конфигурация",
-    "home.pluginConfigurations.title": "[ Конфигурация плагинов ]",
-    "home.pluginConfigurations.menu": "Конфигурация плагинов",
-    "home.pluginConfigurations.empty": "Конфигурации плагинов не найдены.",
-    "home.pluginConfigurations.loading": "Загрузка конфигураций плагинов...",
-    "home.pluginConfigurations.deleted": "Конфигурация плагина {objId} успешно удалена",
-    "home.pluginConfigurations.deleteFailed": "Не удалось удалить конфигурацию плагина {objId}",
-    "home.pluginConfigurations.deleteSelected": "Удалить выбранные конфигурации плагинов ({count})",
-    "home.pluginConfigurations.updated": "Конфигурация плагина успешно обновлена",
-    "home.pluginConfigurations.updateFailed": "Не удалось обновить конфигурацию плагина",
-    "home.pluginConfigurations.readOnlyValue": "Это значение нельзя безопасно редактировать",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }
