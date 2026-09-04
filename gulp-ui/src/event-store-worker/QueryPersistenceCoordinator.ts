@@ -38,6 +38,8 @@ import type {
 	DocumentChunkAcknowledgement,
 	DocumentStreamDescriptor,
 	DocumentStreamFinalization,
+	IngestionDocumentStreamKind,
+	QueryIngestionProgressEvent,
 	QueryRenderWindowDescriptor,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
@@ -117,6 +119,7 @@ interface QueryViewportProjector {
 
 export interface QueryPersistenceCallbacks {
 	onSourceSummary: (event: QuerySourceSummaryEvent) => void;
+	onIngestionProgress: (event: QueryIngestionProgressEvent) => void;
 	onStreamFailure: (event: QueryStreamFailureEvent) => void;
 	onStreamFlushing: (requestId: string) => void;
 	onStreamCompleted: (requestId: string) => void;
@@ -1113,6 +1116,7 @@ export class QueryPersistenceCoordinator {
 					),
 				);
 			}
+			this.publishIngestionProgress(context, sourceIds);
 			if (normalized.chunkLast) context.lastChunkCommitted = true;
 			const completesOnLast =
 				(context.descriptor.completionMode ?? "last") === "last";
@@ -1137,6 +1141,62 @@ export class QueryPersistenceCoordinator {
 				await this.deleteJournalEntry(context, normalized.journalId);
 			}
 		}
+	}
+
+	/**
+	 * Publishes source-exact totals for ingestion streams after one normalized chunk
+	 * has entered its authoritative worker-owned storage path.
+	 * @param context Ingestion stream that accepted the chunk.
+	 * @param sourceIds Sources changed by the accepted chunk.
+	 * @returns Nothing.
+	 */
+	private publishIngestionProgress(
+		context: PersistenceStreamContext,
+		sourceIds: readonly Source.Id[],
+	): void {
+		const kind = context.descriptor.kind ?? "query-upsert";
+		if (kind !== "ingestion-build" && kind !== "realtime-ingest") return;
+
+		const sourceEventCounts: Record<string, number> = {};
+		for (const sourceId of sourceIds) {
+			const eventCount = this.getIngestionSourceEventCount(
+				context,
+				kind,
+				sourceId,
+			);
+			if (eventCount === null) continue;
+			sourceEventCounts[sourceId] = eventCount;
+		}
+		if (Object.keys(sourceEventCounts).length === 0) return;
+
+		this.callbacks.onIngestionProgress({
+			requestId: context.descriptor.requestId,
+			operationId: context.descriptor.operationId,
+			operationEpoch: context.descriptor.operationEpoch,
+			kind,
+			sourceEventCounts,
+		});
+	}
+
+	/**
+	 * Resolves the current source total without flushing a partial ingestion page.
+	 * @param context Stream that owns source persistence state.
+	 * @param kind Ingestion persistence strategy.
+	 * @param sourceId Source whose accepted total is requested.
+	 * @returns Current source total, or null when authority is unavailable.
+	 */
+	private getIngestionSourceEventCount(
+		context: PersistenceStreamContext,
+		kind: IngestionDocumentStreamKind,
+		sourceId: Source.Id,
+	): number | null {
+		if (kind === "ingestion-build") {
+			const source = context.pageBuilderSources.get(sourceId);
+			if (!source) return null;
+			return source.nextHandle - 1 + source.pendingDocuments.length;
+		}
+
+		return context.operation.manifests.get(sourceId)?.eventCount ?? null;
 	}
 
 	/**

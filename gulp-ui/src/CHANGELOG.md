@@ -13,6 +13,13 @@
   sources hidden from the Canvas.
 - `Cache freshness`: Added localized query summaries and freshness reasons to the source menu. A shared DOM `AlertTriangle` with a cache-origin tooltip now marks only the exact source ID owning a settled active warning; same-name sources, valid caches, and newly fetched backend results remain unmarked.
 - `Frame-local counts`: Canvas source labels now show the exact event count inside the selected timeframe even when the active IndexedDB generation covers a wider range.
+- `External query ingestion`: Opened live source selection when an external
+  ingestion is accepted and made closing it return to the configured Query
+  External banner.
+- `Live ingestion source counts`: Added compact cumulative QueryWorker progress
+  for file, external-query, and registered realtime ingestion so source badges
+  advance for partial EventStore pages without transferring documents to the
+  main thread; query, refetch, and enrichment streams remain excluded.
 
 ## Architecture and Documentation
 
@@ -29,6 +36,10 @@
 - `IndexedDB`: Added `source_query_caches`, logical `authorityRevision`, bounded resumable pruning, QueryWorker cache commands, detached-window synchronization, and updated EventStore architecture documentation.
 - `IndexedDB identity`: Namespaced EventStore databases, revision channels, and writer locks by canonical backend plus authenticated user so caches survive browser restarts; retained tab-scoped WindowBridge coordination and isolated auth-user transitions.
 - `Render protocol v9`: Added `frameEventCount`, kept `loadedCount` as terminal authority, and removed obsolete cache-freshness metadata from the render-worker contract.
+- `External query lifecycle`: Treated `ext_query` statistics as ingestion
+  completion fences so provisional EventStore sources finalize, leave loading
+  state, and remain renderable and refetchable without using `query_done` as a
+  storage fence.
 
 # v1.7.400
 

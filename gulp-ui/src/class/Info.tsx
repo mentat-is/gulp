@@ -91,6 +91,7 @@ import type {
 	DocumentStreamFinalization,
 	DocumentStreamStateChange,
 	DocumentStreamSourceSettings,
+	QueryIngestionProgressEvent,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 	QueryStreamFailureReason,
@@ -424,6 +425,11 @@ export interface EventDocumentStreamOptions {
 	expectedEvents?: number;
 	queryCache?: QueryCacheProvenance;
 	queryRollback?: SourceQueryRollback;
+}
+
+export interface QueryExternalLifecycleOptions {
+	/** Called once after the backend accepts a non-preview external ingestion. */
+	onIngestionStarted?: (requestId: Request.Id) => void;
 }
 
 interface QueryGulpRequestBody {
@@ -1448,6 +1454,14 @@ export class Info implements InfoProps {
 				this.setInfoByKey(files, "target", "files");
 			}
 		}
+		if (
+			change.descriptor.kind === "ingestion-build" ||
+			change.descriptor.kind === "realtime-ingest"
+		) {
+			for (const sourceId of options?.sourceIds ?? []) {
+				this.ingestionProgress.delete(sourceId);
+			}
+		}
 		this.activeEventDocumentStreams.delete(requestId);
 		this.eventDocumentStreamOptions.delete(requestId);
 		this.releaseEventDocumentStream(requestId);
@@ -1555,6 +1569,11 @@ export class Info implements InfoProps {
 		}
 
 		if (this.activeQueryStreams.has(requestId)) {
+			if (options?.kind === "realtime") {
+				for (const sourceId of options.sourceIds) {
+					this.ingestionProgress.delete(sourceId);
+				}
+			}
 			void this.closeQueryStream(requestId, {
 				managedStatus: "canceled",
 			});
@@ -1564,6 +1583,45 @@ export class Info implements InfoProps {
 			this.delLoadingByFile(sourceId);
 		}
 		this.delLoading(requestId);
+	};
+
+	/**
+	 * Records compact source-exact totals only for worker-owned ingestion streams.
+	 * Query, replacement, and enrichment streams cannot mutate this progress map.
+	 * @param event Cumulative per-source totals emitted after an ingestion chunk is accepted.
+	 * @returns Nothing.
+	 */
+	handleEventIngestionProgress = (
+		event: QueryIngestionProgressEvent,
+	): void => {
+		if (
+			!this.isOperationContextCurrent(
+				event.operationEpoch,
+				event.operationId as Operation.Id,
+			)
+		) {
+			return;
+		}
+
+		const requestId = event.requestId as Request.Id;
+		const options = this.eventDocumentStreamOptions.get(requestId);
+		const expectedKind =
+			event.kind === "ingestion-build" ? "ingestion" : "realtime";
+		if (!options || options.kind !== expectedKind) return;
+
+		for (const [rawSourceId, eventCount] of Object.entries(
+			event.sourceEventCounts,
+		)) {
+			if (!Number.isSafeInteger(eventCount) || eventCount < 0) continue;
+			const sourceId = rawSourceId as Source.Id;
+			if (!options.sourceIds.includes(sourceId)) {
+				options.sourceIds.push(sourceId);
+			}
+			this.ingestionProgress.set(
+				sourceId,
+				Math.max(this.ingestionProgress.get(sourceId) ?? 0, eventCount),
+			);
+		}
 	};
 
 	/**
@@ -2918,7 +2976,7 @@ export class Info implements InfoProps {
 			SmartSocket.Message.Type.STATS_UPDATE,
 			(m) =>
 				this._is_ingest_message_for_operation(m, operationId) &&
-				m.payload?.obj?.req_type === "ingest" &&
+				isIngestionRequest(m.payload?.obj) &&
 				m.payload?.obj?.status === "done",
 			(m) => {
 				if (m.req_id) {
@@ -4741,23 +4799,92 @@ export class Info implements InfoProps {
 	 * Registers streaming event listeners for real-time document ingestion.
 	 * [Tech-Note] Uses promise-chaining to ensure ordered event insertion.
 	 * @param id Ingestion request identifier.
-	 * @param sidSource Source-creation listener identifier.
 	 * @param operationId Operation that owns the ingestion.
 	 * @param operationEpoch Datastore generation captured when ingestion started.
+	 * @param filename Optional uploaded filename used to correlate source creation.
 	 * @returns Idempotent listener cleanup.
 	 */
 	private _register_streaming_listeners = (
 		id: Request.Id,
-		sidSource: string,
 		operationId: Operation.Id,
 		operationEpoch: number,
+		filename?: string,
 	): (() => void) => {
 		const bufferedEvents: Doc.Type[] = [];
-		let accumulatedCount = 0;
+		const sourceIds = new Set<Source.Id>();
+		const toastedSources = new Set<Source.Id>();
 		let lastFlushTime = 0;
 		let flushChain: Promise<void> = Promise.resolve();
 		const FLUSH_INTERVAL_MS = 300;
 		let releaseSocketListeners = (): void => undefined;
+
+		const sidSource = this._register_source_listeners(
+			id,
+			operationId,
+			operationEpoch,
+			filename,
+			(sourceId) => sourceIds.add(sourceId),
+		);
+		const clearKnownSources = (): void => {
+			for (const sourceId of sourceIds) {
+				this.ingestionProgress.delete(sourceId);
+				this.delLoadingByFile(sourceId);
+			}
+			this.delLoading(id);
+		};
+		const finalizeKnownSources = (): void => {
+			if (!this.isOperationContextCurrent(operationEpoch, operationId)) return;
+
+			const sourceEvents = new Map<Source.Id, Doc.Type[]>();
+			for (const sourceId of sourceIds) {
+				sourceEvents.set(sourceId, Source.Entity.events(this.app, sourceId));
+			}
+
+			this.batchUpdate((draft) => {
+				const files = Refractor.array(...draft.target.files);
+				for (const [sourceId, events] of sourceEvents) {
+					const index = files.findIndex((candidate) => candidate.id === sourceId);
+					const file = files[index];
+					if (index === -1 || !file) continue;
+
+					const timestamp =
+						events.length > 0
+							? {
+									min: events[events.length - 1].gulp_timestamp,
+									max: events[0].gulp_timestamp,
+								}
+							: { min: Date.now(), max: Date.now() };
+					files[index] = Source.Entity.normalize(draft, {
+						...file,
+						timestamp,
+						nanotimestamp: {
+							min: Internal.Transformator.toNanos(timestamp.min),
+							max: Internal.Transformator.toNanos(timestamp.max),
+						},
+						total: events.length,
+						selected: true,
+					});
+				}
+				draft.target.files = files;
+				draft.timeline.frame = Source.Entity.renderedFrame(files);
+			});
+
+			for (const [sourceId, events] of sourceEvents) {
+				this.ingestionProgress.delete(sourceId);
+				this.delLoadingByFile(sourceId);
+				const file = Source.Entity.id(this.app, sourceId);
+				if (!file || toastedSources.has(sourceId)) continue;
+				toastedSources.add(sourceId);
+				toast.success(translate("source.ingested", { name: file.name }), {
+					description: translate("source.totalDocuments", {
+						count: events.length,
+					}),
+					richColors: true,
+					icon: <Icon name="Check" />,
+				});
+			}
+			this.delLoading(id);
+		};
 
 		const sid = SmartSocket.Class.instance.con(
 			SmartSocket.Message.Type.DOCUMENTS_CHUNK,
@@ -4766,23 +4893,25 @@ export class Info implements InfoProps {
 				this.isOperationContextCurrent(operationEpoch, operationId),
 			(m) => {
 				if (!this.isOperationContextCurrent(operationEpoch, operationId)) return;
-				const fileId = ((m.payload.docs as any)[0]?.["gulp.source_id"] ||
-					(m.payload as any).source_id ||
-					(m.payload as any).gulp_source_id) as Source.Id;
-				if (!fileId) return;
-
 				const events = Doc.Entity.normalize(
 					m.payload.docs || [],
 					"gulp.event_code",
 					"fnv1a",
 				);
 				bufferedEvents.push(...events);
-				accumulatedCount += events.length;
-
-				this.ingestionProgress.set(
-					fileId,
-					(this.ingestionProgress.get(fileId) || 0) + events.length,
-				);
+				const chunkCounts = new Map<Source.Id, number>();
+				for (const event of events) {
+					const sourceId = event["gulp.source_id"] as Source.Id | undefined;
+					if (!sourceId) continue;
+					sourceIds.add(sourceId);
+					chunkCounts.set(sourceId, (chunkCounts.get(sourceId) ?? 0) + 1);
+				}
+				for (const [sourceId, count] of chunkCounts) {
+					this.ingestionProgress.set(
+						sourceId,
+						(this.ingestionProgress.get(sourceId) ?? 0) + count,
+					);
+				}
 
 				if (
 					(Date.now() - lastFlushTime >= FLUSH_INTERVAL_MS || m.payload.last) &&
@@ -4797,62 +4926,6 @@ export class Info implements InfoProps {
 						await this.events_add_async(toFlush, operationEpoch);
 					});
 				}
-
-				if (m.payload.last) {
-					flushChain.then(() => {
-						if (!this.isOperationContextCurrent(operationEpoch, operationId)) {
-							return;
-						}
-						const finalFileId = fileId;
-						const all = Source.Entity.events(this.app, finalFileId);
-
-						this.ingestionProgress.delete(finalFileId);
-						this.batchUpdate((draft) => {
-							const files = Refractor.array(...draft.target.files);
-							const exist = files.findIndex((f) => f.id === finalFileId);
-							const file = files[exist];
-
-							if (exist !== -1 && file) {
-								const timestamp =
-									all.length > 0
-										? {
-												min: all[all.length - 1].gulp_timestamp,
-												max: all[0].gulp_timestamp,
-											}
-										: { min: Date.now(), max: Date.now() };
-
-								files[exist] = Source.Entity.normalize(draft, {
-									...file,
-									timestamp,
-									nanotimestamp: {
-										min: Internal.Transformator.toNanos(timestamp.min),
-										max: Internal.Transformator.toNanos(timestamp.max),
-									},
-									total: all.length,
-									selected: true,
-								});
-								draft.target.files = files;
-
-								draft.timeline.frame = Source.Entity.renderedFrame(files);
-							}
-						});
-						this.delLoadingByFile(finalFileId);
-
-						const finalFile = Source.Entity.id(this.app, finalFileId);
-						if (finalFile) {
-							toast.success(
-								translate("source.ingested", { name: finalFile.name }),
-								{
-									description: translate("source.totalDocuments", {
-										count: all.length,
-									}),
-									richColors: true,
-									icon: <Icon name="Check" />,
-								},
-							);
-						}
-					});
-				}
 			},
 		);
 
@@ -4860,15 +4933,34 @@ export class Info implements InfoProps {
 			SmartSocket.Message.Type.STATS_UPDATE,
 			(m) =>
 				m.req_id === id &&
-				m.payload?.obj?.req_type === "ingest" &&
-				m.payload?.obj?.status === "done" &&
+				isIngestionRequest(m.payload?.obj) &&
+				[
+					Request.Status.DONE,
+					Request.Status.FAILED,
+					Request.Status.CANCELED,
+				].includes(m.payload?.obj?.status) &&
 				this.isOperationContextCurrent(operationEpoch, operationId),
-			() => {
-				if (this.isOperationContextCurrent(operationEpoch, operationId)) {
-					this.delLoading(id);
-				}
-				void this.completeEventDocumentStream(id);
-				releaseSocketListeners();
+			(m) => {
+				const completed = m.payload.obj.status === Request.Status.DONE;
+				void flushChain
+					.then(async () => {
+						if (completed) {
+							finalizeKnownSources();
+							await this.completeEventDocumentStream(id);
+							return;
+						}
+						clearKnownSources();
+						await this.cancelEventDocumentStream(id);
+					})
+					.catch((error: unknown) => {
+						clearKnownSources();
+						Logger.warn(
+							`Unable to finalize ingestion stream ${id}: ${(error as Error).message}`,
+							Info,
+						);
+						void this.cancelEventDocumentStream(id);
+					})
+					.finally(releaseSocketListeners);
 			},
 		);
 		releaseSocketListeners = this.trackOperationSocketCleanup(() => {
@@ -4998,8 +5090,13 @@ export class Info implements InfoProps {
 				);
 			}
 		};
+		const trackedSourceIds = (): Set<Source.Id> =>
+			new Set([
+				...sourceIds,
+				...(this.eventDocumentStreamOptions.get(id)?.sourceIds ?? []),
+			]);
 		const finalizeKnownSources = (): void => {
-			for (const sourceId of sourceIds) finalizeSource(sourceId);
+			for (const sourceId of trackedSourceIds()) finalizeSource(sourceId);
 		};
 		const releaseWhenTerminal = (): void => {
 			if (
@@ -5012,7 +5109,7 @@ export class Info implements InfoProps {
 		const clearFailedStreamState = (): void => {
 			if (terminalFailure) return;
 			terminalFailure = true;
-			for (const sourceId of sourceIds) {
+			for (const sourceId of trackedSourceIds()) {
 				this.ingestionProgress.delete(sourceId);
 				this.delLoadingByFile(sourceId);
 			}
@@ -5051,7 +5148,13 @@ export class Info implements InfoProps {
 				const sourceId = event.summary.sourceId;
 				sourceIds.add(sourceId);
 				summaries.set(sourceId, event.summary);
-				this.ingestionProgress.set(sourceId, event.summary.eventCount);
+				this.ingestionProgress.set(
+					sourceId,
+					Math.max(
+						this.ingestionProgress.get(sourceId) ?? 0,
+						event.summary.eventCount,
+					),
+				);
 				if (documentsComplete) finalizeSource(sourceId);
 			});
 		const unsubscribeStates =
@@ -5091,7 +5194,7 @@ export class Info implements InfoProps {
 			SmartSocket.Message.Type.STATS_UPDATE,
 			(message) =>
 				message.req_id === id &&
-				message.payload?.obj?.req_type === "ingest" &&
+				isIngestionRequest(message.payload?.obj) &&
 				[
 					Request.Status.DONE,
 					Request.Status.FAILED,
@@ -5106,7 +5209,7 @@ export class Info implements InfoProps {
 				statsComplete = true;
 				this.delLoading(id);
 				if (cacheCaptureFailed) {
-					for (const sourceId of sourceIds) {
+					for (const sourceId of trackedSourceIds()) {
 						this.ingestionProgress.delete(sourceId);
 						this.delLoadingByFile(sourceId);
 					}
@@ -5119,7 +5222,7 @@ export class Info implements InfoProps {
 					releaseWhenTerminal();
 					return;
 				}
-				for (const sourceId of sourceIds) {
+				for (const sourceId of trackedSourceIds()) {
 					const source = Source.Entity.id(this.app, sourceId);
 					if (!source) continue;
 					try {
@@ -5231,17 +5334,11 @@ export class Info implements InfoProps {
 					file.name,
 				);
 		} else {
-			const sidSource = this._register_source_listeners(
+			releaseStreamingListeners = this._register_streaming_listeners(
 				id,
 				operation.id,
 				operationEpoch,
 				file.name,
-			);
-			releaseStreamingListeners = this._register_streaming_listeners(
-				id,
-				sidSource,
-				operation.id,
-				operationEpoch,
 			);
 		}
 
@@ -7616,12 +7713,23 @@ export class Info implements InfoProps {
 	decreasedTimelineScale = () =>
 		this.app.timeline.scale - this.app.timeline.scale / 8;
 
+	/**
+	 * Executes an external query as either a synchronous preview or a streamed ingestion.
+	 * @param plugin External-query plugin filename.
+	 * @param plugin_params Plugin and custom parameters sent to the backend.
+	 * @param preview_mode Whether to return preview documents without ingesting them.
+	 * @param q Query payload in the external source language.
+	 * @param q_options Additional external-query options.
+	 * @param lifecycle Optional callbacks for the accepted ingestion lifecycle.
+	 * @returns Preview data, or null after a streamed ingestion reaches its terminal state.
+	 */
 	query_external = async (
 		plugin: string,
 		plugin_params?: Record<string, any>,
 		preview_mode = false,
 		q?: string,
 		q_options?: Record<string, any>,
+		lifecycle?: QueryExternalLifecycleOptions,
 	): Promise<{
 		total_hits: number;
 		docs: Doc.Type[];
@@ -7637,6 +7745,7 @@ export class Info implements InfoProps {
 		let terminalPromise: Promise<null> | null = null;
 		const persistDocuments = !preview_mode && isEventStoreLodEnabled();
 		if (!preview_mode) {
+			this._register_ingest_source_done_listeners(operation.id);
 			const registered = await this.beginEventDocumentStream({
 				requestId,
 				sourceIds: [],
@@ -7659,14 +7768,8 @@ export class Info implements InfoProps {
 						operationEpoch,
 					);
 			} else {
-				const sidSource = this._register_source_listeners(
-					requestId,
-					operation.id,
-					operationEpoch,
-				);
 				releaseStreamingListeners = this._register_streaming_listeners(
 					requestId,
-					sidSource,
 					operation.id,
 					operationEpoch,
 				);
@@ -7780,6 +7883,16 @@ export class Info implements InfoProps {
 			releaseStreamingListeners();
 			await this.cancelEventDocumentStream(requestId);
 			return null;
+		}
+		if (!preview_mode) {
+			try {
+				lifecycle?.onIngestionStarted?.(requestId);
+			} catch (error) {
+				Logger.warn(
+					`External ingestion start callback failed for ${requestId}: ${(error as Error).message}`,
+					Info,
+				);
+			}
 		}
 		return terminalPromise;
 	};

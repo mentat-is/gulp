@@ -9,9 +9,11 @@ import type { RequestLoadingState } from "@/store/request.store";
 
 const operationSourceId = "source-ingestion-resync" as Source.Id;
 const secondSourceId = "source-raw-ingestion-resync" as Source.Id;
+const externalQuerySourceId = "source-external-query-resync" as Source.Id;
 const querySourceId = "source-query-resync" as Source.Id;
 const ingestionRequestId = "ingestion-resync" as Request.Id;
 const rawIngestionRequestId = "raw-ingestion-resync" as Request.Id;
+const externalQueryRequestId = "external-query-resync" as Request.Id;
 const queryRequestId = "query-resync" as Request.Id;
 
 /**
@@ -60,14 +62,15 @@ function createLoadings(
 }
 
 describe("ingestion resynchronization", () => {
-	it("identifies standard and raw ingestion request statistics", () => {
+	it("identifies every request type that persists ingestion events", () => {
 		expect(isIngestionRequest({ req_type: "ingest" })).toBe(true);
 		expect(isIngestionRequest({ req_type: "raw_ingest" })).toBe(true);
+		expect(isIngestionRequest({ req_type: "ext_query" })).toBe(true);
 		expect(isIngestionRequest({ req_type: "query" })).toBe(false);
 		expect(isIngestionRequest({ req_type: undefined })).toBe(false);
 	});
 
-	it("collects only ongoing ingestion and raw-ingestion sources", () => {
+	it("collects sources from every ongoing ingestion request", () => {
 		const recovered = collectIngestionResyncLoadings([
 			createRequest(
 				ingestionRequestId,
@@ -80,6 +83,12 @@ describe("ingestion resynchronization", () => {
 				"raw_ingest",
 				Request.Status.ONGOING,
 				[secondSourceId],
+			),
+			createRequest(
+				externalQueryRequestId,
+				"ext_query",
+				Request.Status.ONGOING,
+				[externalQuerySourceId],
 			),
 			createRequest(
 				queryRequestId,
@@ -98,6 +107,7 @@ describe("ingestion resynchronization", () => {
 		expect(Array.from(recovered.entries())).toEqual([
 			[operationSourceId, ingestionRequestId],
 			[secondSourceId, rawIngestionRequestId],
+			[externalQuerySourceId, externalQueryRequestId],
 		]);
 	});
 

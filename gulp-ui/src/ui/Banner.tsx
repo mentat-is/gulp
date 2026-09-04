@@ -1,6 +1,6 @@
 import { ReactNode, useContext, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Application } from '../context/Application.context'
+import { Application } from '@/context/Application.context'
 import s from './styles/Banner.module.css'
 import { cn } from '@/ui/utils'
 import { Stack } from './Stack'
@@ -40,10 +40,13 @@ export function Banner({
   const { destroyBanner, currentDocument } = ctx
   const [isExpanded, setIsExpanded] = useState<boolean>(false)
 
-  const close = () => {
-    if (onClose) onClose()
-
+  /**
+   * Removes the current banner before invoking an optional follow-up transition.
+   * @returns Nothing.
+   */
+  const close = (): void => {
     destroyBanner()
+    onClose?.()
   }
 
   useEffect(() => {

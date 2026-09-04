@@ -4,6 +4,7 @@ import type {
 	QuerySocketErrorDetails,
 	QuerySocketMessage,
 	QuerySocketState,
+	QueryIngestionProgressEvent,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 	QueryWorkerCommand,
@@ -113,6 +114,7 @@ describe("QueryWorkerClient", () => {
 		const forwarded: QuerySocketMessage[] = [];
 		const streamChanges: DocumentStreamStateChange[] = [];
 		const sourceSummaries: QuerySourceSummaryEvent[] = [];
+		const ingestionProgress: QueryIngestionProgressEvent[] = [];
 		const streamFailures: QueryStreamFailureEvent[] = [];
 		const protocolErrors: QuerySocketErrorDetails[] = [];
 		let socketOpenCount = 0;
@@ -126,6 +128,7 @@ describe("QueryWorkerClient", () => {
 			onForwardMessage: (message) => forwarded.push(message),
 			onStreamStateChange: (change) => streamChanges.push(change),
 			onSourceSummary: (event) => sourceSummaries.push(event),
+			onIngestionProgress: (event) => ingestionProgress.push(event),
 			onStreamFailure: (event) => streamFailures.push(event),
 			onProtocolError: (details) => protocolErrors.push(details),
 		};
@@ -185,6 +188,14 @@ describe("QueryWorkerClient", () => {
 			summary: createSourceSummary(),
 		};
 		worker.emitWorkerEvent({ type: "SOURCE_SUMMARY", event: sourceSummary });
+		const sourceProgress: QueryIngestionProgressEvent = {
+			requestId: "worker-request",
+			operationId: "operation-one",
+			operationEpoch: 7,
+			kind: "ingestion-build",
+			sourceEventCounts: { [SOURCE_ONE]: 750 },
+		};
+		worker.emitWorkerEvent({ type: "INGESTION_PROGRESS", event: sourceProgress });
 		const streamFailure: QueryStreamFailureEvent = {
 			requestId: "another-request",
 			operationId: "operation-one",
@@ -325,6 +336,7 @@ describe("QueryWorkerClient", () => {
 		expect(socketCloses).toHaveLength(0);
 		expect(socketErrors).toHaveLength(0);
 		expect(sourceSummaries).toEqual([sourceSummary]);
+		expect(ingestionProgress).toEqual([sourceProgress]);
 		expect(streamFailures).toEqual([streamFailure]);
 		expect(streamChanges).toHaveLength(0);
 		expect(protocolErrors).toHaveLength(0);
@@ -348,6 +360,7 @@ describe("QueryWorkerClient", () => {
 				onForwardMessage: () => undefined,
 				onStreamStateChange: () => undefined,
 				onSourceSummary: () => undefined,
+				onIngestionProgress: () => undefined,
 				onStreamFailure: () => undefined,
 				onProtocolError: () => undefined,
 			},
@@ -471,6 +484,7 @@ describe("QueryWorkerClient", () => {
 				onForwardMessage: () => undefined,
 				onStreamStateChange: () => undefined,
 				onSourceSummary: () => undefined,
+				onIngestionProgress: () => undefined,
 				onStreamFailure: () => undefined,
 				onProtocolError: (details) => protocolErrors.push(details),
 			},

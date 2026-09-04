@@ -221,6 +221,7 @@ async function runReplay(options: RendererQueryReplayStartOptions): Promise<void
 			latestSummary = event;
 			postEvent({ type: "SOURCE_SUMMARY", event });
 		},
+		onIngestionProgress: () => undefined,
 		onStreamFailure: (event) => {
 			failure = event;
 			settleTerminal();

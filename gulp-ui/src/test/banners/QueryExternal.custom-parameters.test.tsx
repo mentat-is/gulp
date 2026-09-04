@@ -112,4 +112,14 @@ describe("QueryExternal custom parameter integration", () => {
 		expect(QueryExternal.isSubmissionDisabled(externalPlugin, false)).toBe(true);
 		expect(QueryExternal.isSubmissionDisabled(externalPlugin, true)).toBe(false);
 	});
+
+	it("serializes restored object queries without changing existing strings", () => {
+		const query = { query: { match_all: {} } };
+		expect(QueryExternal.restoredQueryText(query)).toBe(
+			JSON.stringify(query, null, 2),
+		);
+		expect(QueryExternal.restoredQueryText("{\"query\":{}}")).toBe(
+			"{\"query\":{}}",
+		);
+	});
 });

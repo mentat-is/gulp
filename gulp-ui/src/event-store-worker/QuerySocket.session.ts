@@ -102,6 +102,7 @@ export class QuerySocketSession {
 			initialization.cacheNamespaceId,
 			{
 				onSourceSummary: callbacks.onSourceSummary,
+				onIngestionProgress: callbacks.onIngestionProgress,
 				onStreamFailure: (event) => {
 					this.router.fail(event.requestId, event.message);
 					callbacks.onStreamFailure(event);

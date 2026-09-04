@@ -54,7 +54,7 @@ flowchart LR
     BE -->|docs_chunk WebSocket frames| QW
     QW -->|accepted / durable chunk ACK| BE
     QW -->|cache manifests, binary pages and indexes| IDB[(IndexedDB EventStore)]
-    QW -->|source summaries and status| UI
+    QW -->|source summaries, ingestion progress and status| UI
     UI -->|bounded exact reads| IDB
     DA[Detached application] -->|bounded exact reads| IDB
 ```
@@ -258,6 +258,15 @@ without waiting for query completion. Canvas then requests its first persisted
 LOD window, and later building summaries use the normal coalesced projection
 path while the query continues.
 
+After each accepted `ingestion-build` or `realtime-ingest` chunk, QueryWorker
+also publishes one compact map of cumulative event totals for the sources
+changed by that chunk. For page-builder ingestion the count includes the
+current partial page without committing it early. The main thread applies these
+absolute values monotonically, so file-ingestion request statistics may coexist
+without double counting. Document payloads remain worker-owned, and
+`replace`, `query-upsert`, and `enrichment` streams never emit ingestion
+progress. Committed source summaries remain the durable authority.
+
 If a query or realtime frame would cross either raw-byte boundary, the frame is
 not queued, its `payload.docs` array is cleared synchronously, and that stream
 fails with reason `backlog`. A dispatched query is then canceled. File
@@ -290,14 +299,24 @@ failures on query streams request the explicit compatibility choice described
 above; normalization, backlog, and connection failures remain ordinary query
 stream failures.
 
-File ingestion completes explicitly after backend ingest statistics report
-`done`. At that fence the UI supplies full-source query provenance normalized
-with `gulp.event_code`/`fnv1a`, the worker flushes the last partial page, replaces
-the provisional snapshot with its exact persisted count/range, and atomically
-finalizes the generation as the active query cache. Initial source loading can
-therefore reuse the ingested events without `/query_raw`. Changing the source
-hash field later follows the existing explicit rebuild path. `realtime-ingest`
-is deliberately unchanged and will be addressed with ingest-on-source support.
+File and external-query ingestion share the explicit-completion lifecycle.
+Request types `ingest`, `raw_ingest`, and `ext_query` are classified as
+ingestion requests by the UI. A terminal `done` statistics update is the input
+fence: the UI supplies full-source query provenance normalized with
+`gulp.event_code`/`fnv1a`, and the worker flushes every source's last partial
+page before atomically finalizing each provisional generation as an active
+query cache. Loading and progress state is cleared only after that durable
+transition. Initial source loading can therefore reuse the ingested events
+without `/query_raw`, and the released source lease allows a later Refetch to
+start a normal replacement generation. Changing the source hash field later
+follows the existing explicit rebuild path.
+
+A terminal `failed` or `canceled` statistics update discards the provisional
+generation, releases its source leases, and clears the associated loading and
+progress state. This handling applies to every source discovered in a request,
+including compatibility mode where chunks remain in main-thread memory.
+Registered `realtime-ingest` streams share the compact progress protocol; their
+existing persistence and finalization behavior is otherwise unchanged.
 
 `last` means complete only after all page builders have flushed and the final
 IndexedDB transaction has committed. Other WebSocket messages, including
@@ -308,6 +327,12 @@ For a negotiated single-query request the backend waits for the terminal
 `durable` acknowledgement before publishing `query_done`. Cancellation while a
 producer is waiting is an ordinary canceled result and is not logged as a query
 execution error.
+
+External-query source IDs are discovered from live collaboration and document
+messages. The backend does not currently populate `request.data.sources` for
+`ext_query`, so a page refresh or reconnect during an active external ingestion
+cannot always reconstruct its request-to-source association. This limitation
+does not affect a live session or sources whose ingestion has completed.
 
 ## Operation-scoped EventStore
 

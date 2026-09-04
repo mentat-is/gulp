@@ -444,6 +444,10 @@ function _({ children }: { children: ReactNode }) {
 				}
 				instanceRef.current.handleEventSourceSummary(event);
 			});
+		const unsubscribeIngestionProgress =
+			ws.subscribeIngestionProgress((event) => {
+				instanceRef.current.handleEventIngestionProgress(event);
+			});
 		const subscribeStreamFailures =
 			ws.subscribeDocumentStreamFailures((event) => {
 				instanceRef.current.handleEventDocumentStreamFailure(event);
@@ -455,6 +459,7 @@ function _({ children }: { children: ReactNode }) {
 
 		return () => {
 			unsubscribeSourceSummaries();
+			unsubscribeIngestionProgress();
 			subscribeStreamFailures();
 			subscribeStreamStates();
 			ws.off(

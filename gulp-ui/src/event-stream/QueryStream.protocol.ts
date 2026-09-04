@@ -171,6 +171,22 @@ export interface QuerySourceSummaryEvent {
 	summary: EventSourceSummary;
 }
 
+/** Ingestion kinds whose accepted documents change source event totals. */
+export type IngestionDocumentStreamKind = Extract<
+	DocumentStreamKind,
+	"ingestion-build" | "realtime-ingest"
+>;
+
+/** Compact source-exact progress emitted after one ingestion chunk is accepted. */
+export interface QueryIngestionProgressEvent {
+	requestId: string;
+	operationId: string;
+	operationEpoch: number;
+	kind: IngestionDocumentStreamKind;
+	/** Cumulative source totals after the accepted chunk, keyed by source ID. */
+	sourceEventCounts: Readonly<Record<string, number>>;
+}
+
 /** Persistence failure reasons surfaced to the main-thread stream lifecycle. */
 export type QueryStreamFailureReason =
 	| "backlog"
@@ -406,6 +422,12 @@ export interface QueryWorkerSourceSummaryEvent {
 	event: QuerySourceSummaryEvent;
 }
 
+/** Publishes source-exact ingestion totals without transferring documents. */
+export interface QueryWorkerIngestionProgressEvent {
+	type: "INGESTION_PROGRESS";
+	event: QueryIngestionProgressEvent;
+}
+
 /** Publishes a persistence failure that requires backend cancellation. */
 export interface QueryWorkerStreamFailureEvent {
 	type: "STREAM_FAILURE";
@@ -454,6 +476,7 @@ export type QueryWorkerEvent =
 	| QueryWorkerForwardMessageEvent
 	| QueryWorkerStreamStateEvent
 	| QueryWorkerSourceSummaryEvent
+	| QueryWorkerIngestionProgressEvent
 	| QueryWorkerStreamFailureEvent
 	| QueryWorkerRenderWindowResultEvent
 	| QueryWorkerDiagnosticsResultEvent

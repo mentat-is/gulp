@@ -68,6 +68,7 @@ const callbacks: QueryTransportCallbacks = {
 	onForwardMessage: () => undefined,
 	onStreamStateChange: () => undefined,
 	onSourceSummary: () => undefined,
+	onIngestionProgress: () => undefined,
 	onStreamFailure: () => undefined,
 	onProtocolError: () => undefined,
 };

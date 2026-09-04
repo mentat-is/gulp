@@ -2,20 +2,24 @@ import { Request } from "@/entities/Request";
 import type { Source } from "@/entities/Source";
 import type { RequestLoadingState } from "@/store/request.store";
 
-const INGESTION_REQUEST_TYPES = new Set(["ingest", "raw_ingest"]);
+const INGESTION_REQUEST_TYPES = new Set([
+	"ingest",
+	"raw_ingest",
+	"ext_query",
+]);
 
 export type IngestionResyncLoadings = Map<Source.Id, Request.Id>;
 
 /**
  * Checks whether request statistics describe an ingestion operation.
  * @param request Request statistics received from the API or websocket.
- * @returns True for standard and raw ingestion requests.
+ * @returns True for standard, raw, and external-query ingestion requests.
  */
 export function isIngestionRequest(
-	request: Pick<Request.Type, "req_type">,
+	request: Pick<Request.Type, "req_type"> | null | undefined,
 ): boolean {
 	return Boolean(
-		request.req_type && INGESTION_REQUEST_TYPES.has(request.req_type),
+		request?.req_type && INGESTION_REQUEST_TYPES.has(request.req_type),
 	);
 }
 

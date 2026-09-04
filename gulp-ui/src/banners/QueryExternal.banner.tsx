@@ -103,6 +103,16 @@ export namespace QueryExternal {
 		return !selectedOption || !areCustomParametersValid;
 	}
 
+	/**
+	 * Converts a restored query payload into the editable JSON text representation.
+	 * @param query Query payload or an already serialized query string.
+	 * @returns The serialized query without double-encoding restored string values.
+	 */
+	export function restoredQueryText(query: unknown): string {
+		if (!query) return "";
+		return typeof query === "string" ? query : JSON.stringify(query, null, 2);
+	}
+
 	export namespace Banner {
 		export interface Props extends UIBanner.Props {
 			preselectedOption?: GulpDataset.PluginList.Interface;
@@ -141,13 +151,9 @@ export namespace QueryExternal {
 		);
 		const [areCustomParametersValid, setAreCustomParametersValid] =
 			useState(true);
-		const [q, setQ] = useState<string>(
-			preQ ? JSON.stringify(preQ, null, 2) : "",
-		);
+		const [q, setQ] = useState<string>(restoredQueryText(preQ));
 		const [qOptions, setQOptions] = useState(preQOptions ?? {});
-		const [qText, setQText] = useState(
-			preQ ? JSON.stringify(preQ, null, 2) : "",
-		);
+		const [qText, setQText] = useState(restoredQueryText(preQ));
 		const [qOptionsText, setQOptionsText] = useState(
 			preQOptions && Object.keys(preQOptions).length > 0
 				? JSON.stringify(preQOptions, null, 2)
@@ -183,6 +189,27 @@ export namespace QueryExternal {
 				preview,
 				q,
 				qOptions,
+				preview
+					? undefined
+					: {
+							onIngestionStarted: () => {
+								spawnBanner(
+									<SelectFiles.Banner
+										onClose={() =>
+											spawnBanner(
+												<QueryExternal.Banner
+													preparams={params}
+													preselectedOption={selectedOption}
+													preQ={q}
+													preQOptions={qOptions}
+													{...props}
+												/>,
+											)
+										}
+									/>,
+								);
+							},
+						},
 			)
 				.then((result) => {
 					if (result) {
@@ -212,8 +239,6 @@ export namespace QueryExternal {
 						icon: <Icon name="Check" />,
 						richColors: true,
 					});
-
-					spawnBanner(<SelectFiles.Banner />);
 				})
 				.catch(() => {
 					toast.error(t("queryExternal.failed"), {

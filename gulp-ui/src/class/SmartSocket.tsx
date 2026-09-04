@@ -4,6 +4,7 @@ import type {
 	DocumentStreamFinalization,
 	DocumentStreamStateChange,
 	QueryRenderWindowDescriptor,
+	QueryIngestionProgressEvent,
 	QuerySocketCloseDetails,
 	QuerySocketErrorDetails,
 	QuerySocketMessage,
@@ -97,6 +98,9 @@ export namespace SmartSocket {
 		private readonly sourceSummarySubscribers = new Set<
 			(event: QuerySourceSummaryEvent) => void
 		>();
+		private readonly ingestionProgressSubscribers = new Set<
+			(event: QueryIngestionProgressEvent) => void
+		>();
 		private readonly streamFailureSubscribers = new Set<
 			(event: QueryStreamFailureEvent) => void
 		>();
@@ -154,6 +158,8 @@ export namespace SmartSocket {
 					onStreamStateChange: (change) =>
 						this.publishStreamState(change),
 					onSourceSummary: (event) => this.publishSourceSummary(event),
+					onIngestionProgress: (event) =>
+						this.publishIngestionProgress(event),
 					onStreamFailure: (event) => this.publishStreamFailure(event),
 					onProtocolError: (details) => this.handleProtocolError(details),
 				},
@@ -216,6 +222,17 @@ export namespace SmartSocket {
 		 */
 		private publishSourceSummary(event: QuerySourceSummaryEvent): void {
 			for (const subscriber of this.sourceSummarySubscribers) subscriber(event);
+		}
+
+		/**
+		 * Publishes source-exact ingestion totals without exposing document payloads.
+		 * @param event Request-scoped cumulative counts produced by QueryWorker.
+		 * @returns Nothing.
+		 */
+		private publishIngestionProgress(event: QueryIngestionProgressEvent): void {
+			for (const subscriber of this.ingestionProgressSubscribers) {
+				subscriber(event);
+			}
 		}
 
 		/**
@@ -546,6 +563,18 @@ export namespace SmartSocket {
 		}
 
 		/**
+		 * Subscribes to source-exact progress from worker-owned ingestion streams.
+		 * @param subscriber Handler receiving compact cumulative source counts.
+		 * @returns Cleanup callback removing the subscription.
+		 */
+		public subscribeIngestionProgress(
+			subscriber: (event: QueryIngestionProgressEvent) => void,
+		): () => void {
+			this.ingestionProgressSubscribers.add(subscriber);
+			return () => this.ingestionProgressSubscribers.delete(subscriber);
+		}
+
+		/**
 		 * Subscribes to persistence failures requiring backend request cancellation.
 		 * @param subscriber Stream failure handler.
 		 * @returns Cleanup callback removing the subscription.
@@ -601,6 +630,7 @@ export namespace SmartSocket {
 			this.transport.destroy();
 			this.conditional.clear();
 			this.sourceSummarySubscribers.clear();
+			this.ingestionProgressSubscribers.clear();
 			this.streamFailureSubscribers.clear();
 			this.streamStateSubscribers.clear();
 			this.removeAllListeners();

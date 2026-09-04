@@ -6,8 +6,11 @@ import type { Query } from "@/entities/Query";
 import { Request } from "@/entities/Request";
 import type { Source } from "@/entities/Source";
 import type {
+	DocumentStreamFinalization,
 	DocumentStreamDescriptor,
 	DocumentStreamStateChange,
+	QueryIngestionProgressEvent,
+	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 	QueryStreamFailureReason,
 } from "@/event-stream";
@@ -89,6 +92,9 @@ jest.mock("@/class/SmartSocket", () => ({
 		},
 		Message: {
 			Type: {
+				STATS_UPDATE: "stats_update",
+				COLLAB_CREATE: "collab_create",
+				DOCUMENTS_CHUNK: "docs_chunk",
 				INGEST_SOURCE_DONE: "ingest_source_done",
 			},
 		},
@@ -97,7 +103,9 @@ jest.mock("@/class/SmartSocket", () => ({
 
 jest.mock("@/entities/Source", () => ({
 	Source: {
-		Entity: {},
+		Entity: {
+			id: jest.fn(() => undefined),
+		},
 	},
 }));
 
@@ -149,6 +157,7 @@ const operationId = "operation-resync-lifecycle" as Operation.Id;
 const ingestionRequestId = "ingestion-resync-lifecycle" as Request.Id;
 const queryRequestId = "query-resync-lifecycle" as Request.Id;
 const sourceId = "source-resync-lifecycle" as Source.Id;
+const secondarySourceId = "source-resync-lifecycle-secondary" as Source.Id;
 
 type EventStreamSocket = Pick<
 	SmartSocket.Class,
@@ -156,6 +165,221 @@ type EventStreamSocket = Pick<
 	| "cancelDocumentStream"
 	| "completeDocumentStream"
 >;
+
+interface ConditionalSocketListener {
+	id: string;
+	event: string;
+	condition: (message: SmartSocket.Message.Entity) => boolean;
+	handler: (message: SmartSocket.Message.Entity) => void;
+	once: boolean;
+}
+
+interface IngestionLifecycleSocketHarness {
+	socket: EventStreamSocket;
+	completeDocumentStream: EventStreamSocket["completeDocumentStream"] & {
+		mock: {
+			calls: Array<[string, DocumentStreamFinalization?]>;
+		};
+	};
+	cancelDocumentStream: EventStreamSocket["cancelDocumentStream"] & {
+		mock: { calls: Array<[string]> };
+	};
+	emitMessage: (event: string, message: SmartSocket.Message.Entity) => void;
+	emitSourceSummary: (event: QuerySourceSummaryEvent) => void;
+	emitStreamState: (change: DocumentStreamStateChange) => void;
+	listenerCount: (event: string) => number;
+	subscriptionCount: () => number;
+}
+
+/**
+ * Creates an in-memory SmartSocket surface for ingestion lifecycle listeners.
+ * @returns Socket mock plus helpers for dispatching websocket and worker events.
+ */
+function createIngestionLifecycleSocketHarness(): IngestionLifecycleSocketHarness {
+	const listeners: ConditionalSocketListener[] = [];
+	const sourceSummarySubscribers = new Set<
+		(event: QuerySourceSummaryEvent) => void
+	>();
+	const streamStateSubscribers = new Set<
+		(change: DocumentStreamStateChange) => void
+	>();
+	let listenerSequence = 0;
+	const completeDocumentStream = jest.fn(
+		(
+			_requestId: string,
+			_finalization?: DocumentStreamFinalization,
+		): Promise<void> => Promise.resolve(),
+	);
+	const cancelDocumentStream = jest.fn(
+		(_requestId: string): Promise<void> => Promise.resolve(),
+	);
+	const registerListener = (
+		event: SmartSocket.Message.Type,
+		condition: (message: SmartSocket.Message.Entity) => boolean,
+		handler: (message: SmartSocket.Message.Entity) => void,
+		once: boolean,
+	): string => {
+		const id = `ingestion-listener-${++listenerSequence}`;
+		listeners.push({ id, event, condition, handler, once });
+		return id;
+	};
+	const socket = {
+		registerDocumentStream: jest.fn(
+			(_descriptor: DocumentStreamDescriptor): Promise<void> => Promise.resolve(),
+		),
+		cancelDocumentStream,
+		completeDocumentStream,
+		con: (
+			event: SmartSocket.Message.Type,
+			condition: (message: SmartSocket.Message.Entity) => boolean,
+			handler: (message: SmartSocket.Message.Entity) => void,
+		): string => registerListener(event, condition, handler, false),
+		conce: (
+			event: SmartSocket.Message.Type,
+			condition: (message: SmartSocket.Message.Entity) => boolean,
+			handler: (message: SmartSocket.Message.Entity) => void,
+		): string => registerListener(event, condition, handler, true),
+		coff: (event: SmartSocket.Message.Type, listenerId: string): void => {
+			const index = listeners.findIndex(
+				(listener) => listener.event === event && listener.id === listenerId,
+			);
+			if (index >= 0) listeners.splice(index, 1);
+		},
+		subscribeSourceSummaries: (
+			subscriber: (event: QuerySourceSummaryEvent) => void,
+		): (() => void) => {
+			sourceSummarySubscribers.add(subscriber);
+			return () => sourceSummarySubscribers.delete(subscriber);
+		},
+		subscribeDocumentStreamStates: (
+			subscriber: (change: DocumentStreamStateChange) => void,
+		): (() => void) => {
+			streamStateSubscribers.add(subscriber);
+			return () => streamStateSubscribers.delete(subscriber);
+		},
+	};
+
+	return {
+		socket: socket as unknown as EventStreamSocket,
+		completeDocumentStream,
+		cancelDocumentStream,
+		emitMessage: (event, message) => {
+			for (const listener of [...listeners]) {
+				if (listener.event !== event || !listener.condition(message)) continue;
+				if (listener.once) {
+					const index = listeners.findIndex(
+						(candidate) => candidate.id === listener.id,
+					);
+					if (index >= 0) listeners.splice(index, 1);
+				}
+				listener.handler(message);
+			}
+		},
+		emitSourceSummary: (event) => {
+			for (const subscriber of sourceSummarySubscribers) subscriber(event);
+		},
+		emitStreamState: (change) => {
+			for (const subscriber of streamStateSubscribers) subscriber(change);
+		},
+		listenerCount: (event) =>
+			listeners.filter((listener) => listener.event === event).length,
+		subscriptionCount: () =>
+			sourceSummarySubscribers.size + streamStateSubscribers.size,
+	};
+}
+
+/**
+ * Builds a complete worker summary for one ingested source.
+ * @param id Source identifier represented by the summary.
+ * @param eventCount Exact number of persisted documents.
+ * @returns Source summary event owned by the external ingestion request.
+ */
+function createSourceSummaryEvent(
+	id: Source.Id,
+	eventCount: number,
+): QuerySourceSummaryEvent {
+	return {
+		requestId: ingestionRequestId,
+		operationId,
+		operationEpoch: DataStore.getRenderOperationEpoch(),
+		summary: {
+			sourceId: id,
+			generation: 1,
+			revision: 1,
+			authorityRevision: 1,
+			status: "complete",
+			eventCount,
+			minTimestamp: 1_000,
+			maxTimestamp: 2_000,
+			hashMin: 1,
+			hashMax: 2,
+			activeCacheGeneration: 1,
+			cacheHistory: [],
+			cacheHistoryCursor: -1,
+			nextGeneration: 2,
+		},
+	};
+}
+
+/**
+ * Builds one backend lifecycle message for the external ingestion request.
+ * @param event Websocket message type to dispatch.
+ * @param status Terminal lifecycle status exposed in both payload shapes.
+ * @returns Websocket fixture correlated with the current operation and request.
+ */
+function createIngestionLifecycleMessage(
+	event: string,
+	status: Request.Status,
+): SmartSocket.Message.Entity {
+	return {
+		type: event,
+		req_id: ingestionRequestId,
+		operation_id: operationId,
+		payload: {
+			status,
+			obj: {
+				req_type: "ext_query",
+				status,
+			},
+		},
+	} as unknown as SmartSocket.Message.Entity;
+}
+
+/**
+ * Builds the QueryWorker descriptor used by external ingestion state updates.
+ * @returns Persisted ingestion stream descriptor for the current test request.
+ */
+function createIngestionStreamDescriptor(): DocumentStreamDescriptor {
+	return {
+		requestId: ingestionRequestId,
+		operationId,
+		operationEpoch: DataStore.getRenderOperationEpoch(),
+		owner: "persist",
+		kind: "ingestion-build",
+		sourceIds: [],
+	};
+}
+
+/**
+ * Registers the private persisted-ingestion listener through its test seam.
+ * @param info Info instance that owns the lifecycle.
+ * @returns Cleanup callback registered by Info.
+ */
+function registerPersistedIngestionListeners(info: Info): () => void {
+	return (
+		info as unknown as {
+			_register_persisted_ingestion_listeners: (
+				requestId: Request.Id,
+				currentOperationId: Operation.Id,
+				operationEpoch: number,
+			) => () => void;
+		}
+	)._register_persisted_ingestion_listeners(
+		ingestionRequestId,
+		operationId,
+		DataStore.getRenderOperationEpoch(),
+	);
+}
 
 /**
  * Replaces the mocked singleton used by Info event-stream registration.
@@ -422,6 +646,81 @@ describe("Info event stream registration", () => {
 		expect(registerDocumentStream.mock.calls[1][0]).toMatchObject({
 			kind: "realtime-ingest",
 		});
+	});
+
+	it("tracks monotonic source progress only for ingestion stream kinds", async () => {
+		const registerDocumentStream = jest.fn(
+			(_descriptor: DocumentStreamDescriptor): Promise<void> => Promise.resolve(),
+		);
+		setEventStreamSocket({
+			registerDocumentStream,
+			cancelDocumentStream: jest.fn(() => Promise.resolve()),
+			completeDocumentStream: jest.fn(() => Promise.resolve()),
+		});
+		const info = createInfo();
+		const realtimeRequestId = "realtime-progress-request" as Request.Id;
+
+		await info.beginEventDocumentStream({
+			requestId: ingestionRequestId,
+			sourceIds: [],
+			operationId,
+			kind: "ingestion",
+			mode: "upsert",
+		});
+		await info.beginEventDocumentStream({
+			requestId: realtimeRequestId,
+			sourceIds: [secondarySourceId],
+			operationId,
+			kind: "realtime",
+			mode: "upsert",
+		});
+		await info.beginEventDocumentStream({
+			requestId: queryRequestId,
+			sourceIds: [sourceId],
+			operationId,
+			kind: "query",
+			mode: "upsert",
+		});
+
+		const emitProgress = (
+			overrides: Partial<QueryIngestionProgressEvent> = {},
+		): void => {
+			info.handleEventIngestionProgress({
+				requestId: ingestionRequestId,
+				operationId,
+				operationEpoch: DataStore.getRenderOperationEpoch(),
+				kind: "ingestion-build",
+				sourceEventCounts: { [sourceId]: 1_000 },
+				...overrides,
+			});
+		};
+
+		emitProgress();
+		emitProgress({ sourceEventCounts: { [sourceId]: 750 } });
+		emitProgress({
+			requestId: realtimeRequestId,
+			kind: "realtime-ingest",
+			sourceEventCounts: { [secondarySourceId]: 1_250 },
+		});
+		emitProgress({
+			requestId: queryRequestId,
+			sourceEventCounts: { [sourceId]: 9_999 },
+		});
+
+		expect(info.ingestionProgress.get(sourceId)).toBe(1_000);
+		expect(info.ingestionProgress.get(secondarySourceId)).toBe(1_250);
+
+		info.handleEventDocumentStreamState({
+			descriptor: registerDocumentStream.mock.calls[0][0],
+			state: "canceled",
+		});
+		info.handleEventDocumentStreamState({
+			descriptor: registerDocumentStream.mock.calls[1][0],
+			state: "completed",
+		});
+
+		expect(info.ingestionProgress.has(sourceId)).toBe(false);
+		expect(info.ingestionProgress.has(secondarySourceId)).toBe(false);
 	});
 
 	it("forces file ingestion builds to the default event-code hash", async () => {
@@ -1023,6 +1322,109 @@ describe("Info event stream registration", () => {
 		).toBe(false);
 	});
 
+	it("finalizes ext_query ingestion after durable completion and clears every source", async () => {
+		const harness = createIngestionLifecycleSocketHarness();
+		setEventStreamSocket(harness.socket);
+		const info = createInfo();
+		info.setLoading(ingestionRequestId, sourceId);
+		info.setLoading(ingestionRequestId, secondarySourceId);
+		info.ingestionProgress.set(sourceId, 18);
+		info.ingestionProgress.set(secondarySourceId, 24);
+		registerPersistedIngestionListeners(info);
+		harness.emitSourceSummary(createSourceSummaryEvent(sourceId, 18));
+		harness.emitSourceSummary(createSourceSummaryEvent(secondarySourceId, 24));
+
+		harness.emitMessage(
+			SmartSocket.Message.Type.STATS_UPDATE,
+			createIngestionLifecycleMessage(
+				SmartSocket.Message.Type.STATS_UPDATE,
+				Request.Status.DONE,
+			),
+		);
+		await Promise.resolve();
+
+		expect(harness.completeDocumentStream).toHaveBeenCalledTimes(1);
+		expect(harness.completeDocumentStream).toHaveBeenCalledWith(
+			ingestionRequestId,
+			{ queryCachesBySourceId: {} },
+		);
+		expect(info.ingestionProgress.get(sourceId)).toBe(18);
+		expect(info.ingestionProgress.get(secondarySourceId)).toBe(24);
+		expect(harness.subscriptionCount()).toBe(2);
+
+		harness.emitStreamState({
+			descriptor: createIngestionStreamDescriptor(),
+			state: "completed",
+		});
+
+		expect(info.ingestionProgress.has(sourceId)).toBe(false);
+		expect(info.ingestionProgress.has(secondarySourceId)).toBe(false);
+		expect(requestStore.hasLoadingForFile(sourceId)).toBe(false);
+		expect(requestStore.hasLoadingForFile(secondarySourceId)).toBe(false);
+		expect(harness.cancelDocumentStream).not.toHaveBeenCalled();
+		expect(harness.subscriptionCount()).toBe(0);
+	});
+
+	for (const terminalStatus of [
+		Request.Status.FAILED,
+		Request.Status.CANCELED,
+	] as const) {
+		it(`cancels an ext_query ingestion when stats become ${terminalStatus}`, async () => {
+			const harness = createIngestionLifecycleSocketHarness();
+			setEventStreamSocket(harness.socket);
+			const info = createInfo();
+			info.setLoading(ingestionRequestId, sourceId);
+			info.setLoading(ingestionRequestId, secondarySourceId);
+			info.ingestionProgress.set(sourceId, 18);
+			info.ingestionProgress.set(secondarySourceId, 24);
+			registerPersistedIngestionListeners(info);
+			harness.emitSourceSummary(createSourceSummaryEvent(sourceId, 18));
+			harness.emitSourceSummary(createSourceSummaryEvent(secondarySourceId, 24));
+
+			harness.emitMessage(
+				SmartSocket.Message.Type.STATS_UPDATE,
+				createIngestionLifecycleMessage(
+					SmartSocket.Message.Type.STATS_UPDATE,
+					terminalStatus,
+				),
+			);
+			await Promise.resolve();
+
+			expect(harness.completeDocumentStream).not.toHaveBeenCalled();
+			expect(harness.cancelDocumentStream.mock.calls).toEqual([
+				[ingestionRequestId],
+			]);
+			expect(info.ingestionProgress.has(sourceId)).toBe(false);
+			expect(info.ingestionProgress.has(secondarySourceId)).toBe(false);
+			expect(requestStore.hasLoadingForFile(sourceId)).toBe(false);
+			expect(requestStore.hasLoadingForFile(secondarySourceId)).toBe(false);
+			expect(harness.subscriptionCount()).toBe(0);
+		});
+	}
+
+	it("does not treat query_done as an EventStore completion fence", async () => {
+		const harness = createIngestionLifecycleSocketHarness();
+		setEventStreamSocket(harness.socket);
+		const info = createInfo();
+		info.setLoading(ingestionRequestId, sourceId);
+		info.ingestionProgress.set(sourceId, 18);
+		const release = registerPersistedIngestionListeners(info);
+		harness.emitSourceSummary(createSourceSummaryEvent(sourceId, 18));
+
+		harness.emitMessage(
+			"query_done",
+			createIngestionLifecycleMessage("query_done", Request.Status.DONE),
+		);
+		await Promise.resolve();
+
+		expect(harness.completeDocumentStream).not.toHaveBeenCalled();
+		expect(harness.cancelDocumentStream).not.toHaveBeenCalled();
+		expect(info.ingestionProgress.get(sourceId)).toBe(18);
+		expect(requestStore.hasLoadingForFile(sourceId)).toBe(true);
+		expect(harness.subscriptionCount()).toBe(2);
+		release();
+	});
+
 	it("resolves an external LOD query only after source and durable stream completion", async () => {
 		let registeredDescriptor: DocumentStreamDescriptor | null = null;
 		let sourceDoneCondition:
@@ -1050,6 +1452,11 @@ describe("Info event stream registration", () => {
 			registerDocumentStream,
 			cancelDocumentStream,
 			completeDocumentStream,
+			con: (
+				_event: SmartSocket.Message.Type,
+				_condition: (message: SmartSocket.Message.Entity) => boolean,
+				_handler: (message: SmartSocket.Message.Entity) => void,
+			): string => "external-global-ingestion-listener",
 			conce: (
 				_event: SmartSocket.Message.Type,
 				condition: (message: SmartSocket.Message.Entity) => boolean,
@@ -1102,8 +1509,13 @@ describe("Info event stream registration", () => {
 
 		try {
 			let queryResolved = false;
+			const onIngestionStarted = jest.fn(
+				(_requestId: Request.Id): void => undefined,
+			);
 			const queryResult = info
-				.query_external("external-plugin", {}, false, "{}", {})
+				.query_external("external-plugin", {}, false, "{}", {}, {
+					onIngestionStarted,
+				})
 				.then((result) => {
 					queryResolved = true;
 					return result;
@@ -1132,6 +1544,9 @@ describe("Info event stream registration", () => {
 					`Expected external query lifecycle listeners: descriptor=${Boolean(descriptor)}, condition=${Boolean(matchesSourceDone)}, source=${Boolean(handleSourceDone)}, state=${Boolean(handleStreamState)}.`,
 				);
 			}
+			expect(onIngestionStarted).toHaveBeenCalledTimes(1);
+			expect(onIngestionStarted).toHaveBeenCalledWith(descriptor.requestId);
+			expect(queryResolved).toBe(false);
 			const sourceDoneMessage = {
 				type: SmartSocket.Message.Type.INGEST_SOURCE_DONE,
 				req_id: descriptor.requestId,

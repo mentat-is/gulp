@@ -20,6 +20,7 @@ import type {
 	DocumentChunkAcknowledgement,
 	DocumentChunkReady,
 	DocumentStreamDescriptor,
+	QueryIngestionProgressEvent,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 } from "@/event-stream";
@@ -69,6 +70,7 @@ interface PersistenceHarness {
 	backends: Map<string, MemoryEventStoreBackend>;
 	repositories: Map<string, EventStoreRepository>;
 	summaries: QuerySourceSummaryEvent[];
+	ingestionProgress: QueryIngestionProgressEvent[];
 	failures: QueryStreamFailureEvent[];
 	flushing: string[];
 	completed: string[];
@@ -90,6 +92,7 @@ function createHarness(
 	const backends = new Map<string, MemoryEventStoreBackend>();
 	const repositories = new Map<string, EventStoreRepository>();
 	const summaries: QuerySourceSummaryEvent[] = [];
+	const ingestionProgress: QueryIngestionProgressEvent[] = [];
 	const failures: QueryStreamFailureEvent[] = [];
 	const flushing: string[] = [];
 	const completed: string[] = [];
@@ -99,6 +102,7 @@ function createHarness(
 		"test-coordinator",
 		{
 			onSourceSummary: (event) => summaries.push(event),
+			onIngestionProgress: (event) => ingestionProgress.push(event),
 			onStreamFailure: (event) => failures.push(event),
 			onStreamFlushing: (requestId) => flushing.push(requestId),
 			onStreamCompleted: (requestId) => completed.push(requestId),
@@ -126,6 +130,7 @@ function createHarness(
 		backends,
 		repositories,
 		summaries,
+		ingestionProgress,
 		failures,
 		flushing,
 		completed,
@@ -696,6 +701,128 @@ describe("QueryPersistenceCoordinator", () => {
 		expect(harness.failures).toHaveLength(0);
 		harness.coordinator.destroy();
 	});
+
+	it("publishes cumulative multi-source ingestion progress before partial pages flush", async () => {
+		const harness = createHarness();
+		const descriptor = createDescriptor("live-ingestion-progress", {
+			kind: "ingestion-build",
+			sourceIds: [],
+			completionMode: "explicit",
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		await harness.coordinator.register(descriptor);
+
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				descriptor,
+				[
+					createRawDocument("first-one", SOURCE_ONE),
+					createRawDocument("first-two", SOURCE_ONE),
+					createRawDocument("first-three", SOURCE_TWO),
+				],
+				false,
+				0,
+			),
+		);
+		await waitFor(() => harness.ingestionProgress.length === 1);
+
+		expect(harness.ingestionProgress[0]).toEqual({
+			requestId: descriptor.requestId,
+			operationId: descriptor.operationId,
+			operationEpoch: descriptor.operationEpoch,
+			kind: "ingestion-build",
+			sourceEventCounts: {
+				[SOURCE_ONE]: 2,
+				[SOURCE_TWO]: 1,
+			},
+		});
+		expect(
+			harness.summaries.some((event) => event.summary.eventCount > 0),
+		).toBe(false);
+
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				descriptor,
+				[
+					createRawDocument("second-one", SOURCE_ONE),
+					createRawDocument("second-two", SOURCE_TWO),
+					createRawDocument("second-three", SOURCE_TWO),
+				],
+				true,
+				1,
+			),
+		);
+		await waitFor(() => harness.ingestionProgress.length === 2);
+
+		expect(harness.ingestionProgress[1].sourceEventCounts).toEqual({
+			[SOURCE_ONE]: 3,
+			[SOURCE_TWO]: 3,
+		});
+		expect(harness.completed.includes(descriptor.requestId)).toBe(false);
+
+		await harness.coordinator.complete(descriptor.requestId);
+		expect(
+			await harness.repositories
+				.get(descriptor.operationId)
+				?.getSourceSummary(SOURCE_ONE),
+		).toMatchObject({ status: "complete", eventCount: 3 });
+		expect(
+			await harness.repositories
+				.get(descriptor.operationId)
+				?.getSourceSummary(SOURCE_TWO),
+		).toMatchObject({ status: "complete", eventCount: 3 });
+		harness.coordinator.destroy();
+	});
+
+	it("publishes durable totals for realtime ingestion streams", async () => {
+		const harness = createHarness();
+		const descriptor = createDescriptor("realtime-ingestion-progress", {
+			kind: "realtime-ingest",
+			completionMode: "explicit",
+		});
+		await harness.coordinator.register(descriptor);
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				descriptor,
+				[
+					createRawDocument("realtime-one", SOURCE_ONE),
+					createRawDocument("realtime-two", SOURCE_ONE),
+				],
+				true,
+			),
+		);
+		await waitFor(() => harness.ingestionProgress.length === 1);
+
+		expect(harness.ingestionProgress[0]).toMatchObject({
+			requestId: descriptor.requestId,
+			kind: "realtime-ingest",
+			sourceEventCounts: { [SOURCE_ONE]: 2 },
+		});
+		await harness.coordinator.cancel(descriptor.requestId);
+		harness.coordinator.destroy();
+	});
+
+	for (const kind of ["replace", "query-upsert", "enrichment"] as const) {
+		it(`does not publish ingestion progress for ${kind} streams`, async () => {
+			const harness = createHarness();
+			const descriptor = createDescriptor(`non-ingestion-${kind}`, { kind });
+			await harness.coordinator.register(descriptor);
+			harness.coordinator.handleDocumentChunk(
+				createChunk(
+					descriptor,
+					[createRawDocument(`non-ingestion-${kind}`, SOURCE_ONE)],
+					true,
+				),
+			);
+			await waitFor(() => harness.completed.includes(descriptor.requestId));
+
+			expect(harness.ingestionProgress).toHaveLength(0);
+			harness.coordinator.destroy();
+		});
+	}
 
 	it("persists ingestion timestamp ties in event.sequence order", async () => {
 		const harness = createHarness();
@@ -1435,6 +1562,28 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
+	it("releases an explicitly completed ingestion source for a later replacement", async () => {
+		const harness = createHarness();
+		const ingestion = createDescriptor("external-ingestion", {
+			kind: "ingestion-build",
+			sourceIds: [],
+			completionMode: "explicit",
+		});
+		await harness.coordinator.register(ingestion);
+		harness.coordinator.handleDocumentChunk(
+			createChunk(ingestion, [createRawDocument("external-event")], true),
+		);
+		await harness.coordinator.complete(ingestion.requestId);
+
+		expect(harness.completed.includes(ingestion.requestId)).toBe(true);
+		const refetch = createDescriptor("external-refetch");
+		await harness.coordinator.register(refetch);
+		expect(harness.coordinator.hasStream(refetch.requestId)).toBe(true);
+
+		await harness.coordinator.cancel(refetch.requestId);
+		harness.coordinator.destroy();
+	});
+
 	it("prepares override LOD in source-leased slices before publishing", async () => {
 		const harness = createHarness();
 		const descriptor = createDescriptor("override-source-request");
@@ -1815,6 +1964,7 @@ describe("QueryPersistenceCoordinator", () => {
 				"shared-coordinator",
 				{
 					onSourceSummary: () => undefined,
+					onIngestionProgress: () => undefined,
 					onStreamFailure: () => undefined,
 					onStreamFlushing: () => undefined,
 					onStreamCompleted: (requestId) => completed.push(requestId),

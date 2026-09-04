@@ -7,6 +7,7 @@ import type {
 	QuerySocketMessage,
 	QuerySocketState,
 	QueryRenderWindowDescriptor,
+	QueryIngestionProgressEvent,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 	QueryWorkerDiagnostics,
@@ -28,6 +29,7 @@ export interface QueryTransportCallbacks {
 	onForwardMessage: (message: QuerySocketMessage) => void;
 	onStreamStateChange: (change: DocumentStreamStateChange) => void;
 	onSourceSummary: (event: QuerySourceSummaryEvent) => void;
+	onIngestionProgress: (event: QueryIngestionProgressEvent) => void;
 	onStreamFailure: (event: QueryStreamFailureEvent) => void;
 	onProtocolError: (details: QuerySocketErrorDetails) => void;
 }

@@ -350,6 +350,56 @@ describe("SmartSocket lifecycle", () => {
 		unsubscribeStates();
 	});
 
+	it("publishes compact ingestion progress without forwarding documents", async () => {
+		const socket = new SmartSocket.Class("ingestion-progress-client");
+		const directSocket = FakeWebSocket.instances[0];
+		const documentListener = jest.fn();
+		socket.on(SmartSocket.Message.Type.DOCUMENTS_CHUNK, documentListener);
+		let unsubscribeProgress = (): void => undefined;
+		const progress = new Promise<Record<string, number>>((resolve) => {
+			unsubscribeProgress = socket.subscribeIngestionProgress((event) => {
+				if (event.requestId === "ingestion-progress-request") {
+					resolve({ ...event.sourceEventCounts });
+				}
+			});
+		});
+		await socket.registerDocumentStream({
+			requestId: "ingestion-progress-request",
+			operationId: "operation-one",
+			operationEpoch: 5,
+			owner: "persist",
+			kind: "ingestion-build",
+			completionMode: "explicit",
+			sourceIds: [],
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+
+		directSocket.triggerMessage({
+			type: "docs_chunk",
+			req_id: "ingestion-progress-request",
+			payload: {
+				docs: [
+					{
+						_id: "one",
+						"gulp.source_id": "source-one",
+						"gulp.timestamp": 1_700_000_000_000,
+						"gulp.event_code": 4,
+					},
+				],
+				chunk_num: 0,
+				last: false,
+			},
+		});
+
+		expect(await progress).toEqual({ "source-one": 1 });
+		expect(documentListener).not.toHaveBeenCalled();
+		unsubscribeProgress();
+		await socket.cancelDocumentStream("ingestion-progress-request");
+	});
+
 	it("publishes typed persistence failures without forwarding bad documents", async () => {
 		const socket = new SmartSocket.Class("failure-client");
 		const directSocket = FakeWebSocket.instances[0];
