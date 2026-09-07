@@ -47,8 +47,10 @@ sequenceDiagram
 ```
 
 Canvas requests only the visible source rows plus two vertical overscan rows.
-Horizontal overscan is normally one canvas width on each side, allowing small
-pans to reuse the current projection.
+Horizontal overscan is normally one canvas width on each side. After a complete
+projection is accepted and its typed arrays move to RenderWorker, Canvas retains
+only scalar coverage and authority metadata. Normal pans inside that coverage
+redraw the transferred projection without issuing another QueryWorker request.
 
 The request envelope identifies the operation. The projector descriptor carries:
 
@@ -72,6 +74,34 @@ already coherent read; that snapshot may publish before the trailing request
 catches up. A different operation, epoch, or viewport invalidates the old request
 immediately.
 
+Overscan reuse is limited to complete sources whose operation, frame, width,
+scale, source set, settings, generation, revision, authority, and event count
+still match the accepted projection. Building sources and terminal convergence
+requests always request a fresh projection so ingestion progress cannot be
+hidden. Leaving the accepted raw timestamp range also resumes normal projection
+scheduling.
+
+For building replacement generations, each accepted partial `docs_chunk`
+publishes a lightweight projection invalidation containing only operation and
+source IDs. Canvas applies the same 250 ms coalescing used by building summaries
+and temporarily treats those sources as non-empty before resolving vertical
+visibility. If the first preview reveals a hidden row, Canvas queues that row's
+source metadata before the projection; otherwise it requests the latest
+viewport when any changed source is visible. These projections are never
+overscan-reused as complete snapshots, so successive partial pages continue to
+advance on screen. A replacement page remains eligible for this transient
+projection while its IndexedDB append is in flight. Its generation/revision
+fence makes a concurrently completed durable page win without blocking every
+other visible source behind that transaction.
+
+An initial operation viewport can contain selected rows whose per-source query
+has not entered the four-request pool yet. QueryWorker represents each such row
+with the canonical zero-authority, zero-generation, empty projection. Canvas
+accepts that placeholder without weakening terminal fences, so an unregistered
+row cannot cause it to discard events already projected for active source
+queries. As soon as the first source summary exists, the normal authority,
+generation, revision, status, and count checks apply.
+
 The query worker checks a relevance guard throughout page and aggregate scans.
 Superseded work stops cooperatively and its buffers are not published. Before a
 multi-source result is returned, the projector verifies that every source
@@ -89,6 +119,14 @@ The projection path reads three forms of EventStore data:
 There is no persisted Graph record. Graph samples are derived for the current
 viewport from the active source pages and summaries. Exact documents remain in
 IndexedDB and are fetched separately for selection, dialogs, and navigation.
+
+The projector reads all visible source manifests with one batch transaction at
+the start and one at the final consistency check. Exact, LOD, and HeightMap
+records use independent revision-qualified LRU working sets capped at 16 MiB,
+4 MiB, and 4 MiB of encoded data respectively. This absorbs repeated page reads
+when parser-order ingestion creates page ranges that overlap in time. A cache
+entry cannot survive a generation or page revision change, and vertical source
+eviction releases its entries.
 
 ## LOD selection
 

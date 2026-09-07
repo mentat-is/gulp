@@ -258,6 +258,37 @@ without waiting for query completion. Canvas then requests its first persisted
 LOD window, and later building summaries use the normal coalesced projection
 path while the query continues.
 
+Replacement streams also expose their current partial builder page to viewport
+projection before it reaches the durable page size. After each accepted
+`docs_chunk`, QueryWorker sends an operation- and source-scoped projection
+invalidation. Canvas coalesces that signal and requests a new render window;
+its source IDs also temporarily count as non-empty so the initial zero-event
+building summary cannot hide the first result. When that changes Canvas row
+membership, source metadata is queued to RenderWorker before requesting the
+preview; later invalidations use the normal building coalescer. The projector
+combines the durable manifest with at most one transient page per visible
+source. The transient page uses the same future handles and sorted columnar
+shape as the eventual commit, but it is never written to IndexedDB, added to
+cache provenance, or exposed to exact-read APIs. This lets initial operation
+queries and Navigator event filters render continuously without returning to
+per-chunk durable pages.
+
+Transient replacement pages remain inside the existing global 32,768-document
+normalized bound. When a full, pressure-released, or final partial page enters
+an IndexedDB commit, its already encoded page remains available as the source
+preview with the same page ID and handles. The projector overlays it only while
+the durable manifest still matches its base generation and revision; if the
+commit wins the race, the newer durable page is used instead. An in-flight page
+therefore cannot suspend the whole multi-source viewport while startup
+`query_raw` requests continue filling the cache.
+
+At operation startup, the viewport may request rows whose per-source backend
+query is still waiting behind the four-request concurrency limit. Those sources
+have no manifest yet and project as canonical empty placeholders. Canvas accepts
+those placeholders independently from the building previews already available
+for active queries; the absence of a not-yet-started source therefore does not
+reject the complete multi-source render window.
+
 After each accepted `ingestion-build` or `realtime-ingest` chunk, QueryWorker
 also publishes one compact map of cumulative event totals for the sources
 changed by that chunk. For page-builder ingestion the count includes the
@@ -600,6 +631,26 @@ The query worker also owns `EventStoreViewportProjector`, because IndexedDB must
 remain on the worker side of the high-volume path. It accepts bounded viewport
 requests and returns transferable typed arrays; it does not draw them.
 
+Visible source manifests are read in one batch before projection and in one
+second batch for the final revision fence. The number of source-manifest
+transactions is therefore constant for a render-window request, including an
+operation with many visible sources.
+
+The projector retains revision-qualified immutable page records in three
+least-recently-used working sets: up to 16 MiB of exact pages, 4 MiB of LOD
+records, and 4 MiB of HeightMap records, measured by encoded payload size. A
+horizontal pan that still touches the same pages avoids another IndexedDB read
+and structured clone. Revision and generation changes select different cache
+keys, and sources evicted from the vertically retained viewport release their
+entries immediately. These worker-local caches do not retain decoded document
+objects or transfer-owned render arrays.
+
+While a `replace` generation is building, the coordinator may additionally
+supply one request-local partial page for each visible source. Its base
+generation and revision must match the manifest read by the projector; otherwise
+it is ignored and the newer durable state wins. Default, HeightMap, Graph, and
+color-override projections use transient summaries built inside QueryWorker.
+
 Projection scheduling, cache reads, the exact LOD selection algorithm, engine-
 specific aggregates, transfer semantics, RenderWorker protocol, ACK/frame
 fences, and drawing are documented in
@@ -726,6 +777,8 @@ The event path is expected to preserve these bounds:
 - at most two unaccepted backend chunks per active negotiated child query;
 - no more than two concurrent IndexedDB commits;
 - at most five reachable query caches per source;
+- at most 24 MiB of encoded viewport-projector page records across the exact,
+  LOD, and HeightMap working sets;
 - no cache cleanup transaction with more than 256 delete operations;
 - exact pixel and dialog reads return at most 100 events per page.
 
