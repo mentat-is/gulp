@@ -38,6 +38,8 @@ const callbacks: QueryTransportCallbacks = {
 		postWorkerEvent({ type: "SOURCE_SUMMARY", event }),
 	onIngestionProgress: (event) =>
 		postWorkerEvent({ type: "INGESTION_PROGRESS", event }),
+	onProjectionInvalidation: (event) =>
+		postWorkerEvent({ type: "PROJECTION_INVALIDATED", event }),
 	onStreamFailure: (event) =>
 		postWorkerEvent({ type: "STREAM_FAILURE", event }),
 	onProtocolError: (details) =>

@@ -5,6 +5,7 @@ import type {
 	DocumentStreamStateChange,
 	QueryRenderWindowDescriptor,
 	QueryIngestionProgressEvent,
+	QueryProjectionInvalidationEvent,
 	QuerySocketCloseDetails,
 	QuerySocketErrorDetails,
 	QuerySocketMessage,
@@ -101,6 +102,9 @@ export namespace SmartSocket {
 		private readonly ingestionProgressSubscribers = new Set<
 			(event: QueryIngestionProgressEvent) => void
 		>();
+		private readonly projectionInvalidationSubscribers = new Set<
+			(event: QueryProjectionInvalidationEvent) => void
+		>();
 		private readonly streamFailureSubscribers = new Set<
 			(event: QueryStreamFailureEvent) => void
 		>();
@@ -160,6 +164,8 @@ export namespace SmartSocket {
 					onSourceSummary: (event) => this.publishSourceSummary(event),
 					onIngestionProgress: (event) =>
 						this.publishIngestionProgress(event),
+					onProjectionInvalidation: (event) =>
+						this.publishProjectionInvalidation(event),
 					onStreamFailure: (event) => this.publishStreamFailure(event),
 					onProtocolError: (details) => this.handleProtocolError(details),
 				},
@@ -231,6 +237,19 @@ export namespace SmartSocket {
 		 */
 		private publishIngestionProgress(event: QueryIngestionProgressEvent): void {
 			for (const subscriber of this.ingestionProgressSubscribers) {
+				subscriber(event);
+			}
+		}
+
+		/**
+		 * Publishes a partial replacement-page invalidation without document payloads.
+		 * @param event Operation-scoped source identities whose preview changed.
+		 * @returns Nothing.
+		 */
+		private publishProjectionInvalidation(
+			event: QueryProjectionInvalidationEvent,
+		): void {
+			for (const subscriber of this.projectionInvalidationSubscribers) {
 				subscriber(event);
 			}
 		}
@@ -575,6 +594,18 @@ export namespace SmartSocket {
 		}
 
 		/**
+		 * Subscribes to progressive replacement-page projection invalidations.
+		 * @param subscriber Handler receiving operation-scoped source identities.
+		 * @returns Cleanup callback removing the subscription.
+		 */
+		public subscribeProjectionInvalidations(
+			subscriber: (event: QueryProjectionInvalidationEvent) => void,
+		): () => void {
+			this.projectionInvalidationSubscribers.add(subscriber);
+			return () => this.projectionInvalidationSubscribers.delete(subscriber);
+		}
+
+		/**
 		 * Subscribes to persistence failures requiring backend request cancellation.
 		 * @param subscriber Stream failure handler.
 		 * @returns Cleanup callback removing the subscription.
@@ -631,6 +662,7 @@ export namespace SmartSocket {
 			this.conditional.clear();
 			this.sourceSummarySubscribers.clear();
 			this.ingestionProgressSubscribers.clear();
+			this.projectionInvalidationSubscribers.clear();
 			this.streamFailureSubscribers.clear();
 			this.streamStateSubscribers.clear();
 			this.removeAllListeners();

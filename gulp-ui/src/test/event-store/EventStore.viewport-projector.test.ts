@@ -10,6 +10,7 @@ import {
 	StaleEventStoreProjectionError,
 	EventStoreViewportProjector,
 	type EventStoreViewportDescriptor,
+	type EventStoreViewportTransientPage,
 } from "@/event-store/EventStore.viewport-projector";
 import {
 	EVENT_PAGE_HEIGHT_RECORD_KIND,
@@ -37,6 +38,7 @@ class CountingMemoryEventStoreBackend extends MemoryEventStoreBackend {
 	public exactPageReads = 0;
 	public pageLodReads = 0;
 	public pageHeightReads = 0;
+	public sourceReadTransactions = 0;
 
 	/** Counts exact and LOD point reads. */
 	public override async get<TValue>(
@@ -54,11 +56,21 @@ class CountingMemoryEventStoreBackend extends MemoryEventStoreBackend {
 		return super.get<TValue>(store, key);
 	}
 
+	/** Counts one transaction for a batch of source manifests. */
+	public override async getMany<TValue>(
+		store: EventStoreName,
+		keys: readonly IDBValidKey[],
+	): Promise<Array<TValue | undefined>> {
+		if (store === "sources") this.sourceReadTransactions++;
+		return super.getMany<TValue>(store, keys);
+	}
+
 	/** Resets counters after fixture persistence. */
 	public resetReads(): void {
 		this.exactPageReads = 0;
 		this.pageLodReads = 0;
 		this.pageHeightReads = 0;
+		this.sourceReadTransactions = 0;
 	}
 }
 
@@ -93,6 +105,20 @@ class SupersedingMemoryEventStoreBackend extends CountingMemoryEventStoreBackend
 			await commit();
 		}
 		return value;
+	}
+
+	/** Applies the same deterministic manifest mutation after a batched initial read. */
+	public override async getMany<TValue>(
+		store: EventStoreName,
+		keys: readonly IDBValidKey[],
+	): Promise<Array<TValue | undefined>> {
+		const values = await super.getMany<TValue>(store, keys);
+		if (store === "sources" && this.commitAfterInitialManifestRead) {
+			const commit = this.commitAfterInitialManifestRead;
+			this.commitAfterInitialManifestRead = null;
+			await commit();
+		}
+		return values;
 	}
 }
 
@@ -203,6 +229,54 @@ function createQueryProvenance(fingerprint: string): QueryCacheProvenance {
 }
 
 describe("EventStoreViewportProjector", () => {
+	it("projects a bounded transient builder page without reading uncommitted storage", async () => {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const building = await repository.beginGeneration({
+			sourceId: DEFAULT_SOURCE_ID,
+			generation: 1,
+		});
+		const page = createPage(
+			DEFAULT_SOURCE_ID,
+			0,
+			[
+				createDocument("preview-newest", 900, 2),
+				createDocument("preview-oldest", 100, 1),
+			],
+			[1, 2],
+		);
+		page.revision = building.revision + 1;
+		const transient: EventStoreViewportTransientPage = {
+			baseGeneration: building.generation,
+			baseRevision: building.revision,
+			page,
+		};
+		const projector = new EventStoreViewportProjector(backend);
+		backend.resetReads();
+
+		const projection = await projector.requestRenderWindow(
+			createDescriptor(DEFAULT_SOURCE_ID),
+			() => true,
+			new Map([[DEFAULT_SOURCE_ID, transient]]),
+		);
+
+		expect(projection.sources[0]).toMatchObject({
+			sourceStatus: "building",
+			loadedCount: 2,
+			frameEventCount: 2,
+		});
+		expect(Array.from(projection.sources[0].representativeHandles)).toEqual([
+			1, 2,
+		]);
+		expect(backend.exactPageReads).toBe(0);
+		expect(backend.pageLodReads).toBe(0);
+		expect(backend.pageHeightReads).toBe(0);
+		expect(await repository.getSourceSummary(DEFAULT_SOURCE_ID)).toMatchObject({
+			status: "building",
+			eventCount: 0,
+		});
+	});
+
 	it("projects logical authority after undo activates an older generation", async () => {
 		const backend = new MemoryEventStoreBackend();
 		const repository = new EventStoreRepository(backend);
@@ -352,6 +426,91 @@ describe("EventStoreViewportProjector", () => {
 		);
 	});
 
+	it("reuses overlapping ingestion-style pages across consecutive pans", async () => {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const sourceId = "projector-ingestion-overlap" as Source.Id;
+		const pages = Array.from({ length: 4 }, (_, pageId) => {
+			const documents = Array.from({ length: 512 }, (_, index) => {
+				const interleavedIndex = (index * 127 + pageId * 31) % 512;
+				return createDocument(
+					`ingestion-overlap-${pageId}-${index}`,
+					interleavedIndex * 2,
+					pageId * 512 + index,
+					sourceId,
+				);
+			});
+			return createPage(
+				sourceId,
+				pageId,
+				documents,
+				documents.map((_, index) => pageId * 512 + index + 1),
+			);
+		});
+		await persistSource(repository, sourceId, pages);
+		const projector = new EventStoreViewportProjector(backend);
+		const descriptor: EventStoreViewportDescriptor = {
+			...createDescriptor(sourceId),
+			frame: { min: 0, max: 1_024 },
+			width: 256,
+			scale: 4,
+			horizontalOverscanPixels: 0,
+		};
+
+		backend.resetReads();
+		await projector.requestRenderWindow(descriptor);
+		expect(backend.pageLodReads).toBe(4);
+		expect(backend.exactPageReads).toBe(4);
+		expect(backend.sourceReadTransactions).toBe(2);
+
+		backend.resetReads();
+		const panned = await projector.requestRenderWindow({
+			...descriptor,
+			viewportRevision: descriptor.viewportRevision + 1,
+			projectionRevision: descriptor.projectionRevision + 1,
+			scrollX: 64,
+		});
+		expect(panned.sources[0].representativeHandles.length > 0).toBe(true);
+		expect(backend.pageLodReads).toBe(0);
+		expect(backend.exactPageReads).toBe(0);
+		expect(backend.sourceReadTransactions).toBe(2);
+	});
+
+	it("reads seventy visible source manifests in two batched transactions", async () => {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const sourceIds = Array.from(
+			{ length: 70 },
+			(_, index) => `projector-ingestion-source-${index}` as Source.Id,
+		);
+		for (const [index, sourceId] of sourceIds.entries()) {
+			await persistSource(repository, sourceId, [
+				createPage(
+					sourceId,
+					0,
+					[createDocument(`source-${index}`, 500, index, sourceId)],
+					[1],
+				),
+			]);
+		}
+		const base = createDescriptor(sourceIds[0]);
+		const projector = new EventStoreViewportProjector(backend);
+		backend.resetReads();
+
+		const projection = await projector.requestRenderWindow({
+			...base,
+			sources: sourceIds.map((sourceId) => ({
+				...base.sources[0],
+				sourceId,
+			})),
+		});
+
+		expect(projection.sources).toHaveLength(70);
+		expect(backend.sourceReadTransactions).toBe(2);
+		expect(backend.exactPageReads).toBe(0);
+		expect(backend.pageLodReads).toBe(0);
+	});
+
 	it("uses page, microblock, and exact refinement only when each is required", async () => {
 		const backend = new CountingMemoryEventStoreBackend();
 		const repository = new EventStoreRepository(backend);
@@ -473,7 +632,7 @@ describe("EventStoreViewportProjector", () => {
 		);
 		expect(latest.viewportRevision).toBe(8);
 		expect(latest.sources[0].representativeHandles.length > 0).toBe(true);
-		expect(backend.pageLodReads).toBe(2);
+		expect(backend.pageLodReads).toBe(1);
 		expect(backend.exactPageReads).toBe(2);
 	});
 
@@ -752,7 +911,7 @@ describe("EventStoreViewportProjector", () => {
 		expect(Array.from(height.sources[0].heightCounts)).toEqual([2, 2, 1]);
 		expect(backend.exactPageReads).toBe(0);
 		expect(backend.pageLodReads).toBe(0);
-		expect(backend.pageHeightReads).toBe(2);
+		expect(backend.pageHeightReads).toBe(1);
 
 		const graph = await projector.requestRenderWindow({
 			...base,
@@ -898,7 +1057,7 @@ describe("EventStoreViewportProjector", () => {
 			sources: [{ ...descriptor.sources[0], engine: "height" }],
 		});
 		expect(completeProjection.sources[0].heightMaximumCount).toBe(9);
-		expect(backend.pageHeightReads).toBe(1);
+		expect(backend.pageHeightReads).toBe(0);
 	});
 
 	it("extends a cached height maximum from chronological append pages only", async () => {

@@ -103,6 +103,7 @@ export class QuerySocketSession {
 			{
 				onSourceSummary: callbacks.onSourceSummary,
 				onIngestionProgress: callbacks.onIngestionProgress,
+				onProjectionInvalidation: callbacks.onProjectionInvalidation,
 				onStreamFailure: (event) => {
 					this.router.fail(event.requestId, event.message);
 					callbacks.onStreamFailure(event);

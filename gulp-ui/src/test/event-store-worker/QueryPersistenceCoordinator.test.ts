@@ -21,6 +21,7 @@ import type {
 	DocumentChunkReady,
 	DocumentStreamDescriptor,
 	QueryIngestionProgressEvent,
+	QueryProjectionInvalidationEvent,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 } from "@/event-stream";
@@ -71,6 +72,7 @@ interface PersistenceHarness {
 	repositories: Map<string, EventStoreRepository>;
 	summaries: QuerySourceSummaryEvent[];
 	ingestionProgress: QueryIngestionProgressEvent[];
+	projectionInvalidations: QueryProjectionInvalidationEvent[];
 	failures: QueryStreamFailureEvent[];
 	flushing: string[];
 	completed: string[];
@@ -93,6 +95,7 @@ function createHarness(
 	const repositories = new Map<string, EventStoreRepository>();
 	const summaries: QuerySourceSummaryEvent[] = [];
 	const ingestionProgress: QueryIngestionProgressEvent[] = [];
+	const projectionInvalidations: QueryProjectionInvalidationEvent[] = [];
 	const failures: QueryStreamFailureEvent[] = [];
 	const flushing: string[] = [];
 	const completed: string[] = [];
@@ -103,6 +106,8 @@ function createHarness(
 		{
 			onSourceSummary: (event) => summaries.push(event),
 			onIngestionProgress: (event) => ingestionProgress.push(event),
+			onProjectionInvalidation: (event) =>
+				projectionInvalidations.push(event),
 			onStreamFailure: (event) => failures.push(event),
 			onStreamFlushing: (requestId) => flushing.push(requestId),
 			onStreamCompleted: (requestId) => completed.push(requestId),
@@ -131,6 +136,7 @@ function createHarness(
 		repositories,
 		summaries,
 		ingestionProgress,
+		projectionInvalidations,
 		failures,
 		flushing,
 		completed,
@@ -777,6 +783,120 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
+	it("projects every multi-source replacement chunk before partial pages flush", async () => {
+		const harness = createHarness();
+		const descriptor = createDescriptor("progressive-replacement", {
+			completionMode: "explicit",
+			sourceIds: [SOURCE_ONE, SOURCE_TWO],
+		});
+		await harness.coordinator.register(descriptor);
+		const backend = harness.backends.get(descriptor.operationId);
+		if (!backend) throw new Error("Expected operation backend.");
+
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				descriptor,
+				[
+					createRawDocument("replace-one-a", SOURCE_ONE, 1_700_000_000_010),
+					createRawDocument("replace-one-b", SOURCE_ONE, 1_700_000_000_020),
+					createRawDocument("replace-two-a", SOURCE_TWO, 1_700_000_000_030),
+				],
+				false,
+			),
+		);
+		await waitFor(() => harness.projectionInvalidations.length === 1);
+		expect(harness.projectionInvalidations[0]).toEqual({
+			requestId: descriptor.requestId,
+			operationId: descriptor.operationId,
+			operationEpoch: descriptor.operationEpoch,
+			sourceIds: [SOURCE_ONE, SOURCE_TWO],
+		});
+		const durableBeforeProjection = await backend.getMany<EventSourceManifest>(
+			"sources",
+			[SOURCE_ONE, SOURCE_TWO],
+		);
+		expect(
+			durableBeforeProjection.map((manifest) => ({
+				eventCount: manifest?.eventCount,
+				pages: manifest?.pages.length,
+			})),
+		).toEqual([
+			{ eventCount: 0, pages: 0 },
+			{ eventCount: 0, pages: 0 },
+		]);
+
+		/**
+		 * Builds the two-source viewport used to compare successive previews.
+		 * @param projectionRevision Monotonic render replacement revision.
+		 * @returns Viewport descriptor covering both synthetic source ranges.
+		 */
+		const createViewport = (projectionRevision: number) => ({
+			operationId: descriptor.operationId,
+			operationEpoch: descriptor.operationEpoch,
+			viewportRevision: 1,
+			projectionRevision,
+			frame: { min: 1_700_000_000_000, max: 1_700_000_000_100 },
+			width: 100,
+			scale: 1,
+			scrollX: 0,
+			horizontalOverscanPixels: 0,
+			sources: [SOURCE_ONE, SOURCE_TWO].map((sourceId) => ({
+				sourceId,
+				offset: 0,
+				engine: "default" as const,
+				frequency: 0,
+				overrideHashes: [],
+				settingsRevision: 1,
+				overrideRevision: 0,
+			})),
+		});
+		const firstProjection = await harness.coordinator.requestRenderWindow(
+			createViewport(1),
+		);
+		expect(firstProjection?.sources.map((source) => source.loadedCount)).toEqual([
+			2, 1,
+		]);
+		expect(
+			firstProjection?.sources.map((source) => source.sourceStatus),
+		).toEqual(["building", "building"]);
+
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				descriptor,
+				[
+					createRawDocument("replace-one-c", SOURCE_ONE, 1_700_000_000_040),
+					createRawDocument("replace-two-b", SOURCE_TWO, 1_700_000_000_050),
+				],
+				true,
+				1,
+			),
+		);
+		await waitFor(() => harness.projectionInvalidations.length === 2);
+		const secondProjection = await harness.coordinator.requestRenderWindow(
+			createViewport(2),
+		);
+		expect(secondProjection?.sources.map((source) => source.loadedCount)).toEqual([
+			3, 2,
+		]);
+
+		await harness.coordinator.complete(descriptor.requestId);
+		const durableAfterCompletion = await backend.getMany<EventSourceManifest>(
+			"sources",
+			[SOURCE_ONE, SOURCE_TWO],
+		);
+		expect(
+			durableAfterCompletion.map((manifest) => ({
+				status: manifest?.status,
+				eventCount: manifest?.eventCount,
+				pageCounts: manifest?.pages.map((page) => page.count),
+			})),
+		).toEqual([
+			{ status: "complete", eventCount: 3, pageCounts: [3] },
+			{ status: "complete", eventCount: 2, pageCounts: [2] },
+		]);
+		harness.coordinator.destroy();
+	});
+
 	it("publishes durable totals for realtime ingestion streams", async () => {
 		const harness = createHarness();
 		const descriptor = createDescriptor("realtime-ingestion-progress", {
@@ -887,7 +1007,7 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
-	it("releases raw chunks after normalization while an earlier page commit is blocked", async () => {
+	it("projects an encoded replacement page while its durable commit is blocked", async () => {
 		const harness = createHarness({
 			rawGlobalByteLimit: 90,
 			rawStreamByteLimit: 90,
@@ -932,6 +1052,44 @@ describe("QueryPersistenceCoordinator", () => {
 			() => harness.coordinator.pendingRawChunkByteCount === 0,
 			60_000,
 		);
+		const projectionDuringCommit = harness.coordinator
+			.requestRenderWindow({
+				operationId: descriptor.operationId,
+				operationEpoch: descriptor.operationEpoch,
+				viewportRevision: 1,
+				projectionRevision: 1,
+				frame: {
+					min: 1_700_000_000_000,
+					max: 1_700_000_050_000,
+				},
+				width: 100,
+				scale: 1,
+				scrollX: 0,
+				horizontalOverscanPixels: 0,
+				sources: [
+					{
+						sourceId: SOURCE_ONE,
+						offset: 0,
+						engine: "default",
+						frequency: 0,
+						overrideHashes: [],
+						settingsRevision: 1,
+						overrideRevision: 0,
+					},
+				],
+			});
+		let projectedDuringCommit:
+			| Awaited<typeof projectionDuringCommit>
+			| undefined;
+		void projectionDuringCommit.then((projection) => {
+			projectedDuringCommit = projection;
+		});
+		await waitFor(() => projectedDuringCommit !== undefined, 5_000);
+		expect(projectedDuringCommit?.sources[0].loadedCount).toBe(EVENT_PAGE_SIZE);
+		expect(await repository.getSourceSummary(SOURCE_ONE)).toMatchObject({
+			status: "building",
+			eventCount: 0,
+		});
 		expect(
 			harness.acknowledgements.filter(({ stage }) => stage === "accepted"),
 		).toHaveLength(3);
@@ -956,6 +1114,7 @@ describe("QueryPersistenceCoordinator", () => {
 		expect(harness.failures).toHaveLength(0);
 
 		releaseFirstCommit();
+		await projectionDuringCommit;
 		await waitFor(
 			() => harness.completed.includes(descriptor.requestId),
 			60_000,

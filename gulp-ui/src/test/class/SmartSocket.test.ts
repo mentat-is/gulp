@@ -293,6 +293,7 @@ describe("SmartSocket lifecycle", () => {
 		const listener = jest.fn();
 		const summaries: string[] = [];
 		const states: string[] = [];
+		const projectionInvalidations: string[][] = [];
 		socket.on(SmartSocket.Message.Type.DOCUMENTS_CHUNK, listener);
 		const unsubscribeSummaries = socket.subscribeSourceSummaries((event) => {
 			summaries.push(`${event.operationEpoch}:${event.summary.status}`);
@@ -300,6 +301,10 @@ describe("SmartSocket lifecycle", () => {
 		const unsubscribeStates = socket.subscribeDocumentStreamStates((change) => {
 			states.push(change.state);
 		});
+		const unsubscribeProjectionInvalidations =
+			socket.subscribeProjectionInvalidations((event) => {
+				projectionInvalidations.push([...event.sourceIds]);
+			});
 		await socket.registerDocumentStream({
 			requestId: "persist-request",
 			operationId: "operation-one",
@@ -340,6 +345,7 @@ describe("SmartSocket lifecycle", () => {
 
 		expect(listener).not.toHaveBeenCalled();
 		expect(summaries.includes("3:complete")).toBe(true);
+		expect(projectionInvalidations).toEqual([["source-one"]]);
 		expect(states).toEqual([
 			"registered",
 			"streaming",
@@ -348,6 +354,7 @@ describe("SmartSocket lifecycle", () => {
 		]);
 		unsubscribeSummaries();
 		unsubscribeStates();
+		unsubscribeProjectionInvalidations();
 	});
 
 	it("publishes compact ingestion progress without forwarding documents", async () => {

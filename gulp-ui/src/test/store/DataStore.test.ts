@@ -116,6 +116,30 @@ describe("DataStore source insertion", () => {
 		unsubscribe();
 	});
 
+	it("keeps transient replacement sources visible until a durable summary arrives", () => {
+		DataStore.publishEventSourceSummary(
+			createSourceSummary({
+				status: "building",
+				revision: 1,
+				eventCount: 0,
+				minTimestamp: 0,
+				maxTimestamp: 0,
+			}),
+			"immediate",
+		);
+		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 5)).toBe(false);
+
+		expect(DataStore.markTransientEventSources([SOURCE_ID])).toBe(true);
+		expect(DataStore.markTransientEventSources([SOURCE_ID])).toBe(false);
+		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 0)).toBe(true);
+
+		DataStore.publishEventSourceSummary(
+			createSourceSummary({ eventCount: 0, minTimestamp: 0, maxTimestamp: 0 }),
+			"immediate",
+		);
+		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 0)).toBe(false);
+	});
+
 	it("keeps an empty query source visible while it has supplemental events", () => {
 		DataStore.publishEventSourceSummary(
 			createSourceSummary({ eventCount: 0, minTimestamp: 0, maxTimestamp: 0 }),

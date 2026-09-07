@@ -8,6 +8,7 @@ import {
 	type EventStoreOverridePreparationDescriptor,
 	type EventStoreOverridePreparationResult,
 	type EventStoreViewportDescriptor,
+	type EventStoreViewportTransientPage,
 } from "@/event-store/EventStore.viewport-projector";
 import {
 	EventStoreRepository,
@@ -40,6 +41,7 @@ import type {
 	DocumentStreamFinalization,
 	IngestionDocumentStreamKind,
 	QueryIngestionProgressEvent,
+	QueryProjectionInvalidationEvent,
 	QueryRenderWindowDescriptor,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
@@ -111,6 +113,7 @@ interface QueryViewportProjector {
 	requestRenderWindow(
 		descriptor: EventStoreViewportDescriptor,
 		isCurrent?: () => boolean,
+		transientPages?: ReadonlyMap<Source.Id, EventStoreViewportTransientPage>,
 	): Promise<RenderWindowProjection>;
 	prepareOverrideRevision?(
 		descriptor: EventStoreOverridePreparationDescriptor,
@@ -120,6 +123,7 @@ interface QueryViewportProjector {
 export interface QueryPersistenceCallbacks {
 	onSourceSummary: (event: QuerySourceSummaryEvent) => void;
 	onIngestionProgress: (event: QueryIngestionProgressEvent) => void;
+	onProjectionInvalidation?: (event: QueryProjectionInvalidationEvent) => void;
 	onStreamFailure: (event: QueryStreamFailureEvent) => void;
 	onStreamFlushing: (requestId: string) => void;
 	onStreamCompleted: (requestId: string) => void;
@@ -164,6 +168,9 @@ interface PageBuilderSourceContext {
 	nextPageId: number;
 	revision: number;
 	pendingDocuments: Doc.Type[];
+	pendingRevision: number;
+	previewPage: EventStoreViewportTransientPage | null;
+	appendInFlight: boolean;
 }
 
 interface PersistenceStreamContext {
@@ -495,12 +502,20 @@ export class QueryPersistenceCoordinator {
 		if (pendingRelease) await pendingRelease;
 		const operation = await this.getOperation(descriptor.operationId);
 		const viewportDescriptor: EventStoreViewportDescriptor = descriptor;
+		const viewportSourceIds = viewportDescriptor.sources.map(
+			(source) => source.sourceId,
+		);
 		while (isNewest()) {
 			try {
+				const transientPages = this.createTransientProjectionPages(
+					operation,
+					viewportSourceIds,
+				);
 				const projection =
 					await operation.projector.requestRenderWindow(
 						viewportDescriptor,
 						isNewest,
+						transientPages,
 					);
 				return isNewest() ? projection : null;
 			} catch (error) {
@@ -521,6 +536,78 @@ export class QueryPersistenceCoordinator {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Exposes current replacement residuals or encoded in-flight commits as
+	 * request-local pages for progressive rendering.
+	 * @param operation Operation owning the requested viewport.
+	 * @param sourceIds Visible source identities eligible for a preview.
+	 * @returns At most one bounded transient page per visible replacement source.
+	 */
+	private createTransientProjectionPages(
+		operation: OperationPersistenceContext,
+		sourceIds: readonly Source.Id[],
+	): ReadonlyMap<Source.Id, EventStoreViewportTransientPage> {
+		const visible = new Set(sourceIds);
+		const transientPages = new Map<Source.Id, EventStoreViewportTransientPage>();
+		for (const context of this.streams.values()) {
+			if (
+				context.operation !== operation ||
+				(context.descriptor.kind ?? "query-upsert") !== "replace" ||
+				context.failed ||
+				context.completed ||
+				context.canceling
+			) {
+				continue;
+			}
+			for (const source of context.pageBuilderSources.values()) {
+				if (
+					!visible.has(source.sourceId) ||
+					(source.pendingDocuments.length === 0 && !source.previewPage)
+				) {
+					continue;
+				}
+				const manifest = operation.manifests.get(source.sourceId);
+				if (
+					!manifest ||
+					manifest.status !== "building" ||
+					manifest.generation !== source.generation ||
+					manifest.revision !== source.revision
+				) {
+					continue;
+				}
+				if (!source.previewPage) {
+					const finalHandle =
+						source.nextHandle + source.pendingDocuments.length - 1;
+					if (finalHandle > EVENT_MAXIMUM_SOURCE_HANDLE) {
+						throw new QueryPersistenceError(
+							"storage",
+							`Source ${source.sourceId} exhausted uint32 event handles.`,
+						);
+					}
+					const handles = Uint32Array.from(
+						source.pendingDocuments,
+						(_, index) => source.nextHandle + index,
+					);
+					source.previewPage = {
+						baseGeneration: source.generation,
+						baseRevision: source.revision,
+						page: encodeEventPage({
+							sourceId: source.sourceId,
+							generation: source.generation,
+							pageId: source.nextPageId,
+							revision:
+								source.revision + source.pendingRevision + 1,
+							documents: source.pendingDocuments,
+							handles,
+						}),
+					};
+				}
+				transientPages.set(source.sourceId, source.previewPage);
+			}
+		}
+		return transientPages;
 	}
 
 	/**
@@ -1108,6 +1195,7 @@ export class QueryPersistenceCoordinator {
 					normalized.grouped,
 				);
 				documentCredit = 0;
+				this.publishProjectionInvalidation(context, sourceIds);
 				await this.flushPageBuilderPages(context, false);
 			} else {
 				await this.waitForAll(
@@ -1141,6 +1229,35 @@ export class QueryPersistenceCoordinator {
 				await this.deleteJournalEntry(context, normalized.journalId);
 			}
 		}
+	}
+
+	/**
+	 * Notifies Canvas as soon as a replace chunk enters worker-owned page builders.
+	 * @param context Replacement stream owning the page builders.
+	 * @param sourceIds Sources changed by the normalized chunk.
+	 * @returns Nothing.
+	 */
+	private publishProjectionInvalidation(
+		context: PersistenceStreamContext,
+		sourceIds: readonly Source.Id[],
+	): void {
+		if ((context.descriptor.kind ?? "query-upsert") !== "replace") return;
+		const pendingSourceIds = sourceIds.filter(
+			(sourceId) => {
+				const source = context.pageBuilderSources.get(sourceId);
+				return Boolean(
+					source &&
+						(source.pendingDocuments.length > 0 || source.previewPage),
+				);
+			},
+		);
+		if (pendingSourceIds.length === 0) return;
+		this.callbacks.onProjectionInvalidation?.({
+			requestId: context.descriptor.requestId,
+			operationId: context.descriptor.operationId,
+			operationEpoch: context.descriptor.operationEpoch,
+			sourceIds: pendingSourceIds,
+		});
 	}
 
 	/**
@@ -1791,6 +1908,9 @@ export class QueryPersistenceCoordinator {
 					nextPageId: 0,
 					revision: summary.revision,
 					pendingDocuments: [],
+					pendingRevision: 0,
+					previewPage: null,
+					appendInFlight: false,
 				});
 				await this.afterCommit(context, summary);
 			}),
@@ -1940,6 +2060,8 @@ export class QueryPersistenceCoordinator {
 		}
 		for (const transfer of transfers) {
 			transfer.source.pendingDocuments.push(...transfer.documents);
+			transfer.source.pendingRevision += 1;
+			transfer.source.previewPage = null;
 		}
 		this.currentPendingDocuments = Math.max(
 			0,
@@ -2000,6 +2122,14 @@ export class QueryPersistenceCoordinator {
 		documents: readonly Doc.Type[],
 	): Promise<void> {
 		if (documents.length === 0) return;
+		if (source.appendInFlight) {
+			throw new QueryPersistenceError(
+				"storage",
+				`Source ${source.sourceId} already has a page commit in flight.`,
+			);
+		}
+		source.appendInFlight = true;
+		let committingPreview: EventStoreViewportTransientPage | null = null;
 		try {
 			const finalHandle = source.nextHandle + documents.length - 1;
 			if (finalHandle > EVENT_MAXIMUM_SOURCE_HANDLE) {
@@ -2020,6 +2150,12 @@ export class QueryPersistenceCoordinator {
 				documents,
 				handles,
 			});
+			committingPreview = {
+				baseGeneration: source.generation,
+				baseRevision: source.revision,
+				page,
+			};
+			source.previewPage = committingPreview;
 			const summary = await this.withCommitSlot(() =>
 				context.operation.repository.appendPages({
 					sourceId: source.sourceId,
@@ -2034,6 +2170,8 @@ export class QueryPersistenceCoordinator {
 			source.revision = summary.revision;
 			await this.afterCommit(context, summary);
 		} finally {
+			if (source.previewPage === committingPreview) source.previewPage = null;
+			source.appendInFlight = false;
 			this.currentPageBuilderDocuments = Math.max(
 				0,
 				this.currentPageBuilderDocuments - documents.length,
@@ -2059,6 +2197,8 @@ export class QueryPersistenceCoordinator {
 			sources.map(async (source) => {
 				while (source.pendingDocuments.length >= EVENT_PAGE_SIZE) {
 					const documents = source.pendingDocuments.splice(0, EVENT_PAGE_SIZE);
+					source.pendingRevision += 1;
+					source.previewPage = null;
 					await this.appendPageBuilderPage(context, source, documents);
 				}
 			}),
@@ -2071,6 +2211,8 @@ export class QueryPersistenceCoordinator {
 						0,
 						source.pendingDocuments.length,
 					);
+					source.pendingRevision += 1;
+					source.previewPage = null;
 					await this.appendPageBuilderPage(context, source, documents);
 				}),
 			);
@@ -2090,6 +2232,8 @@ export class QueryPersistenceCoordinator {
 				0,
 				source.pendingDocuments.length,
 			);
+			source.pendingRevision += 1;
+			source.previewPage = null;
 			await this.appendPageBuilderPage(context, source, documents);
 		}
 	}

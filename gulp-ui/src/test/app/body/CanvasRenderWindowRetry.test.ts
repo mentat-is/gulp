@@ -98,6 +98,35 @@ describe("Canvas render-window retry policy", () => {
 		).toBe(false);
 	});
 
+	it("accepts only the canonical empty placeholder before a source has its first summary", () => {
+		expect(
+			isCanvasRenderWindowSourceAcceptable(
+				{
+					sourceAuthorityRevision: 0,
+					sourceGeneration: 0,
+					sourceRevision: 0,
+					sourceStatus: "incomplete",
+					loadedCount: 0,
+				},
+				undefined,
+				undefined,
+			),
+		).toBe(true);
+		expect(
+			isCanvasRenderWindowSourceAcceptable(
+				{
+					sourceAuthorityRevision: 1,
+					sourceGeneration: 1,
+					sourceRevision: 1,
+					sourceStatus: "complete",
+					loadedCount: 1,
+				},
+				undefined,
+				undefined,
+			),
+		).toBe(false);
+	});
+
 	it("rejects obsolete generations and requires exact terminal authority", () => {
 		const summary = {
 			authorityRevision: 8,

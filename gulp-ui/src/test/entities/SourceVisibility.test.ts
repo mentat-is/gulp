@@ -164,4 +164,22 @@ describe("Source progressive LOD visibility", () => {
 		expect(app.timeline.renderVersion).toBe(renderVersion);
 		expect(Source.Entity.rendered(app).map(({ id }) => id)).toEqual([SOURCE_ID]);
 	});
+
+	it("shows a source as soon as its transient replacement page is available", () => {
+		const source = createSource();
+		const app = createApp(source);
+
+		DataStore.publishEventSourceSummary(createBuildingSummary(), "immediate");
+		expect(Source.Entity.rendered(app)).toEqual([]);
+
+		DataStore.markTransientEventSources([SOURCE_ID]);
+
+		expect(Source.Entity.rendered(app).map(({ id }) => id)).toEqual([SOURCE_ID]);
+
+		DataStore.publishEventSourceSummary(
+			createBuildingSummary({ revision: 2, status: "complete" }),
+			"immediate",
+		);
+		expect(Source.Entity.rendered(app)).toEqual([]);
+	});
 });

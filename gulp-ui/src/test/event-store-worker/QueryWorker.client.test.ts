@@ -5,6 +5,7 @@ import type {
 	QuerySocketMessage,
 	QuerySocketState,
 	QueryIngestionProgressEvent,
+	QueryProjectionInvalidationEvent,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 	QueryWorkerCommand,
@@ -115,6 +116,7 @@ describe("QueryWorkerClient", () => {
 		const streamChanges: DocumentStreamStateChange[] = [];
 		const sourceSummaries: QuerySourceSummaryEvent[] = [];
 		const ingestionProgress: QueryIngestionProgressEvent[] = [];
+		const projectionInvalidations: QueryProjectionInvalidationEvent[] = [];
 		const streamFailures: QueryStreamFailureEvent[] = [];
 		const protocolErrors: QuerySocketErrorDetails[] = [];
 		let socketOpenCount = 0;
@@ -129,6 +131,8 @@ describe("QueryWorkerClient", () => {
 			onStreamStateChange: (change) => streamChanges.push(change),
 			onSourceSummary: (event) => sourceSummaries.push(event),
 			onIngestionProgress: (event) => ingestionProgress.push(event),
+			onProjectionInvalidation: (event) =>
+				projectionInvalidations.push(event),
 			onStreamFailure: (event) => streamFailures.push(event),
 			onProtocolError: (details) => protocolErrors.push(details),
 		};
@@ -196,6 +200,16 @@ describe("QueryWorkerClient", () => {
 			sourceEventCounts: { [SOURCE_ONE]: 750 },
 		};
 		worker.emitWorkerEvent({ type: "INGESTION_PROGRESS", event: sourceProgress });
+		const projectionInvalidation: QueryProjectionInvalidationEvent = {
+			requestId: "worker-request",
+			operationId: "operation-one",
+			operationEpoch: 7,
+			sourceIds: [SOURCE_ONE],
+		};
+		worker.emitWorkerEvent({
+			type: "PROJECTION_INVALIDATED",
+			event: projectionInvalidation,
+		});
 		const streamFailure: QueryStreamFailureEvent = {
 			requestId: "another-request",
 			operationId: "operation-one",
@@ -337,6 +351,7 @@ describe("QueryWorkerClient", () => {
 		expect(socketErrors).toHaveLength(0);
 		expect(sourceSummaries).toEqual([sourceSummary]);
 		expect(ingestionProgress).toEqual([sourceProgress]);
+		expect(projectionInvalidations).toEqual([projectionInvalidation]);
 		expect(streamFailures).toEqual([streamFailure]);
 		expect(streamChanges).toHaveLength(0);
 		expect(protocolErrors).toHaveLength(0);

@@ -142,6 +142,11 @@ import {
 	type CanvasRenderWindowPriority,
 } from "./CanvasRenderWindowScheduler";
 import {
+	canReuseCanvasRenderWindow,
+	createCanvasRenderWindowCoverage,
+	type CanvasRenderWindowCoverage,
+} from "./CanvasRenderWindowCoverage";
+import {
 	EVENT_MAIN_CACHE_SIZE,
 	EVENT_PIXEL_PAGE_SIZE,
 	EVENT_RENDER_PROJECTION_LIMIT,
@@ -396,6 +401,10 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const workerAcceptedProjectionSourcesRef = useRef(
 		new Map<Source.Id, CanvasAcceptedRenderWindowSourceState>(),
 	);
+	const workerAcceptedRenderWindowCoverageRef =
+		useRef<CanvasRenderWindowCoverage | null>(null);
+	const workerRequestedRenderWindowDescriptorRef =
+		useRef<QueryRenderWindowDescriptor | null>(null);
 	const [scaleCommitGuard] = useState(
 		() => new CanvasScaleCommitGuard(app.timeline.scale),
 	);
@@ -1891,6 +1900,11 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					sourceId as Source.Id,
 				);
 			}
+			const requestedDescriptor =
+				workerRequestedRenderWindowDescriptorRef.current;
+			workerAcceptedRenderWindowCoverageRef.current = requestedDescriptor
+				? createCanvasRenderWindowCoverage(requestedDescriptor, projection)
+				: null;
 			client.queueDataPatch("render-window", {
 				globalRevision: DataStore.getRenderSequence(),
 				renderWindow: projection,
@@ -2029,7 +2043,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			operationId: operation.id,
 			operationEpoch,
 			viewportRevision,
-			projectionRevision: ++workerLodProjectionRevisionRef.current,
+			projectionRevision: workerLodProjectionRevisionRef.current + 1,
 			frame: {
 				min: Info.app.timeline.frame.min,
 				max: Info.app.timeline.frame.max,
@@ -2074,9 +2088,21 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					settingsRevision:
 						workerSourceMetadataRevisionsRef.current.get(source.id) ?? 0,
 					overrideRevision,
-					};
-				}),
+				};
+			}),
 		};
+		if (
+			priority === "normal" &&
+			canReuseCanvasRenderWindow(
+				workerAcceptedRenderWindowCoverageRef.current,
+				descriptor,
+				(sourceId) => DataStore.getEventSourceSummary(sourceId),
+			)
+		) {
+			return;
+		}
+		workerLodProjectionRevisionRef.current = descriptor.projectionRevision;
+		workerRequestedRenderWindowDescriptorRef.current = descriptor;
 		const requestFence: CanvasRenderWindowRequestFence = {
 			socket,
 			operationEpoch,
@@ -3067,9 +3093,36 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			if (!viewportSourceIds.has(summary.sourceId)) return;
 			requestProjection(isTerminal);
 		});
+		const socket = SmartSocket.Class.instance;
+		const unsubscribeProjectionInvalidations = socket
+			? socket.subscribeProjectionInvalidations((event) => {
+					if (
+						event.operationEpoch !== DataStore.getRenderOperationEpoch() ||
+						event.operationId !== DataStore.getRenderOperationId()
+					) {
+						return;
+					}
+					const sourceVisibilityHintChanged =
+						DataStore.markTransientEventSources(event.sourceIds);
+					if (rendererBackendRef.current !== "worker") return;
+					const client = workerClientRef.current;
+					if (sourceVisibilityHintChanged && client) {
+						syncWorkerSourcesRef.current(client, false);
+						return;
+					}
+					const viewportSourceIds = getCurrentCanvasViewportSourceIds();
+					if (
+						!event.sourceIds.some((sourceId) => viewportSourceIds.has(sourceId))
+					) {
+						return;
+					}
+					requestProjection(false);
+				})
+			: () => undefined;
 
 		return () => {
 			unsubscribe();
+			unsubscribeProjectionInvalidations();
 			if (pendingProjection) clearTimeout(pendingProjection);
 		};
 	}, [
@@ -3140,6 +3193,8 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				workerProjectionScheduler.cancelAll();
 				workerRenderWindowScheduler.reset();
 				workerAcceptedProjectionSourcesRef.current.clear();
+				workerAcceptedRenderWindowCoverageRef.current = null;
+				workerRequestedRenderWindowDescriptorRef.current = null;
 				workerKnownSourceIdsRef.current.clear();
 				workerGraphSignaturesRef.current.clear();
 				workerSourceMetadataSignaturesRef.current.clear();

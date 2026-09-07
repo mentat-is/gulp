@@ -8,6 +8,7 @@ import type {
 	QuerySocketState,
 	QueryRenderWindowDescriptor,
 	QueryIngestionProgressEvent,
+	QueryProjectionInvalidationEvent,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 	QueryWorkerDiagnostics,
@@ -30,6 +31,7 @@ export interface QueryTransportCallbacks {
 	onStreamStateChange: (change: DocumentStreamStateChange) => void;
 	onSourceSummary: (event: QuerySourceSummaryEvent) => void;
 	onIngestionProgress: (event: QueryIngestionProgressEvent) => void;
+	onProjectionInvalidation?: (event: QueryProjectionInvalidationEvent) => void;
 	onStreamFailure: (event: QueryStreamFailureEvent) => void;
 	onProtocolError: (details: QuerySocketErrorDetails) => void;
 }

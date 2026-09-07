@@ -6,7 +6,11 @@ import {
 	type RenderWindowProjection,
 	type RenderWindowSourceProjection,
 } from "@/render-worker/RenderWorker.types";
-import { buildEventPageLod } from "./EventPage.codec";
+import {
+	buildEventPageHeight,
+	buildEventPageLod,
+	createEventPageCatalogEntry,
+} from "./EventPage.codec";
 import type {
 	EventStoreBackend,
 	EventStoreWriteOperation,
@@ -26,6 +30,10 @@ import {
 const DEFAULT_MAXIMUM_REPRESENTATIVES = EVENT_RENDER_PROJECTION_LIMIT;
 export const EVENT_HEIGHT_MAXIMUM_WORKING_BUCKET_LIMIT = 65_536;
 const PROJECTION_GUARD_CHECK_MASK = 0xff;
+const EXACT_PAGE_CACHE_BYTE_LIMIT = 16 * 1024 * 1024;
+const LOD_PAGE_CACHE_BYTE_LIMIT = 4 * 1024 * 1024;
+const HEIGHT_PAGE_CACHE_BYTE_LIMIT = 4 * 1024 * 1024;
+const TRANSIENT_PAGE_RECORD = Symbol("EventStoreViewportTransientPage");
 
 /** Reports whether the viewport request owning projection work is still current. */
 export type EventStoreProjectionGuard = () => boolean;
@@ -52,6 +60,13 @@ export interface EventStoreViewportDescriptor {
 	sources: readonly EventStoreViewportSourceDescriptor[];
 	maxRepresentatives?: number;
 	evictedSourceIds?: readonly Source.Id[];
+}
+
+/** Worker-local partial page whose durable base manifest has not changed yet. */
+export interface EventStoreViewportTransientPage {
+	baseGeneration: number;
+	baseRevision: number;
+	page: EncodedEventPage;
 }
 
 export interface EventStoreOverridePreparationDescriptor {
@@ -143,8 +158,111 @@ interface HeightMaximumStatistics {
 	maximumBucketCount: number;
 }
 
+interface ProjectionPageCacheEntry<TValue> {
+	sourceId: Source.Id;
+	encodedBytes: number;
+	value: TValue;
+}
+
+interface TransientProjectionPageRecord {
+	exact: EncodedEventPage;
+	lod: EncodedEventPageLod;
+	height: EncodedEventPageHeight;
+}
+
+interface ProjectionPageCatalogEntry extends EventPageCatalogEntry {
+	[TRANSIENT_PAGE_RECORD]?: TransientProjectionPageRecord;
+}
+
+/**
+ * Retains immutable projection pages in access order under an explicit byte cap.
+ * Values are never exposed outside QueryWorker, so cache hits avoid another
+ * IndexedDB structured clone without changing transfer ownership.
+ */
+class BoundedProjectionPageCache<TValue> {
+	private readonly entries = new Map<string, ProjectionPageCacheEntry<TValue>>();
+	private encodedBytes = 0;
+
+	/**
+	 * Creates one least-recently-used cache with a strict encoded-byte ceiling.
+	 * @param byteLimit Maximum retained encoded bytes.
+	 */
+	public constructor(private readonly byteLimit: number) {}
+
+	/**
+	 * Returns one cached value and promotes it to most-recently-used.
+	 * @param key Revision-qualified page identity.
+	 * @returns Cached immutable value, or undefined after a miss.
+	 */
+	public get(key: string): TValue | undefined {
+		const entry = this.entries.get(key);
+		if (!entry) return undefined;
+		this.entries.delete(key);
+		this.entries.set(key, entry);
+		return entry.value;
+	}
+
+	/**
+	 * Stores one immutable value unless it cannot fit inside the cache by itself.
+	 * @param key Revision-qualified page identity.
+	 * @param sourceId Source owning the page.
+	 * @param encodedBytes Encoded payload size used for capacity accounting.
+	 * @param value Immutable page value.
+	 * @returns Nothing.
+	 */
+	public set(
+		key: string,
+		sourceId: Source.Id,
+		encodedBytes: number,
+		value: TValue,
+	): void {
+		if (!Number.isFinite(encodedBytes) || encodedBytes <= 0) return;
+		const size = Math.max(1, Math.floor(encodedBytes));
+		const existing = this.entries.get(key);
+		if (existing) {
+			this.encodedBytes -= existing.encodedBytes;
+			this.entries.delete(key);
+		}
+		if (size > this.byteLimit) return;
+		while (this.encodedBytes + size > this.byteLimit) {
+			const oldest = this.entries.entries().next().value as
+				| [string, ProjectionPageCacheEntry<TValue>]
+				| undefined;
+			if (!oldest) break;
+			this.entries.delete(oldest[0]);
+			this.encodedBytes -= oldest[1].encodedBytes;
+		}
+		this.entries.set(key, { sourceId, encodedBytes: size, value });
+		this.encodedBytes += size;
+	}
+
+	/**
+	 * Releases entries for a source that left the vertically retained viewport.
+	 * @param sourceId Source whose pages should be evicted.
+	 * @returns Nothing.
+	 */
+	public deleteSource(sourceId: Source.Id): void {
+		for (const [key, entry] of this.entries) {
+			if (entry.sourceId !== sourceId) continue;
+			this.entries.delete(key);
+			this.encodedBytes -= entry.encodedBytes;
+		}
+	}
+
+	/**
+	 * Returns the current bounded encoded working-set size.
+	 * @returns Retained encoded bytes.
+	 */
+	public get sizeBytes(): number {
+		return this.encodedBytes;
+	}
+}
+
 export interface EventStoreViewportProjectorDiagnostics {
 	maximumHeightWorkingBuckets: number;
+	exactPageCacheBytes: number;
+	lodPageCacheBytes: number;
+	heightPageCacheBytes: number;
 }
 
 /**
@@ -158,6 +276,15 @@ export class EventStoreViewportProjector {
 		string,
 		CachedFrameEventCount
 	>();
+	private readonly exactPageCache = new BoundedProjectionPageCache<EncodedEventPage>(
+		EXACT_PAGE_CACHE_BYTE_LIMIT,
+	);
+	private readonly lodPageCache =
+		new BoundedProjectionPageCache<EncodedEventPageLod>(LOD_PAGE_CACHE_BYTE_LIMIT);
+	private readonly heightPageCache =
+		new BoundedProjectionPageCache<EncodedEventPageHeight>(
+			HEIGHT_PAGE_CACHE_BYTE_LIMIT,
+		);
 	private maximumHeightWorkingBuckets = 0;
 
 	/**
@@ -170,11 +297,14 @@ export class EventStoreViewportProjector {
 
 	/**
 	 * Returns bounded working-set telemetry for capacity and overlap regression tests.
-	 * @returns Highest number of height buckets allocated by one maximum sweep window.
+	 * @returns Height sweep high-water mark and current page-cache byte usage.
 	 */
 	public getDiagnostics(): EventStoreViewportProjectorDiagnostics {
 		return {
 			maximumHeightWorkingBuckets: this.maximumHeightWorkingBuckets,
+			exactPageCacheBytes: this.exactPageCache.sizeBytes,
+			lodPageCacheBytes: this.lodPageCache.sizeBytes,
+			heightPageCacheBytes: this.heightPageCache.sizeBytes,
 		};
 	}
 
@@ -182,26 +312,44 @@ export class EventStoreViewportProjector {
 	 * Builds one atomic multi-source projection with a global representative cap.
 	 * @param descriptor Viewport transform, visible sources, and revision authority.
 	 * @param isCurrent Optional guard that rejects work superseded by a newer viewport.
+	 * @param transientPages Optional bounded replacement-builder pages not yet durable.
 	 * @returns Exact-size typed arrays ready for zero-copy renderer adoption.
 	 */
 	public async requestRenderWindow(
 		descriptor: EventStoreViewportDescriptor,
 		isCurrent: EventStoreProjectionGuard = () => true,
+		transientPages: ReadonlyMap<Source.Id, EventStoreViewportTransientPage> =
+			new Map(),
 	): Promise<RenderWindowProjection> {
 		this.assertDescriptor(descriptor);
 		this.assertProjectionCurrent(isCurrent);
 		for (const sourceId of descriptor.evictedSourceIds ?? []) {
 			this.heightMaximumBySource.delete(sourceId);
 			this.frameEventCountBySource.delete(sourceId);
+			this.exactPageCache.deleteSource(sourceId);
+			this.lodPageCache.deleteSource(sourceId);
+			this.heightPageCache.deleteSource(sourceId);
 		}
 		const bucketPixelWidth = this.calculateBucketPixelWidth(descriptor);
+		const manifests = await this.backend.getMany<EventSourceHeadManifest>(
+			"sources",
+			descriptor.sources.map((source) => source.sourceId),
+		);
+		this.assertProjectionCurrent(isCurrent);
 		const sources: RenderWindowSourceProjection[] = [];
-		for (const source of descriptor.sources) {
+		for (let index = 0; index < descriptor.sources.length; index++) {
 			this.assertProjectionCurrent(isCurrent);
+			const source = descriptor.sources[index];
+			const manifest = this.withTransientPage(
+				manifests[index],
+				source,
+				transientPages.get(source.sourceId),
+			);
 			sources.push(
 				await this.projectSource(
 					descriptor,
 					source,
+					manifest,
 					bucketPixelWidth,
 					isCurrent,
 				),
@@ -216,6 +364,73 @@ export class EventStoreViewportProjector {
 			projectionRevision: descriptor.projectionRevision,
 			sources,
 			evictedSourceIds: [...(descriptor.evictedSourceIds ?? [])],
+		};
+	}
+
+	/**
+	 * Adds one worker-owned partial builder page to a matching building manifest.
+	 * The symbol-backed records remain request-local and can never be persisted.
+	 * @param manifest Durable source authority read for this projection.
+	 * @param source Viewport settings used to derive engine-specific preview data.
+	 * @param transient Optional partial builder page tied to the durable authority.
+	 * @returns Effective preview manifest, or the original durable manifest.
+	 */
+	private withTransientPage(
+		manifest: EventSourceHeadManifest | undefined,
+		source: EventStoreViewportSourceDescriptor,
+		transient: EventStoreViewportTransientPage | undefined,
+	): EventSourceHeadManifest | undefined {
+		if (
+			!manifest ||
+			manifest.status !== "building" ||
+			!transient ||
+			transient.baseGeneration !== manifest.generation ||
+			transient.baseRevision !== manifest.revision ||
+			transient.page.sourceId !== manifest.sourceId ||
+			transient.page.generation !== manifest.generation ||
+			transient.page.activeCount === 0 ||
+			manifest.pages.some((catalog) => catalog.pageId === transient.page.pageId)
+		) {
+			return manifest;
+		}
+		const overrides = new Set(source.overrideHashes);
+		const catalog = createEventPageCatalogEntry(
+			transient.page,
+		) as ProjectionPageCatalogEntry;
+		catalog[TRANSIENT_PAGE_RECORD] = {
+			exact: transient.page,
+			lod: buildEventPageLod(transient.page, {
+				overrideHashes: overrides,
+				overrideRevision: source.overrideRevision,
+				overrideSignature: this.createOverrideSignature(
+					source.overrideRevision,
+					overrides,
+				),
+			}),
+			height: buildEventPageHeight(transient.page),
+		};
+		this.frameEventCountBySource.delete(source.sourceId);
+		const wasEmpty = manifest.eventCount === 0;
+		return {
+			...manifest,
+			eventCount: manifest.eventCount + transient.page.activeCount,
+			nextHandle: Math.max(
+				manifest.nextHandle,
+				catalog.maximumHandle + 1,
+			),
+			minTimestamp: wasEmpty
+				? transient.page.minTimestamp
+				: Math.min(manifest.minTimestamp, transient.page.minTimestamp),
+			maxTimestamp: wasEmpty
+				? transient.page.maxTimestamp
+				: Math.max(manifest.maxTimestamp, transient.page.maxTimestamp),
+			hashMin: wasEmpty
+				? transient.page.hashMin
+				: Math.min(manifest.hashMin, transient.page.hashMin),
+			hashMax: wasEmpty
+				? transient.page.hashMax
+				: Math.max(manifest.hashMax, transient.page.hashMax),
+			pages: [...manifest.pages, catalog],
 		};
 	}
 
@@ -274,34 +489,52 @@ export class EventStoreViewportProjector {
 		);
 		const operations: EventStoreWriteOperation[] = [];
 		const preparedCatalogs: EventPageCatalogEntry[] = [];
+		const preparedLods: Array<{
+			catalog: EventPageCatalogEntry;
+			lod: EncodedEventPageLod;
+		}> = [];
 		for (let index = startPageIndex; index < endPageIndex; index++) {
 			const catalog = manifest.pages[index];
 			const page = await this.loadExactPage(
 				manifest.sourceId,
 				manifest.generation,
-				catalog.pageId,
+				catalog,
 			);
 			this.assertExactPageRevision(page, catalog);
 			preparedCatalogs.push(catalog);
-				operations.push({
+			const lod = buildEventPageLod(page, {
+				overrideHashes,
+				overrideRevision: descriptor.overrideRevision,
+				overrideSignature,
+			});
+			preparedLods.push({ catalog, lod });
+			operations.push({
 				type: "put",
 				store: "page_lod",
-					key: [
-						manifest.sourceId,
-						manifest.generation,
-						catalog.pageId,
-						EVENT_PAGE_LOD_RECORD_KIND,
-					],
-				value: buildEventPageLod(page, {
-					overrideHashes,
-					overrideRevision: descriptor.overrideRevision,
-					overrideSignature,
-				}),
+				key: [
+					manifest.sourceId,
+					manifest.generation,
+					catalog.pageId,
+					EVENT_PAGE_LOD_RECORD_KIND,
+				],
+				value: lod,
 			});
 		}
 		await this.assertManifestRevisionCurrent(manifest, preparedCatalogs);
 		await this.backend.commit(operations);
 		await this.assertManifestRevisionCurrent(manifest, preparedCatalogs);
+		for (const { catalog, lod } of preparedLods) {
+			this.lodPageCache.set(
+				this.createProjectionPageCacheKey(
+					manifest.sourceId,
+					manifest.generation,
+					catalog,
+				),
+				manifest.sourceId,
+				lod.encodedByteLength,
+				lod,
+			);
+		}
 		return {
 			sourceId: descriptor.sourceId,
 			sourceRevision: descriptor.sourceRevision,
@@ -316,6 +549,7 @@ export class EventStoreViewportProjector {
 	 * Projects one visible source according to its active render engine.
 	 * @param descriptor Shared viewport descriptor.
 	 * @param source Source-specific transform and settings.
+	 * @param manifest Source manifest read with the other visible rows.
 	 * @param bucketPixelWidth Globally selected output bucket width.
 	 * @param isCurrent Guard rejecting work superseded by a newer viewport.
 	 * @returns One complete source projection.
@@ -323,14 +557,10 @@ export class EventStoreViewportProjector {
 	private async projectSource(
 		descriptor: EventStoreViewportDescriptor,
 		source: EventStoreViewportSourceDescriptor,
+		manifest: EventSourceHeadManifest | undefined,
 		bucketPixelWidth: number,
 		isCurrent: EventStoreProjectionGuard,
 	): Promise<RenderWindowSourceProjection> {
-		this.assertProjectionCurrent(isCurrent);
-		const manifest = await this.backend.get<EventSourceHeadManifest>(
-			"sources",
-			source.sourceId,
-		);
 		this.assertProjectionCurrent(isCurrent);
 		const transform = this.createTransform(
 			descriptor,
@@ -501,7 +731,7 @@ export class EventStoreViewportProjector {
 			const page = await this.loadExactPage(
 				manifest.sourceId,
 				manifest.generation,
-				catalog.pageId,
+				catalog,
 			);
 			this.assertProjectionCurrent(isCurrent);
 			this.assertExactPageRevision(page, catalog);
@@ -560,7 +790,9 @@ export class EventStoreViewportProjector {
 				lod = await this.loadLodPage(
 					manifest.sourceId,
 					manifest.generation,
-					catalog.pageId,
+					catalog,
+					overrideRevision,
+					overrideSignature,
 				);
 				this.assertProjectionCurrent(isCurrent);
 				this.assertLodPageRevision(lod, catalog);
@@ -597,7 +829,9 @@ export class EventStoreViewportProjector {
 			lod ??= await this.loadLodPage(
 				manifest.sourceId,
 				manifest.generation,
-				catalog.pageId,
+				catalog,
+				overrides.size > 0 ? overrideRevision : undefined,
+				overrides.size > 0 ? overrideSignature : undefined,
 			);
 			this.assertProjectionCurrent(isCurrent);
 			this.assertLodPageRevision(lod, catalog);
@@ -637,7 +871,7 @@ export class EventStoreViewportProjector {
 				exactPage ??= await this.loadExactPage(
 					manifest.sourceId,
 					manifest.generation,
-					catalog.pageId,
+					catalog,
 				);
 				this.assertProjectionCurrent(isCurrent);
 				this.assertExactPageRevision(exactPage, catalog);
@@ -716,7 +950,7 @@ export class EventStoreViewportProjector {
 				const height = await this.loadHeightPage(
 					manifest.sourceId,
 					manifest.generation,
-					catalog.pageId,
+					catalog,
 				);
 				this.assertProjectionCurrent(isCurrent);
 				this.assertHeightPageRevision(height, catalog);
@@ -1023,7 +1257,7 @@ export class EventStoreViewportProjector {
 			const height = await this.loadHeightPage(
 				manifest.sourceId,
 				manifest.generation,
-				catalog.pageId,
+				catalog,
 			);
 			this.assertProjectionCurrent(isCurrent);
 			this.assertHeightPageRevision(height, catalog);
@@ -1048,7 +1282,7 @@ export class EventStoreViewportProjector {
 		const page = await this.loadExactPage(
 			manifest.sourceId,
 			manifest.generation,
-			catalog.pageId,
+			catalog,
 		);
 		this.assertProjectionCurrent(isCurrent);
 		this.assertExactPageRevision(page, catalog);
@@ -1163,7 +1397,7 @@ export class EventStoreViewportProjector {
 			const lod = await this.loadLodPage(
 				manifest.sourceId,
 				manifest.generation,
-				catalog.pageId,
+				catalog,
 			);
 			this.assertProjectionCurrent(isCurrent);
 			this.assertLodPageRevision(lod, catalog);
@@ -1194,7 +1428,7 @@ export class EventStoreViewportProjector {
 				exactPage ??= await this.loadExactPage(
 					manifest.sourceId,
 					manifest.generation,
-					catalog.pageId,
+					catalog,
 				);
 				this.assertProjectionCurrent(isCurrent);
 				this.assertExactPageRevision(exactPage, catalog);
@@ -1420,13 +1654,16 @@ export class EventStoreViewportProjector {
 		projections: readonly RenderWindowSourceProjection[],
 		isCurrent: EventStoreProjectionGuard,
 	): Promise<void> {
-		for (const projection of projections) {
+		this.assertProjectionCurrent(isCurrent);
+		const manifests = await this.backend.getMany<EventSourceHeadManifest>(
+			"sources",
+			projections.map((projection) => projection.sourceId),
+		);
+		this.assertProjectionCurrent(isCurrent);
+		for (let index = 0; index < projections.length; index++) {
 			this.assertProjectionCurrent(isCurrent);
-			const current = await this.backend.get<EventSourceHeadManifest>(
-				"sources",
-				projection.sourceId,
-			);
-			this.assertProjectionCurrent(isCurrent);
+			const projection = projections[index];
+			const current = manifests[index];
 			if (
 				!current &&
 				projection.sourceGeneration === 0 &&
@@ -1545,50 +1782,162 @@ export class EventStoreViewportProjector {
 		}
 	}
 
-	/** Loads one persisted exact page or reports committed metadata corruption. */
+	/**
+	 * Creates a revision-qualified key for one immutable projection page.
+	 * @param sourceId Source owning the page.
+	 * @param generation Physical source generation.
+	 * @param catalog Manifest catalog entry describing the page revision.
+	 * @returns Stable cache key.
+	 */
+	private createProjectionPageCacheKey(
+		sourceId: Source.Id,
+		generation: number,
+		catalog: EventPageCatalogEntry,
+	): string {
+		return JSON.stringify([
+			sourceId,
+			generation,
+			catalog.pageId,
+			catalog.revision,
+		]);
+	}
+
+	/**
+	 * Loads one persisted exact page through the bounded revision-qualified cache.
+	 * @param sourceId Source owning the page.
+	 * @param generation Physical source generation.
+	 * @param catalog Manifest catalog entry identifying the page.
+	 * @returns Exact encoded page.
+	 */
 	private async loadExactPage(
 		sourceId: Source.Id,
 		generation: number,
-		pageId: number,
+		catalog: EventPageCatalogEntry,
 	): Promise<EncodedEventPage> {
+		const transient = (catalog as ProjectionPageCatalogEntry)[
+			TRANSIENT_PAGE_RECORD
+		];
+		if (transient) return transient.exact;
+		const cacheKey = this.createProjectionPageCacheKey(
+			sourceId,
+			generation,
+			catalog,
+		);
+		const cached = this.exactPageCache.get(cacheKey);
+		if (cached) return cached;
 		const page = await this.backend.get<EncodedEventPage>("pages", [
 			sourceId,
 			generation,
-			pageId,
+			catalog.pageId,
 		]);
-		if (!page) throw new Error(`Missing exact event page ${sourceId}/${pageId}.`);
+		if (!page) {
+			throw new Error(`Missing exact event page ${sourceId}/${catalog.pageId}.`);
+		}
+		if (page.revision === catalog.revision) {
+			this.exactPageCache.set(
+				cacheKey,
+				sourceId,
+				page.encodedByteLength,
+				page,
+			);
+		}
 		return page;
 	}
 
-	/** Loads one persisted microblock page or reports committed metadata corruption. */
+	/**
+	 * Loads one persisted microblock page through the bounded revision-qualified cache.
+	 * @param sourceId Source owning the page.
+	 * @param generation Physical source generation.
+	 * @param catalog Manifest catalog entry identifying the page.
+	 * @param expectedOverrideRevision Optional prepared color-override revision.
+	 * @param expectedOverrideSignature Optional prepared override hash signature.
+	 * @returns Encoded LOD page.
+	 */
 	private async loadLodPage(
 		sourceId: Source.Id,
 		generation: number,
-		pageId: number,
+		catalog: EventPageCatalogEntry,
+		expectedOverrideRevision?: number,
+		expectedOverrideSignature?: string,
 	): Promise<EncodedEventPageLod> {
+		const transient = (catalog as ProjectionPageCatalogEntry)[
+			TRANSIENT_PAGE_RECORD
+		];
+		if (transient) return transient.lod;
+		const cacheKey = this.createProjectionPageCacheKey(
+			sourceId,
+			generation,
+			catalog,
+		);
+		const cached = this.lodPageCache.get(cacheKey);
+		if (
+			cached &&
+			(expectedOverrideRevision === undefined ||
+				(cached.overrideRevision === expectedOverrideRevision &&
+					cached.overrideSignature === expectedOverrideSignature))
+		) {
+			return cached;
+		}
 		const lod = await this.backend.get<EncodedEventPageLod>("page_lod", [
 			sourceId,
 			generation,
-			pageId,
+			catalog.pageId,
 			EVENT_PAGE_LOD_RECORD_KIND,
 		]);
-		if (!lod) throw new Error(`Missing LOD event page ${sourceId}/${pageId}.`);
+		if (!lod) {
+			throw new Error(`Missing LOD event page ${sourceId}/${catalog.pageId}.`);
+		}
+		if (lod.revision === catalog.revision) {
+			this.lodPageCache.set(
+				cacheKey,
+				sourceId,
+				lod.encodedByteLength,
+				lod,
+			);
+		}
 		return lod;
 	}
 
-	/** Loads one persisted height-count page without cloning default-render microblocks. */
+	/**
+	 * Loads one persisted height-count page through its independent bounded cache.
+	 * @param sourceId Source owning the page.
+	 * @param generation Physical source generation.
+	 * @param catalog Manifest catalog entry identifying the page.
+	 * @returns Encoded height-count page.
+	 */
 	private async loadHeightPage(
 		sourceId: Source.Id,
 		generation: number,
-		pageId: number,
+		catalog: EventPageCatalogEntry,
 	): Promise<EncodedEventPageHeight> {
+		const transient = (catalog as ProjectionPageCatalogEntry)[
+			TRANSIENT_PAGE_RECORD
+		];
+		if (transient) return transient.height;
+		const cacheKey = this.createProjectionPageCacheKey(
+			sourceId,
+			generation,
+			catalog,
+		);
+		const cached = this.heightPageCache.get(cacheKey);
+		if (cached) return cached;
 		const height = await this.backend.get<EncodedEventPageHeight>("page_lod", [
 			sourceId,
 			generation,
-			pageId,
+			catalog.pageId,
 			EVENT_PAGE_HEIGHT_RECORD_KIND,
 		]);
-		if (!height) throw new Error(`Missing height event page ${sourceId}/${pageId}.`);
+		if (!height) {
+			throw new Error(`Missing height event page ${sourceId}/${catalog.pageId}.`);
+		}
+		if (height.revision === catalog.revision) {
+			this.heightPageCache.set(
+				cacheKey,
+				sourceId,
+				height.encodedByteLength,
+				height,
+			);
+		}
 		return height;
 	}
 

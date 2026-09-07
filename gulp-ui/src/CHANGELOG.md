@@ -7,6 +7,15 @@
 
 ## UI/UX and Rendering
 
+- `Post-ingest timeline movement`: Reused complete transferred projections while
+  normal pans remain inside horizontal overscan, while preserving fresh requests
+  for building sources, authority changes, and terminal convergence.
+- `Progressive uncached queries`: Rendered partial `query_raw` replacement pages
+  as their chunks arrive for both initial operation loading and Navigator event
+  filters, immediately revealing sources hidden by their zero-event building
+  summary without waiting for a full EventStore page or committing small pages;
+  in-flight IndexedDB appends and selected sources whose query has not registered
+  yet no longer block the complete multi-source viewport.
 - `Global timeline source actions`: Right-clicking outside source rows now opens
   a source-menu-styled context menu that can reuse caches while refetching or
   authoritatively reset filters in bulk for every selected source, including
@@ -23,6 +32,13 @@
 
 ## Architecture and Documentation
 
+- `Viewport projection locality`: Batched visible-source manifest fences and
+  added revision-qualified 16 MiB exact, 4 MiB LOD, and 4 MiB HeightMap page
+  working sets in QueryWorker, avoiding repeated IndexedDB clones for overlapping
+  ingestion pages under a fixed memory bound.
+- `Transient replacement projection`: Added revision-fenced, worker-local partial
+  pages and payload-free Canvas invalidations while preserving dense final
+  IndexedDB pages and the existing normalized-document memory ceiling.
 - `Ingestion EventStore build`: Combined 1,500–2,000-event ingestion chunks
   into 16,384-event pages, journaled raw overflow in IndexedDB without backend
   ACK/backpressure, and promoted completed ingestion generations into the

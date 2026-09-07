@@ -91,7 +91,8 @@ export interface CanvasAcceptedRenderWindowSourceState {
 /**
  * Validates a source projection against summary authority and the last accepted snapshot.
  * Building snapshots may trail a newer summary in the same generation when they still
- * advance Canvas. Terminal snapshots require exact generation, status, revision, and count.
+ * advance Canvas. Before the first summary, the canonical empty placeholder represents
+ * an uninitialized source row. Other terminal snapshots require exact authority.
  * @param projection Projected manifest identity and event count.
  * @param summary Latest compact source authority, when known.
  * @param accepted Last projection transferred for this source, when known.
@@ -112,9 +113,17 @@ export function isCanvasRenderWindowSourceAcceptable(
 	) {
 		return false;
 	}
+	if (!summary) {
+		const isUninitialized =
+			projection.sourceAuthorityRevision === 0 &&
+			projection.sourceGeneration === 0 &&
+			projection.sourceRevision === 0 &&
+			projection.sourceStatus === "incomplete" &&
+			projection.loadedCount === 0;
+		return projection.sourceStatus === "building" || isUninitialized;
+	}
 	if (projection.sourceStatus !== "building") {
 		return (
-			summary !== undefined &&
 			projection.sourceAuthorityRevision === summary.authorityRevision &&
 			projection.sourceGeneration === summary.generation &&
 			projection.sourceRevision === summary.revision &&
@@ -122,7 +131,6 @@ export function isCanvasRenderWindowSourceAcceptable(
 			projection.loadedCount === summary.eventCount
 		);
 	}
-	if (!summary) return true;
 	if (projection.sourceAuthorityRevision < summary.authorityRevision) return false;
 	if (projection.sourceAuthorityRevision > summary.authorityRevision) return true;
 	if (projection.sourceGeneration < summary.generation) return false;

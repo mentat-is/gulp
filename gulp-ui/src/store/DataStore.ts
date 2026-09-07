@@ -178,6 +178,7 @@ export class DataStore {
 		Source.Id,
 		EventSourceSummary
 	>();
+	private static readonly transientEventSourceIds = new Set<Source.Id>();
 	private static readonly collectionRevisions: Record<RenderCollectionName, number> = {
 		notes: 0,
 		links: 0,
@@ -187,6 +188,7 @@ export class DataStore {
 	private static documentVersion = 0;
 	private static overlayVersion = 0;
 	private static renderSequence = 0;
+	private static eventSourceVisibilitySequence = 0;
 	private static notesSyncSequence = 0;
 	private static supplementalEventsRevision = 0;
 	private static operationEpoch = 1;
@@ -402,6 +404,14 @@ export class DataStore {
 	}
 
 	/**
+	 * Returns the version of worker-only source visibility hints.
+	 * @returns Monotonic visibility sequence used by Canvas source memoization.
+	 */
+	public static getEventSourceVisibilitySequence(): number {
+		return DataStore.eventSourceVisibilitySequence;
+	}
+
+	/**
 	 * Returns the current event revision for one source.
 	 * @param sourceId Source whose revision is requested.
 	 * @returns Source-local revision, or zero when the source has not changed.
@@ -465,6 +475,9 @@ export class DataStore {
 		) {
 			return currentSummary;
 		}
+		if (DataStore.transientEventSourceIds.delete(summary.sourceId)) {
+			DataStore.eventSourceVisibilitySequence++;
+		}
 		DataStore.eventSourceSummaries.set(summary.sourceId, summary);
 		DataStore.sourceRevisions.set(summary.sourceId, summary.revision);
 		for (const listener of DataStore.eventSourceSummaryListeners) {
@@ -472,6 +485,26 @@ export class DataStore {
 		}
 		DataStore.notifyMutation(notificationMode, ["documents"]);
 		return summary;
+	}
+
+	/**
+	 * Marks sources with a worker-only partial replacement page as renderable.
+	 * @param sourceIds Sources whose current query residual contains events.
+	 * @returns True when the transient visibility hint set changed.
+	 */
+	public static markTransientEventSources(
+		sourceIds: readonly Source.Id[],
+	): boolean {
+		let changed = false;
+		for (const sourceId of sourceIds) {
+			if (DataStore.transientEventSourceIds.has(sourceId)) continue;
+			DataStore.transientEventSourceIds.add(sourceId);
+			changed = true;
+		}
+		if (!changed) return false;
+		DataStore.eventSourceVisibilitySequence++;
+		DataStore.notifyMutation("deferred", ["documents"]);
+		return true;
 	}
 
 	/**
@@ -561,6 +594,7 @@ export class DataStore {
 		fallbackTotal: number,
 	): boolean {
 		if (DataStore.hasSupplementalEvents(sourceId)) return true;
+		if (DataStore.transientEventSourceIds.has(sourceId)) return true;
 		const summary = DataStore.eventSourceSummaries.get(sourceId);
 		if (summary) return summary.eventCount > 0;
 		const loadedEvents = DataStore.events.get(sourceId);
@@ -1062,6 +1096,7 @@ export class DataStore {
 		DataStore.highlights = [];
 		DataStore.sourceRevisions.clear();
 		DataStore.eventSourceSummaries.clear();
+		DataStore.transientEventSourceIds.clear();
 		DataStore.collectionRevisions.notes = 0;
 		DataStore.collectionRevisions.links = 0;
 		DataStore.collectionRevisions.highlights = 0;

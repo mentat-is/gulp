@@ -187,6 +187,14 @@ export interface QueryIngestionProgressEvent {
 	sourceEventCounts: Readonly<Record<string, number>>;
 }
 
+/** Signals that worker-owned replacement residuals can produce a newer viewport. */
+export interface QueryProjectionInvalidationEvent {
+	requestId: string;
+	operationId: string;
+	operationEpoch: number;
+	sourceIds: readonly Source.Id[];
+}
+
 /** Persistence failure reasons surfaced to the main-thread stream lifecycle. */
 export type QueryStreamFailureReason =
 	| "backlog"
@@ -428,6 +436,12 @@ export interface QueryWorkerIngestionProgressEvent {
 	event: QueryIngestionProgressEvent;
 }
 
+/** Requests a progressive projection after a partial replacement page changed. */
+export interface QueryWorkerProjectionInvalidationEvent {
+	type: "PROJECTION_INVALIDATED";
+	event: QueryProjectionInvalidationEvent;
+}
+
 /** Publishes a persistence failure that requires backend cancellation. */
 export interface QueryWorkerStreamFailureEvent {
 	type: "STREAM_FAILURE";
@@ -477,6 +491,7 @@ export type QueryWorkerEvent =
 	| QueryWorkerStreamStateEvent
 	| QueryWorkerSourceSummaryEvent
 	| QueryWorkerIngestionProgressEvent
+	| QueryWorkerProjectionInvalidationEvent
 	| QueryWorkerStreamFailureEvent
 	| QueryWorkerRenderWindowResultEvent
 	| QueryWorkerDiagnosticsResultEvent

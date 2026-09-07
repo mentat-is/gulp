@@ -549,6 +549,9 @@ export class QueryWorkerClient implements QueryTransport {
 			case "INGESTION_PROGRESS":
 				this.callbacks.onIngestionProgress(event.event);
 				break;
+			case "PROJECTION_INVALIDATED":
+				this.callbacks.onProjectionInvalidation?.(event.event);
+				break;
 			case "STREAM_FAILURE":
 				this.callbacks.onStreamFailure(event.event);
 				break;
