@@ -898,28 +898,49 @@ export namespace Permissions {
 	}
 }
 
-export namespace OperationPermissions {
+export namespace ObjectPermissions {
 	export namespace Banner {
 		export interface Props extends UIBanner.Props {
-			operationId: string;
+			/** Localized title displayed by the permission editor. */
+			title: string;
 			granted_user_ids: string[];
 			granted_user_group_ids: string[];
+			/** Persists one user selection and receives the next complete grant set. */
+			onGrantedUsersChange: (
+				userId: string,
+				selected: boolean,
+				userIds: string[],
+			) => Promise<boolean | void>;
+			/** Persists one group selection and receives the next complete grant set. */
+			onGrantedGroupsChange: (
+				groupId: string,
+				selected: boolean,
+				groupIds: string[],
+			) => Promise<boolean | void>;
 			onSuccess?: () => void;
 		}
 	}
 
+	/**
+	 * Renders a reusable selector for collaboration-object user and group grants.
+	 *
+	 * @param props - Current ACLs, persistence callbacks, title, and banner props.
+	 * @returns A permission banner that reflects selections after persistence.
+	 */
 	export const Banner = ({
-		operationId,
+		title,
 		granted_user_ids,
 		granted_user_group_ids,
+		onGrantedUsersChange,
+		onGrantedGroupsChange,
 		onSuccess,
 		...props
 	}: Banner.Props) => {
-		const { Info, destroyBanner } = Application.use();
 		const { t } = Locale.use();
 		const [users, setUsers] = useState<User.Type[]>([]);
 		const [groups, setGroups] = useState<Group.Type[]>([]);
 		const [loading, setLoading] = useState<boolean>(true);
+		const [saving, setSaving] = useState<boolean>(false);
 
 		// Local sets for selection UI
 		const [selectedUsers, setSelectedUsers] = useState<Set<string>>(
@@ -929,10 +950,12 @@ export namespace OperationPermissions {
 			new Set(granted_user_group_ids),
 		);
 
+		/** Loads the users and groups available to the current session. */
 		const reload = useCallback(() => {
 			let usersLoaded = false;
 			let groupsLoaded = false;
 
+			/** Clears the loading state after both permission lists settle. */
 			const checkDone = () => {
 				if (usersLoaded && groupsLoaded) {
 					setLoading(false);
@@ -956,41 +979,47 @@ export namespace OperationPermissions {
 			reload();
 		}, [reload]);
 
-		const handleUserSelect = (index: number, selected: boolean) => {
+		/**
+		 * Persists and then reflects one user grant selection.
+		 *
+		 * @param index - Selected user table row.
+		 * @param selected - Whether the user should be granted access.
+		 */
+		const handleUserSelect = async (index: number, selected: boolean) => {
 			const user = users[index];
 			if (!user) return;
 
-			if (selected) {
-				Info.add_granted_user("operation", operationId, user.id).then(() =>
-					setSelectedUsers((prev) => new Set(prev).add(user.id)),
-				);
-			} else {
-				Info.remove_granted_user("operation", operationId, user.id).then(() =>
-					setSelectedUsers((prev) => {
-						const next = new Set(prev);
-						next.delete(user.id);
-						return next;
-					}),
-				);
+			const next = new Set(selectedUsers);
+			if (selected) next.add(user.id);
+			else next.delete(user.id);
+			setSaving(true);
+			try {
+				const saved = await onGrantedUsersChange(user.id, selected, [...next]);
+				if (saved !== false) setSelectedUsers(next);
+			} finally {
+				setSaving(false);
 			}
 		};
 
-		const handleGroupSelect = (index: number, selected: boolean) => {
+		/**
+		 * Persists and then reflects one group grant selection.
+		 *
+		 * @param index - Selected group table row.
+		 * @param selected - Whether the group should be granted access.
+		 */
+		const handleGroupSelect = async (index: number, selected: boolean) => {
 			const group = groups[index];
 			if (!group) return;
 
-			if (selected) {
-				Info.add_granted_group("operation", operationId, group.id).then(() =>
-					setSelectedGroups((prev) => new Set(prev).add(group.id)),
-				);
-			} else {
-				Info.remove_granted_group("operation", operationId, group.id).then(() =>
-					setSelectedGroups((prev) => {
-						const next = new Set(prev);
-						next.delete(group.id);
-						return next;
-					}),
-				);
+			const next = new Set(selectedGroups);
+			if (selected) next.add(group.id);
+			else next.delete(group.id);
+			setSaving(true);
+			try {
+				const saved = await onGrantedGroupsChange(group.id, selected, [...next]);
+				if (saved !== false) setSelectedGroups(next);
+			} finally {
+				setSaving(false);
 			}
 		};
 
@@ -1007,8 +1036,8 @@ export namespace OperationPermissions {
 
 		return (
 			<UIBanner
-				title={t("permissions.operationPermissions")}
-				loading={loading}
+				title={title}
+				loading={loading || saving}
 				onClose={onSuccess}
 				{...props}
 			>
@@ -1070,4 +1099,64 @@ export namespace OperationPermissions {
 			</UIBanner>
 		);
 	};
+}
+
+export namespace OperationPermissions {
+	export namespace Banner {
+		export interface Props extends UIBanner.Props {
+			operationId: string;
+			granted_user_ids: string[];
+			granted_user_group_ids: string[];
+			onSuccess?: () => void;
+		}
+	}
+
+	/**
+	 * Adapts the reusable collaboration permission editor to operation ACL APIs.
+	 *
+	 * @param props - Operation identifier, current grants, and banner callbacks.
+	 * @returns The standard user and group permission banner.
+	 */
+	export function Banner({
+		operationId,
+		granted_user_ids,
+		granted_user_group_ids,
+		onSuccess,
+		...props
+	}: Banner.Props) {
+		const { Info } = Application.use();
+		const { t } = Locale.use();
+
+		return (
+			<ObjectPermissions.Banner
+				title={t("permissions.operationPermissions")}
+				granted_user_ids={granted_user_ids}
+				granted_user_group_ids={granted_user_group_ids}
+				onGrantedUsersChange={async (userId, selected) => {
+					if (selected) {
+						await Info.add_granted_user(
+							"operation",
+							operationId,
+							userId,
+						);
+						return;
+					}
+					await Info.remove_granted_user("operation", operationId, userId);
+				}}
+				onGrantedGroupsChange={async (groupId, selected) => {
+					if (selected) {
+						await Info.add_granted_group(
+							"operation",
+							operationId,
+							groupId,
+						);
+						return;
+					}
+					await Info.remove_granted_group("operation", operationId, groupId);
+				}}
+				onSuccess={onSuccess}
+				{...props}
+			/>
+		);
+	}
 }
