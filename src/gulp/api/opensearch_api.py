@@ -59,11 +59,44 @@ from gulp.structs import (
     GulpDocumentsChunkCallback,
     GulpProgressCallback,
     ObjectNotFound,
+    PaginationSnapshotExpired,
 )
 
 if TYPE_CHECKING:
     from gulp.api.opensearch.structs import GulpQueryParameters
     from gulp.plugin import GulpPluginBase
+
+
+@dataclass(frozen=True, slots=True)
+class GulpPreparedBulk:
+    """Exact NDJSON request body and the accepted documents it represents."""
+
+    body: bytes
+    documents: tuple[dict, ...]
+    size_bytes: int
+    max_content_length_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class GulpPaginatedSearchResult:
+    """One logical page returned from a point-in-time search."""
+
+    total_hits: int
+    docs: list[dict]
+    pit_id: str | None
+    search_after: list[Any] | None
+
+
+class GulpBulkRequestTooLargeError(ValueError):
+    """Raised before HTTP submission when a prepared bulk exceeds OpenSearch."""
+
+
+class GulpPITSearchError(RuntimeError):
+    """Raised when a PIT search returns a partial, unusable result."""
+
+    def __init__(self, message: str, pit_id: str | None = None) -> None:
+        super().__init__(message)
+        self.pit_id = pit_id
 
 
 class GulpOpenSearch:
@@ -76,6 +109,9 @@ class GulpOpenSearch:
     # prefixes for data updates (enrich plugins, update api)
     UNMAPPED_PREFIX: str = "gulp.unmapped"
     ENRICHED_PREFIX: str = "gulp.enriched"
+
+    DEFAULT_MAX_CONTENT_LENGTH_BYTES: int = 100 * 1024 * 1024
+    MAX_PAGINATION_SEEK_SIZE: int = 10000
 
     def __init__(self):
         self._opensearch: AsyncOpenSearch = self._get_client()
@@ -167,7 +203,8 @@ class GulpOpenSearch:
                 new_key = "%s.%s" % (parent_key, k) if parent_key else k
                 if isinstance(v, dict):
                     if "properties" in v:
-                        _parse_field_types_internal(v["properties"], new_key, result)
+                        _parse_field_types_internal(
+                            v["properties"], new_key, result)
                     elif "type" in v:
                         result[new_key] = v["type"]
                 else:
@@ -324,7 +361,8 @@ class GulpOpenSearch:
 
         async def _internal(sess: AsyncSession) -> None:
             MutyLogger.get_instance().debug(
-                "number of unique (ctx_id, src_id) pairs: %d", len(ctx_src_pairs)
+                "number of unique (ctx_id, src_id) pairs: %d", len(
+                    ctx_src_pairs)
             )
             for ctx_id, src_id in ctx_src_pairs:
                 await self.datastream_update_source_field_types_by_src(
@@ -425,7 +463,8 @@ class GulpOpenSearch:
         filtered_mapping: dict[str, str] = {}
 
         # flat_object prefixes used throughtout gulp
-        flat_object_prefixes = [GulpOpenSearch.UNMAPPED_PREFIX, "gulp.enriched"]
+        flat_object_prefixes = [
+            GulpOpenSearch.UNMAPPED_PREFIX, "gulp.enriched"]
 
         def _infer_type(value) -> str:
             """Infer OpenSearch type from Python value."""
@@ -625,7 +664,8 @@ class GulpOpenSearch:
         """
         template_name = "%s-template" % (index)
         MutyLogger.get_instance().debug("putting index template: %s ...", template_name)
-        headers = {"accept": "application/json", "content-type": "application/json"}
+        headers = {"accept": "application/json",
+                   "content-type": "application/json"}
         res = await self._opensearch.indices.put_index_template(
             name=template_name, body=d, headers=headers
         )
@@ -907,7 +947,8 @@ class GulpOpenSearch:
 
         try:
             # create datastream
-            headers = {"accept": "application/json", "content-type": "application/json"}
+            headers = {"accept": "application/json",
+                       "content-type": "application/json"}
             r = await self._opensearch.indices.create_data_stream(
                 name=ds, headers=headers
             )
@@ -958,7 +999,8 @@ class GulpOpenSearch:
                 await self.index_template_put(ds, index_template)
 
             # create datastream
-            headers = {"accept": "application/json", "content-type": "application/json"}
+            headers = {"accept": "application/json",
+                       "content-type": "application/json"}
             r = await self._opensearch.indices.create_data_stream(
                 name=ds, headers=headers
             )
@@ -1190,7 +1232,8 @@ class GulpOpenSearch:
 
         if res["errors"]:
             # Count skipped (already exists) and failed documents
-            skipped = sum(1 for item in res["items"] if item["create"]["status"] == 409)
+            skipped = sum(1 for item in res["items"]
+                          if item["create"]["status"] == 409)
             failed = sum(
                 1
                 for item in res["items"]
@@ -1203,7 +1246,8 @@ class GulpOpenSearch:
                     for item in res["items"]
                     if item["create"]["status"] not in [200, 201]
                 ]
-                s: str = orjson.dumps(failed_items, option=orjson.OPT_INDENT_2).decode()
+                s: str = orjson.dumps(
+                    failed_items, option=orjson.OPT_INDENT_2).decode()
                 MutyLogger.get_instance().error(
                     "%d docs failed ingestion, %d docs skipped: %s",
                     failed,
@@ -1246,8 +1290,20 @@ class GulpOpenSearch:
             )
 
         if GulpConfig.get_instance().prometheus_enabled():
-            # update Prometheus counters
             try:
+                GulpMetrics.opensearch_bulk_requests_total.inc()
+                GulpMetrics.opensearch_bulk_request_size_bytes.observe(
+                    body_size)
+                GulpMetrics.opensearch_bulk_request_documents.observe(
+                    len(prepared.documents)
+                )
+                GulpMetrics.opensearch_bulk_request_duration_seconds.observe(
+                    time.perf_counter() - request_started
+                )
+                took = response.get("took")
+                if isinstance(took, (int, float)):
+                    GulpMetrics.opensearch_bulk_took_seconds.observe(
+                        took / 1000)
                 GulpMetrics.opensearch_bulk_docs_total.inc(len(ingested_docs))
                 if failed:
                     GulpMetrics.opensearch_bulk_errors_total.inc(failed)
@@ -1447,14 +1503,15 @@ class GulpOpenSearch:
             "refresh": "true",
             "wait_for_completion": "true",
         }
-        headers = {"accept": "application/json", "content-type": "application/json"}
+        headers = {"accept": "application/json",
+                   "content-type": "application/json"}
 
         # process in batches of 1000 documents using search_after
         batch_size: int = 1000
         total_hits: int = 0
         total_updated: int = 0
         num_updated: int = 0
-        search_after: list[dict] = None
+        search_after: list[Any] | None = None
         chunk_num: int = 0
         timeout: int = GulpConfig.get_instance().opensearch_request_timeout()
         check_canceled_count: int = 0
@@ -1485,7 +1542,8 @@ class GulpOpenSearch:
             if not hits:
                 # finished
                 last = True
-                num_updated = 0  # avoid readding the last chunk if we already updated it in the previous iteration
+                # avoid readding the last chunk if we already updated it in the previous iteration
+                num_updated = 0
             else:
                 # call update_by_query on the doc_ids chunk
                 total_hits = res["hits"]["total"]["value"]
@@ -1767,7 +1825,7 @@ class GulpOpenSearch:
                 }
             }
             MutyLogger.get_instance().debug(f"aggregations with group_by={group_by}: {
-                    orjson.dumps(aggregations, option=orjson.OPT_INDENT_2).decode()}")
+                orjson.dumps(aggregations, option=orjson.OPT_INDENT_2).decode()}")
 
         q = flt.to_opensearch_dsl()
         MutyLogger.get_instance().debug(
@@ -1898,7 +1956,8 @@ class GulpOpenSearch:
                 "contexts": [],
             }
 
-            context_map = {context.id: context for context in operation.contexts}
+            context_map = {
+                context.id: context for context in operation.contexts}
 
             # process contexts with documents from OpenSearch aggregations
             for ctx_bucket in op_bucket["context_id"]["buckets"]:
@@ -1908,9 +1967,11 @@ class GulpOpenSearch:
                 if not matching_context:
                     continue
 
-                context_entry = _ensure_context(operation_entry, matching_context)
+                context_entry = _ensure_context(
+                    operation_entry, matching_context)
                 context_entry["doc_count"] = ctx_bucket["doc_count"]
-                source_map = {source.id: source for source in matching_context.sources}
+                source_map = {
+                    source.id: source for source in matching_context.sources}
 
                 # Process plugins
                 for plugin_bucket in ctx_bucket["plugin"]["buckets"]:
@@ -1927,19 +1988,24 @@ class GulpOpenSearch:
                                 context_entry, plugin_bucket["key"]
                             )
                             plugin_entry["sources"].append(
-                                self._operation_source_entry(matching_source, src_bucket)
+                                self._operation_source_entry(
+                                    matching_source, src_bucket
+                                )
                             )
 
             if include_empty_sources:
                 # Merge collab-only sources with no documents yet.
                 for context in operation.contexts:
                     for source in context.sources:
-                        context_entry = _find_context_entry(operation_entry, context.id)
+                        context_entry = _find_context_entry(
+                            operation_entry, context.id)
                         if context_entry and _source_exists(context_entry, source.id):
                             continue
 
-                        context_entry = _ensure_context(operation_entry, context)
-                        plugin_entry = _ensure_plugin(context_entry, source.plugin)
+                        context_entry = _ensure_context(
+                            operation_entry, context)
+                        plugin_entry = _ensure_plugin(
+                            context_entry, source.plugin)
                         plugin_entry["sources"].append(
                             self._operation_source_entry(source)
                         )
@@ -1997,8 +2063,7 @@ class GulpOpenSearch:
                             plugin_name, {"name": plugin_name, "sources": []}
                         )
                         plugin["sources"].append(
-                            self._operation_source_entry(source)
-                        )
+                            self._operation_source_entry(source))
 
                     if not plugins:
                         continue
@@ -2141,7 +2206,7 @@ class GulpOpenSearch:
             return js
         except KeyError as ex:
             raise ObjectNotFound(f'document with ID "{doc_id}" not found in datastream={
-                    datastream} index={index}') from ex
+                datastream} index={index}') from ex
 
     async def _search_dsl_internal(
         self,
@@ -2150,7 +2215,7 @@ class GulpOpenSearch:
         q: dict,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         raise_on_error: bool = False,
-    ) -> tuple[int, list[dict], list[dict], dict]:
+    ) -> tuple[int, list[dict], list[Any], dict]:
         """
         Executes a raw DSL query on OpenSearch and returns the results.
 
@@ -2164,7 +2229,7 @@ class GulpOpenSearch:
             tuple:
             - total_hits (int): The total number of hits.
             - docs (list[dict]): The documents.
-            - search_after (list[dict]): to be passed via `q_options.search_after` in the next iteration.
+            - search_after (list[Any]): to be passed via `q_options.search_after` in the next iteration.
 
         Raises:
             ObjectNotFound: If no more hits are found.
@@ -2197,8 +2262,15 @@ class GulpOpenSearch:
 
             # build raw query body (query + parsed_options)
             for k, v in options.items():
-                if v:
+                if v is not None:
                     body[k] = v
+
+            # A cursor and an offset are mutually exclusive in OpenSearch. Raw
+            # DSL input may itself contain `from`, so remove it explicitly.
+            if options.get("search_after") is not None:
+                body.pop("from", None)
+            elif options.get("from") is not None:
+                body.pop("search_after", None)
 
             body["track_total_hits"] = track_total_hits
 
@@ -2244,7 +2316,9 @@ class GulpOpenSearch:
                     size = cb_min_limit
                 if size > cb_min_limit:
                     options["size"] = max(cb_min_limit, size // 2)
-                options["highlight"] = None # disable highlighting to reduce memory usage
+                options["highlight"] = (
+                    None  # disable highlighting to reduce memory usage
+                )
                 MutyLogger.get_instance().warning(
                     "OpenSearch circuit breaker while querying %s, backing off (attempt %d/%d, size=%s)",
                     index,
@@ -2263,7 +2337,7 @@ class GulpOpenSearch:
                 return total_hits, [], [], aggregations
             if raise_on_error:
                 raise ObjectNotFound("no more hits")
-            return 0, [], [], {}
+            return total_hits, [], [], {}
 
         # get data
         docs: list[dict] = []
@@ -2332,6 +2406,376 @@ class GulpOpenSearch:
             payload = str(error).lower()
         return any(marker in payload for marker in markers)
 
+    @staticmethod
+    def _pit_sort(sort: list[dict]) -> list[dict]:
+        """Return a PIT-safe sort with one trailing `_shard_doc` tie-breaker."""
+        result: list[dict] = []
+        tie_breaker_order = "asc"
+        explicit_shard_order: str | None = None
+        explicit_doc_order: str | None = None
+        for entry in sort:
+            if not isinstance(entry, dict) or not entry:
+                continue
+            field, value = next(iter(entry.items()))
+            if isinstance(value, dict):
+                order = str(value.get("order", "asc"))
+            else:
+                order = str(value)
+            if field == "_shard_doc":
+                explicit_shard_order = order
+                continue
+            if field == "_doc":
+                explicit_doc_order = order
+                continue
+            tie_breaker_order = order
+            result.append(dict(entry))
+        tie_breaker_order = (
+            explicit_shard_order or explicit_doc_order or tie_breaker_order
+        )
+        result.append({"_shard_doc": {"order": tie_breaker_order}})
+        return result
+
+    @staticmethod
+    def _reverse_sort(sort: list[dict]) -> list[dict]:
+        """Invert every direction in an OpenSearch sort definition."""
+        result: list[dict] = []
+        for entry in sort:
+            field, value = next(iter(entry.items()))
+            if isinstance(value, dict):
+                reversed_value = dict(value)
+                reversed_value["order"] = (
+                    "desc" if str(value.get("order", "asc")
+                                  ) == "asc" else "asc"
+                )
+            else:
+                reversed_value = "desc" if str(value) == "asc" else "asc"
+            result.append({field: reversed_value})
+        return result
+
+    @staticmethod
+    def _response_total(response: dict) -> int:
+        """Extract the exact hit count from an OpenSearch response."""
+        total = response.get("hits", {}).get("total", 0)
+        if isinstance(total, dict):
+            return int(total.get("value", 0))
+        return int(total or 0)
+
+    @staticmethod
+    def _response_has_missing_pit_context(response: dict) -> bool:
+        """Detect an expired PIT reported as a partial shard failure."""
+        failures = response.get("_shards", {}).get("failures", [])
+        if not failures:
+            return False
+        return GulpOpenSearch._payload_has_missing_pit_context(failures)
+
+    @staticmethod
+    def _payload_has_missing_pit_context(payload: Any) -> bool:
+        """Detect a missing search context in a response or exception payload."""
+        try:
+            serialized = json.dumps(payload).lower()
+        except (TypeError, ValueError):
+            serialized = str(payload).lower()
+        return (
+            "search_context_missing_exception" in serialized
+            or "no search context found" in serialized
+        )
+
+    @staticmethod
+    def _page_documents(hits: list[dict], add_highlight: bool) -> list[dict]:
+        """Convert raw OpenSearch hits into the public document representation."""
+        docs: list[dict] = []
+        for hit in hits:
+            doc = {**hit.get("_source", {}), "_id": hit["_id"]}
+            if "highlight" in hit and add_highlight:
+                doc["_highlight"] = hit["highlight"]
+            docs.append(doc)
+        return docs
+
+    async def create_pit(self, index: str, keep_alive: str | None = None) -> str:
+        """Create a point-in-time snapshot for an index and return its identifier."""
+        if keep_alive is None:
+            keep_alive = GulpConfig.get_instance().query_pagination_pit_keep_alive()
+        response = await self._opensearch.create_pit(
+            index=index,
+            params={
+                # OpenSearch accepts only lowercase boolean literals here.
+                "keep_alive": keep_alive,
+                "allow_partial_pit_creation": "false",
+            },
+            headers={"content-type": "application/json"},
+        )
+        pit_id = response.get("pit_id")
+        if not pit_id:
+            raise RuntimeError("OpenSearch did not return a PIT identifier")
+        failed_shards = int(response.get("_shards", {}).get("failed", 0) or 0)
+        if failed_shards:
+            await self._delete_pit_best_effort(str(pit_id))
+            raise RuntimeError(
+                f"OpenSearch created a partial PIT with {failed_shards} failed shards"
+            )
+        return str(pit_id)
+
+    async def delete_pit(self, pit_id: str) -> bool:
+        """Close a point-in-time snapshot; closing an expired PIT is idempotent."""
+        try:
+            response = await self._opensearch.delete_pit(
+                body={"pit_id": [pit_id]},
+                headers={"content-type": "application/json"},
+            )
+        except NotFoundError:
+            return True
+
+        pits = response.get("pits", [])
+        for result in pits:
+            if result.get("pit_id") != pit_id:
+                continue
+            if result.get("successful") is True:
+                return True
+            raise RuntimeError(
+                f"OpenSearch failed to close pagination PIT {pit_id}")
+        raise RuntimeError(
+            f"OpenSearch did not report a close result for pagination PIT {pit_id}"
+        )
+
+    async def _delete_pit_best_effort(self, pit_id: str) -> None:
+        """Close an internally owned PIT without masking an earlier result/error."""
+        try:
+            await self.delete_pit(pit_id)
+        except Exception as ex:  # pragma: no cover - logging is the fallback
+            MutyLogger.get_instance().warning("failed to close pagination PIT: %s", ex)
+
+    async def _search_pit(
+        self,
+        pit_id: str,
+        keep_alive: str,
+        q: dict,
+        *,
+        size: int,
+        sort: list[dict] | None,
+        search_after: list[Any] | None = None,
+        include_source: bool = True,
+        track_total_hits: bool = False,
+        parsed_source: Any = None,
+        highlight: dict | None = None,
+    ) -> dict:
+        """Execute one search against a PIT, renewing its keep-alive."""
+        body = dict(q)
+        body.pop("from", None)
+        body.pop("search_after", None)
+        body.pop("pit", None)
+        body["pit"] = {"id": pit_id, "keep_alive": keep_alive}
+        body["size"] = size
+        body["track_total_hits"] = track_total_hits
+        if sort:
+            body["sort"] = sort
+        else:
+            body.pop("sort", None)
+        if search_after is not None:
+            body["search_after"] = search_after
+        if not include_source:
+            body["_source"] = False
+            body.pop("highlight", None)
+        else:
+            if parsed_source is not None:
+                body["_source"] = parsed_source
+            if highlight is not None:
+                body["highlight"] = highlight
+
+        timeout = GulpConfig.get_instance().opensearch_request_timeout()
+        params: dict[str, Any] = {"allow_partial_search_results": "false"}
+        if timeout > 0:
+            params["timeout"] = timeout
+        try:
+            response = await self._opensearch.search(
+                body=body,
+                headers={"content-type": "application/json"},
+                params=params,
+            )
+            if self._response_has_missing_pit_context(response):
+                raise PaginationSnapshotExpired(
+                    "the pagination snapshot expired; start a new PIT session",
+                    pit_id=response.get("pit_id"),
+                )
+            failed_shards = int(response.get(
+                "_shards", {}).get("failed", 0) or 0)
+            if failed_shards:
+                raise GulpPITSearchError(
+                    f"OpenSearch PIT search failed on {failed_shards} shards",
+                    pit_id=response.get("pit_id"),
+                )
+            return response
+        except NotFoundError as ex:
+            raise PaginationSnapshotExpired(
+                "the pagination snapshot expired; start a new PIT session"
+            ) from ex
+        except TransportError as ex:
+            if getattr(ex, "status_code", None) == 404 or (
+                self._payload_has_missing_pit_context(
+                    getattr(ex, "info", None))
+            ):
+                info = getattr(ex, "info", None)
+                raise PaginationSnapshotExpired(
+                    "the pagination snapshot expired; start a new PIT session",
+                    pit_id=info.get("pit_id") if isinstance(
+                        info, dict) else None,
+                ) from ex
+            raise
+
+    async def search_dsl_paginated(
+        self,
+        index: str,
+        q: dict,
+        q_options: "GulpQueryParameters",
+        *,
+        keep_pit: bool,
+    ) -> GulpPaginatedSearchResult:
+        """Return an arbitrary logical page using bounded PIT/search-after seeking."""
+        parsed_options = q_options.parse()
+        limit = int(parsed_options.get("size", q_options.limit))
+        offset = int(q_options.offset or 0)
+        keep_alive = GulpConfig.get_instance().query_pagination_pit_keep_alive()
+        sort = self._pit_sort(parsed_options.get("sort", []))
+        pit_id = q_options.pit_id if keep_pit else None
+        created_pit = not pit_id
+        completed = False
+        snapshot_expired = False
+
+        if pit_id is None:
+            pit_id = await self.create_pit(index, keep_alive)
+
+        try:
+            supplied_cursor = q_options.search_after
+            if supplied_cursor is not None:
+                response = await self._search_pit(
+                    pit_id,
+                    keep_alive,
+                    q,
+                    size=limit,
+                    sort=sort,
+                    search_after=supplied_cursor,
+                    include_source=True,
+                    track_total_hits=True,
+                    parsed_source=parsed_options.get("_source"),
+                    highlight=parsed_options.get("highlight"),
+                )
+                pit_id = str(response.get("pit_id") or pit_id)
+                total_hits = self._response_total(response)
+                hits = response.get("hits", {}).get("hits", [])
+            elif offset == 0:
+                response = await self._search_pit(
+                    pit_id,
+                    keep_alive,
+                    q,
+                    size=limit,
+                    sort=sort,
+                    include_source=True,
+                    track_total_hits=True,
+                    parsed_source=parsed_options.get("_source"),
+                    highlight=parsed_options.get("highlight"),
+                )
+                pit_id = str(response.get("pit_id") or pit_id)
+                total_hits = self._response_total(response)
+                hits = response.get("hits", {}).get("hits", [])
+            else:
+                count_response = await self._search_pit(
+                    pit_id,
+                    keep_alive,
+                    q,
+                    size=0,
+                    sort=None,
+                    include_source=False,
+                    track_total_hits=True,
+                )
+                pit_id = str(count_response.get("pit_id") or pit_id)
+                total_hits = self._response_total(count_response)
+                if offset >= total_hits:
+                    completed = True
+                    return GulpPaginatedSearchResult(
+                        total_hits=total_hits,
+                        docs=[],
+                        pit_id=pit_id if keep_pit else None,
+                        search_after=None,
+                    )
+
+                result_size = min(limit, total_hits - offset)
+                forward_skip = offset
+                reverse_skip = total_hits - (offset + result_size)
+                reverse = reverse_skip < forward_skip
+                page_sort = self._reverse_sort(sort) if reverse else sort
+                remaining = reverse_skip if reverse else forward_skip
+                cursor: list[Any] | None = None
+
+                while remaining:
+                    seek_size = min(remaining, self.MAX_PAGINATION_SEEK_SIZE)
+                    seek_response = await self._search_pit(
+                        pit_id,
+                        keep_alive,
+                        q,
+                        size=seek_size,
+                        sort=page_sort,
+                        search_after=cursor,
+                        include_source=False,
+                        track_total_hits=False,
+                    )
+                    pit_id = str(seek_response.get("pit_id") or pit_id)
+                    seek_hits = seek_response.get("hits", {}).get("hits", [])
+                    if not seek_hits:
+                        completed = True
+                        return GulpPaginatedSearchResult(
+                            total_hits=total_hits,
+                            docs=[],
+                            pit_id=pit_id if keep_pit else None,
+                            search_after=None,
+                        )
+                    cursor = seek_hits[-1].get("sort")
+                    remaining -= len(seek_hits)
+
+                response = await self._search_pit(
+                    pit_id,
+                    keep_alive,
+                    q,
+                    size=result_size,
+                    sort=page_sort,
+                    search_after=cursor,
+                    include_source=True,
+                    track_total_hits=False,
+                    parsed_source=parsed_options.get("_source"),
+                    highlight=parsed_options.get("highlight"),
+                )
+                pit_id = str(response.get("pit_id") or pit_id)
+                hits = response.get("hits", {}).get("hits", [])
+                if reverse:
+                    hits = list(reversed(hits))
+
+            docs = self._page_documents(
+                hits, add_highlight=bool(parsed_options.get("highlight"))
+            )
+            next_cursor = (
+                hits[-1].get("sort")
+                if hits and offset + len(hits) < total_hits
+                else None
+            )
+            completed = True
+            return GulpPaginatedSearchResult(
+                total_hits=total_hits,
+                docs=docs,
+                pit_id=pit_id if keep_pit else None,
+                search_after=next_cursor,
+            )
+        except Exception as ex:
+            snapshot_expired = isinstance(ex, PaginationSnapshotExpired)
+            failed_pit_id = getattr(ex, "pit_id", None)
+            if not failed_pit_id and isinstance(ex, TransportError):
+                info = getattr(ex, "info", None)
+                if isinstance(info, dict):
+                    failed_pit_id = info.get("pit_id")
+            if failed_pit_id:
+                pit_id = str(failed_pit_id)
+            raise
+        finally:
+            if not keep_pit or snapshot_expired or (created_pit and not completed):
+                await self._delete_pit_best_effort(pit_id)
+
     async def search_dsl_sync(
         self,
         index: str,
@@ -2339,7 +2783,7 @@ class GulpOpenSearch:
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         raise_on_error: bool = False,
-    ) -> tuple[int, list[dict], list[dict], dict]:
+    ) -> tuple[int, list[dict], list[Any], dict]:
         """
         Executes a raw DSL query on OpenSearch/Elasticsearch and returns the results directly.
 
@@ -2353,7 +2797,7 @@ class GulpOpenSearch:
             tuple:
             - total_hits (int): The total number of hits.
             - docs (list[dict]): The documents.
-            - search_after (list[dict]): to be passed via `q_options.search_after` in the next iteration.
+            - search_after (list[Any]): to be passed via `q_options.search_after` in the next iteration.
 
         Raises:
             ObjectNotFound: If no more hits are found.

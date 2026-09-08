@@ -739,6 +739,7 @@
     "tableView.detached": "מנותק",
     "tableView.detachedTooltip": "מנותק: השתמש בחיפוש מקומי ובמסנני טווח זמן עצמאיים.",
     "tableView.fetchFailed": "אחזור נתוני הטבלה נכשל",
+    "tableView.paginationSnapshotExpired": "תוקף תמונת המצב של התוצאות פג. הטבלה הופעלה מחדש מהעמוד הראשון.",
     "tableView.isoPlaceholder": "הזן תאריך בפורמט ISO",
     "tableView.isoString": "מחרוזת ISO",
     "tableView.loadingData": "טוען נתונים...",

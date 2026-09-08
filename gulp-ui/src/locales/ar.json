@@ -739,6 +739,7 @@
     "tableView.detached": "منفصل",
     "tableView.detachedTooltip": "منفصل: استخدم البحث المحلي ومرشحات النطاق الزمني المستقلة.",
     "tableView.fetchFailed": "فشل جلب بيانات الجدول",
+    "tableView.paginationSnapshotExpired": "انتهت صلاحية لقطة النتائج. تمت إعادة تشغيل الجدول من الصفحة الأولى.",
     "tableView.isoPlaceholder": "أدخل التاريخ بتنسيق ISO",
     "tableView.isoString": "سلسلة ايزو",
     "tableView.loadingData": "جارٍ تحميل البيانات...",

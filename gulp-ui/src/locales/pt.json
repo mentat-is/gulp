@@ -739,6 +739,7 @@
     "tableView.detached": "Desanexado",
     "tableView.detachedTooltip": "Desanexado: use pesquisa local e filtros de intervalo de tempo independentes.",
     "tableView.fetchFailed": "Falha ao buscar dados da tabela",
+    "tableView.paginationSnapshotExpired": "O instantâneo dos resultados expirou. A tabela foi reiniciada na primeira página.",
     "tableView.isoPlaceholder": "Insira a data no formato ISO",
     "tableView.isoString": "Sequência ISO",
     "tableView.loadingData": "Carregando dados...",

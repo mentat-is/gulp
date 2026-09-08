@@ -1,5 +1,37 @@
 # v2.0.0
 
+<<<<<<< HEAD
+=======
+- replaced deep `query_raw_paginate` offsets with bounded PIT plus `search_after`
+  seeking while preserving the legacy offset contract; added stable Table View
+  pagination sessions, explicit PIT cleanup and expiry handling, and matching
+  SDK and CLI controls.
+- added a `query-external` Web UI extension slot with exact backend-plugin manifest association, controlled request/validation handoff, full fallback behavior, and state restoration across Preview and Ingest navigation.
+- added a bounded, source-local consecutive timestamp cache shared by every core and paid ingestion plugin, with isolated streams for multi-timestamp parsers; also removed repeated group extraction and invariant parser setup from Apache, IIS, and Zsh record loops while preserving timestamp offsets, validation, and document IDs.
+- changed CSV Pro, JSON Lines Pro, and XRY parallel parsing to feed one source-owned ingestion pipeline, preserving bounded prefetch while restoring adaptive sizing, ordered callbacks/statistics, complete final bulk acknowledgement, and one final refresh.
+- replaced file-size-based ingestion chunk tiers with exact-NDJSON adaptive sizing, validated every bulk against OpenSearch's advertised HTTP limit, and reused the serialized request body.
+- overlapped file parsing with one OpenSearch-only bulk task, including an explicit event-loop handoff before buffered parsing resumes, while preserving chunk order, bounded ownership, final refresh, cancellation, callbacks, and ingestion statistics; the server-only pipeline is enabled by default and can be disabled in `gulp_cfg`.
+- fixed non-final OpenSearch document failures missing from request statistics and prevented acknowledged chunks from being submitted again during exception finalization.
+- refactor ingestion bulks methods to avoid unusefull duplicate loop; made the full time-range filter mutually exclusive from its one-sided cases so out-of-range documents are skipped correctly.
+- changed Web UI file ingestion from per-chunk inside indexDB cache, and no backend cancellation when browser-local cache capture fails.
+- preserved `event.sequence` in Web UI EventStore pages and used it as the descending for equal ingestion timestamps across chunks, pages, cursors, and neighbor reads.
+- added a shared 4 MiB incremental text-file reader to `muty.file` and migrated ingestion plugins while preserving newline and multiline semantics; the 100,000-line benchmark reduced read time from 7.701 s to 0.183 s (97.63%).
+- normalized each main ingestion timestamp once in `GulpDocument`, added explicit format/timezone/invalid-value controls and pre-normalized values, and migrated built-in parsers without changing timestamp offsets or document IDs.
+- reused one empty `GulpMapping` fallback per plugin instance while preserving dynamic mapping selection, reducing parsing time in the 100,000-event benchmark by 31.20%.
+- documented the Prometheus endpoint, service, and two-target scrape prerequisites for the multi-instance integration launcher.
+- added a timeline empty-area context menu for cache-aware bulk refetch and bulk filter reset across every user-selected source, including sources hidden from the current Canvas view.
+- added a browser-local per-source query cache pool to `gulp-ui`, with IndexedDB provenance, startup reuse, source-local Undo/Redo, authority-safe rebase handling, and visible freshness warnings without backend, SDK, or CLI changes.
+- made initial `gulp-ui` cache reuse source-range aware: a fresh same-query cache can satisfy a covered timeframe without a false warning, while render projections report an exact frame-local event count separately from generation authority.
+- added negotiated query WebSocket flow control and independent UI normalization/persistence stages, preventing slow IndexedDB commits from accumulating an unbounded raw backlog; expected request cancellations are no longer logged as query execution errors.
+- added passive on-demand QueryWorker diagnostics, ACK-backed Canvas frame telemetry.
+- made RAM compatibility fallback explicit for persistence and render-worker failures, with a deduplicated localized decision banner, scalable retry, verified opt-in marker, and no automatic reload.
+- bounded accepted raw `docs_chunk` backlog to 128 MiB globally and 64 MiB per request, with synchronous overload rejection, request cancellation, isolated stream failure, and current/high-water diagnostics.
+- guaranteed a visible RenderWorker frame within 100 ms of continuous committed data traffic while retaining the normal 8 ms quiet-window batching.
+- prevented EventStore projection starvation by coalescing same-viewport refreshes, preserving active coherent building snapshots, and fencing terminal projections by generation, status, revision, and count.
+- reduced post-ingest timeline stalls by batching visible-source manifest fences, retaining revision-qualified EventStore projection pages in bounded worker LRU caches, and reusing complete horizontal-overscan projections during normal pans.
+- made uncached operation loads and Navigator event queries render every partial `query_raw` replacement chunk through bounded worker-local preview pages, immediately revealing sources hidden by their initial zero-event building summary while keeping the final IndexedDB pages densely packed; neither in-flight cache appends nor selected sources whose queries have not registered yet block the complete multi-source viewport.
+- preserved request-scoped Redis/WebSocket message ordering so large `docs_chunk` payloads cannot be overtaken by `query_done`, while retaining concurrency between independent requests.
+>>>>>>> f4a76e34 (core/api: add support for deep pagination with PIT in query API)
 - refactored the repository agent guidance to clarify architecture, workflow, documentation, compatibility, plugin, and integration-testing requirements,optimized repository testing guidance for the standard integration-test workflow and documented virtual-environment test commands.
 - made the gULP application server HTTP-only for private deployment behind nginx or another TLS terminator; outbound PostgreSQL, OpenSearch, Redis, and S3 encryption now uses native secure URIs and trust settings.
 - replaced MinIO with SeaweedFS 4.29 while retaining the existing aiobotocore integration, object tags, multipart transfers, and S3 ports; removed the obsolete `s3_minio` and `s3_region` options.

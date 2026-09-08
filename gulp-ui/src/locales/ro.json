@@ -739,6 +739,7 @@
     "tableView.detached": "Detașat",
     "tableView.detachedTooltip": "Detașat: utilizați căutarea locală și filtre independente de interval de timp.",
     "tableView.fetchFailed": "Nu s-au putut prelua datele din tabel",
+    "tableView.paginationSnapshotExpired": "Instantaneul rezultatelor a expirat. Tabelul a fost repornit de la prima pagină.",
     "tableView.isoPlaceholder": "Introduceți data în format ISO",
     "tableView.isoString": "șir ISO",
     "tableView.loadingData": "Se încarcă datele...",

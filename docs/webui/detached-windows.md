@@ -239,8 +239,11 @@ Backend requests are keyed by query meaning rather than React object identity:
 
 - Notes keys a load by operation, effective source IDs, search-result IDs,
   tags, pagination, and explicit refresh revision.
-- Table View serializes query-relevant filters and source metadata and debounces
-  synchronized frame changes by 150 ms.
+- Table View serializes operation, source metadata, filters, text, range, flags,
+  sort, and page size into one semantic signature and debounces synchronized
+  frame changes by 150 ms. That signature owns a PIT snapshot and its reached
+  page cursors. A semantic change or window close aborts the active load and
+  closes the PIT best-effort; late responses are ignored.
 - Dashboard uses deterministic filter and source-metadata signatures for field
   discovery and aggregation requests.
 - Event Dialog keys detail loading by operation and event ID. It aborts stale

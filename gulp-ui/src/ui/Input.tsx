@@ -107,7 +107,7 @@ const Input = React.forwardRef<HTMLInputElement, Input.Props>(
           <Label htmlFor={label} value={label} />
           <div className={classes}>
             <InputIcon />
-            <input id={label} ref={ref} type={variant === 'color' ? 'color' : type} {...props} onChange={onChange || (() => { })} />
+            <input id={label} ref={ref} type={variant === 'color' ? 'color' : type} disabled={disabled} {...props} onChange={onChange || (() => { })} />
             <EndIcon />
           </div>
         </Stack>

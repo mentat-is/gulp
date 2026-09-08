@@ -119,6 +119,55 @@ export namespace GulpDataset {
 			signal?: AbortSignal;
 		}
 	}
+	export namespace QueryRawPaginate {
+		export type PaginationMode = "offset" | "pit";
+		export type Cursor = unknown[];
+
+		export interface Options {
+			limit?: number;
+			offset?: number;
+			sort?: Record<string, "desc" | "asc">;
+			fields?: string[] | "*";
+			signal?: AbortSignal;
+		}
+
+		export interface Response {
+			total_hits: number;
+			docs: QueryRawDocument[];
+			pit_id?: string | null;
+			search_after?: Cursor | null;
+		}
+
+		export interface CloseResponse {
+			closed: boolean;
+		}
+	}
+	export namespace QueryRawPaginate {
+		export type PaginationMode = "offset" | "pit";
+		export type Cursor = unknown[];
+
+		export interface Options {
+			limit?: number;
+			offset?: number;
+			sort?: Record<string, "desc" | "asc">;
+			fields?: string[] | "*";
+			paginationMode?: PaginationMode;
+			pitId?: string;
+			searchAfter?: Cursor;
+			signal?: AbortSignal;
+		}
+
+		export interface Response {
+			total_hits: number;
+			docs: QueryRawDocument[];
+			pit_id?: string | null;
+			search_after?: Cursor | null;
+		}
+
+		export interface CloseResponse {
+			closed: boolean;
+		}
+	}
 	export namespace QueryOperations {
 		interface Operation {
 			name: string;
@@ -385,6 +434,62 @@ export interface UserDeleteResult {
 	success: boolean;
 	/** Backend error details returned for a declined delete request. */
 	errorDescription?: string;
+}
+
+/**
+ * Explicit failure returned by the paginated-query API.
+ * The Error name preserves the backend discriminator so callers can handle
+ * snapshot expiry without parsing a localized message.
+ */
+export class QueryPaginationRequestError extends Error {
+	/** Backend error discriminator from the JSend response. */
+	readonly backendName: string;
+
+	/**
+	 * Creates a typed pagination failure from backend error details.
+	 * @param backendName Stable backend exception name.
+	 * @param message Human-readable backend failure reason.
+	 */
+	constructor(backendName: string, message: string) {
+		super(message);
+		this.name = backendName;
+		this.backendName = backendName;
+	}
+}
+
+/**
+ * Unwraps a raw JSend pagination response and raises explicit failures.
+ * @param response Raw API response, or undefined when a request was aborted.
+ * @param signal Optional request signal used to recognize an aborted response.
+ * @returns Successful pagination response, or undefined for an aborted request.
+ */
+function unwrapQueryPaginationResponse<T>(
+	response: ResponseHandler<ResponseBase<T | ResponseErrorBody>> | undefined,
+	signal?: AbortSignal,
+): T | undefined {
+	if (!response) {
+		if (signal?.aborted) return undefined;
+		throw new QueryPaginationRequestError(
+			"PaginationRequestFailed",
+			"The pagination request did not return a response.",
+		);
+	}
+
+	const responseData = response.data;
+	if (
+		response.status === "error" ||
+		(typeof responseData === "object" &&
+			responseData !== null &&
+			"__error" in responseData)
+	) {
+		const error = (responseData as Partial<ResponseErrorBody>).__error;
+		throw new QueryPaginationRequestError(
+			error?.name || "PaginationRequestFailed",
+			error?.msg || "The pagination request failed.",
+		);
+	}
+
+	return responseData as T;
 }
 
 /**
@@ -2679,20 +2784,30 @@ export class Info implements InfoProps {
 			limit = 100,
 			offset = 0,
 			sort = { "@timestamp": "asc" },
+			fields,
+			paginationMode = "offset",
+			pitId,
+			searchAfter,
 			signal,
-		}: GulpDataset.QueryGulp.Options,
-	) => {
+		}: GulpDataset.QueryRawPaginate.Options,
+	): Promise<GulpDataset.QueryRawPaginate.Response | undefined> => {
 		const operation = Operation.Entity.selected(this.app);
 		if (!operation) {
 			return;
 		}
-		const body: Record<string, any> = {
+		const queryOptions: Record<string, unknown> = {
+			limit,
+			offset,
+			sort,
+			pagination_mode: paginationMode,
+		};
+		if (fields) queryOptions.fields = fields;
+		if (pitId) queryOptions.pit_id = pitId;
+		if (searchAfter) queryOptions.search_after = searchAfter;
+
+		const body: Record<string, unknown> = {
 			q: { query: Filter.Entity.query(query) },
-			q_options: {
-				limit: limit,
-				offset: offset,
-				sort,
-			},
+			q_options: queryOptions,
 		};
 
 		const request_query: Record<string, string> = {
@@ -2700,20 +2815,48 @@ export class Info implements InfoProps {
 			req_id: generateUUID(Request.Prefix.QUERY),
 		};
 
-		const resp = await api<any>("/query_raw_paginate", {
+		const response = await api<
+			GulpDataset.QueryRawPaginate.Response | ResponseErrorBody
+		>("/query_raw_paginate", {
 			method: "POST",
 			body,
 			query: request_query,
 			raw: true,
+			showErrorToast: false,
 			signal,
 		});
 
-		return resp
-			? resp.data
-			: {
-					docs: [],
-					total_hits: 0,
-				};
+		return unwrapQueryPaginationResponse<
+			GulpDataset.QueryRawPaginate.Response
+		>(response, signal);
+	};
+
+	/**
+	 * Closes a server-side pagination snapshot created by query_paginate.
+	 * @param pitId Point-in-time identifier returned by the paginated-query API.
+	 * @param operationId Operation that owns the OpenSearch index and ACL scope.
+	 * @param signal Optional cancellation signal.
+	 * @returns Backend close confirmation, or undefined for an aborted request.
+	 */
+	query_raw_paginate_close = async (
+		pitId: string,
+		operationId: Operation.Id,
+		signal?: AbortSignal,
+	): Promise<GulpDataset.QueryRawPaginate.CloseResponse | undefined> => {
+		const response = await api<
+			GulpDataset.QueryRawPaginate.CloseResponse | ResponseErrorBody
+		>("/query_raw_paginate", {
+			method: "DELETE",
+			body: { pit_id: pitId },
+			query: { operation_id: operationId },
+			raw: true,
+			showErrorToast: false,
+			signal,
+		});
+
+		return unwrapQueryPaginationResponse<
+			GulpDataset.QueryRawPaginate.CloseResponse
+		>(response, signal);
 	};
 
 	/**
@@ -5664,6 +5807,179 @@ export class Info implements InfoProps {
 				operation_id,
 			},
 		});
+	};
+
+	/**
+	 * Resolves note targets and explicitly includes missing query events in the
+	 * operation-scoped supplemental render collection.
+	 * @param notes Notes whose unique target documents should be made available.
+	 * @returns Resolved events, remaining missing IDs, and stale-operation state.
+	 */
+	includeNoteEvents = async (
+		notes: readonly Note.Type[],
+	): Promise<IncludeNoteEventsResult> => {
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const operation = Operation.Entity.selected(this.app);
+		const uniqueNotes = Array.from(
+			new Map(notes.map((note) => [note.doc._id, note])).values(),
+		);
+		if (!operation || uniqueNotes.length === 0) {
+			return {
+				events: [],
+				missingDocumentIds: uniqueNotes.map((note) => note.doc._id),
+				stale: false,
+			};
+		}
+		const isCurrent = (): boolean =>
+			operationEpoch === DataStore.getRenderOperationEpoch() &&
+			Operation.Entity.selected(this.app)?.id === operation.id;
+		if (
+			uniqueNotes.some((note) => note.operation_id !== operation.id) ||
+			!isCurrent()
+		) {
+			return {
+				events: [],
+				missingDocumentIds: uniqueNotes.map((note) => note.doc._id),
+				stale: true,
+			};
+		}
+
+		const documentIds = uniqueNotes.map((note) => note.doc._id);
+		let existingEvents: Doc.Type[] = [];
+		try {
+			existingEvents = await DataStore.Events.getByIds(documentIds);
+		} catch (error) {
+			Logger.warn(
+				`Unable to resolve note targets from EventStore before explicit retrieval: ${(error as Error).message}`,
+				Info,
+			);
+		}
+		if (!isCurrent()) {
+			return { events: [], missingDocumentIds: documentIds, stale: true };
+		}
+		const existingIds = new Set(existingEvents.map((event) => event._id));
+		const missingNotes = uniqueNotes.filter(
+			(note) => !existingIds.has(note.doc._id),
+		);
+		const fetchedDocuments: QueryRawDocument[] = [];
+		const retrievalFailedIds = new Set<Doc.Id>();
+		if (uniqueNotes.length === 1) {
+			const [note] = missingNotes;
+			if (note) {
+				try {
+					const fetched = await this.query_single_id(
+						note.doc._id,
+						note.operation_id,
+					);
+					if (fetched) {
+						fetchedDocuments.push(fetched as unknown as QueryRawDocument);
+					} else {
+						retrievalFailedIds.add(note.doc._id);
+					}
+				} catch {
+					retrievalFailedIds.add(note.doc._id);
+				}
+			}
+		} else {
+			const missingDocumentIds = missingNotes.map((note) => note.doc._id);
+			for (
+				let offset = 0;
+				offset < missingDocumentIds.length;
+				offset += MAX_PAGINATED_QUERY_DOCUMENTS
+			) {
+				const pageDocumentIds = missingDocumentIds.slice(
+					offset,
+					offset + MAX_PAGINATED_QUERY_DOCUMENTS,
+				);
+				try {
+					const response = await this.query_paginate(
+						{
+							string: "",
+							filters: [],
+							isManual: true,
+							raw: { terms: { _id: pageDocumentIds } },
+						},
+						{
+							limit: pageDocumentIds.length,
+							offset: 0,
+							fields: "*",
+						},
+					);
+					fetchedDocuments.push(...(response?.docs ?? []));
+				} catch {
+					pageDocumentIds.forEach((documentId) =>
+						retrievalFailedIds.add(documentId),
+					);
+				}
+			}
+		}
+		if (!isCurrent()) {
+			return { events: [], missingDocumentIds: documentIds, stale: true };
+		}
+
+		const fetchedEvents: Doc.Type[] = [];
+		const expectedIds = new Set(missingNotes.map((note) => note.doc._id));
+		const resolvedFetchedIds = new Set<Doc.Id>();
+		fetchedDocuments.forEach((fetched) => {
+			const fetchedId = fetched._id;
+			if (
+				!fetchedId ||
+				!expectedIds.has(fetchedId) ||
+				resolvedFetchedIds.has(fetchedId)
+			) {
+				return;
+			}
+			const sourceId = fetched["gulp.source_id"];
+			if (!sourceId) return;
+			const source = Source.Entity.id(this.app, sourceId);
+			if (!source) return;
+			const settings = source.settings ?? Internal.Settings.default;
+			const [normalized] = Doc.Entity.normalize(
+				[fetched as unknown as Doc.Type],
+				settings.field,
+				settings.hash_function,
+			);
+			if (!normalized) return;
+			fetchedEvents.push(normalized);
+			resolvedFetchedIds.add(fetchedId);
+		});
+		const failedIds = missingNotes
+			.map((note) => note.doc._id)
+			.filter(
+				(documentId) =>
+					retrievalFailedIds.has(documentId) ||
+					!resolvedFetchedIds.has(documentId),
+			);
+
+		if (fetchedEvents.length > 0) {
+			const fetchedSourceIds = new Set(
+				fetchedEvents.map((event) => event["gulp.source_id"]),
+			);
+			const files = this.app.target.files.map((source) =>
+				fetchedSourceIds.has(source.id) && !source.selected
+					? { ...source, selected: true }
+					: source,
+			);
+			if (files.some((source, index) => source !== this.app.target.files[index])) {
+				this.app.target.files = files;
+				this.setInfoByKey(files, "target", "files");
+			}
+			DataStore.upsertSupplementalEvents(fetchedEvents);
+			this.render();
+		}
+
+		const resolvedById = new Map<Doc.Id, Doc.Type>();
+		for (const event of [...existingEvents, ...fetchedEvents]) {
+			resolvedById.set(event._id, event);
+		}
+		return {
+			events: documentIds.flatMap((documentId) => {
+				const event = resolvedById.get(documentId);
+				return event ? [event] : [];
+			}),
+			missingDocumentIds: failedIds,
+			stale: false,
+		};
 	};
 
 	private _pluginListPromise: Promise<

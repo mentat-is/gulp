@@ -749,6 +749,7 @@
     "tableView.detached": "Detached",
     "tableView.detachedTooltip": "Detached: Use local search and independent time range filters.",
     "tableView.fetchFailed": "Failed to fetch table data",
+    "tableView.paginationSnapshotExpired": "The result snapshot expired. The table was restarted from page 1.",
     "tableView.isoPlaceholder": "Enter date in ISO format",
     "tableView.isoString": "ISO String",
     "tableView.loadingData": "Loading data...",

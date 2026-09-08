@@ -739,6 +739,7 @@
     "tableView.detached": "Vrijstaand",
     "tableView.detachedTooltip": "Vrijstaand: gebruik lokale zoek- en onafhankelijke tijdbereikfilters.",
     "tableView.fetchFailed": "Kan tabelgegevens niet ophalen",
+    "tableView.paginationSnapshotExpired": "De momentopname van de resultaten is verlopen. De tabel is opnieuw gestart vanaf de eerste pagina.",
     "tableView.isoPlaceholder": "Voer de datum in ISO-formaat in",
     "tableView.isoString": "ISO-reeks",
     "tableView.loadingData": "Gegevens laden...",

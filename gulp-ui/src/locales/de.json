@@ -739,6 +739,7 @@
     "tableView.detached": "Losgelöst",
     "tableView.detachedTooltip": "Freistehend: Verwenden Sie die lokale Suche und unabhängige Zeitbereichsfilter.",
     "tableView.fetchFailed": "Tabellendaten konnten nicht abgerufen werden",
+    "tableView.paginationSnapshotExpired": "Der Ergebnissnapshot ist abgelaufen. Die Tabelle wurde ab der ersten Seite neu geladen.",
     "tableView.isoPlaceholder": "Geben Sie das Datum im ISO-Format ein",
     "tableView.isoString": "ISO-Zeichenfolge",
     "tableView.loadingData": "Daten werden geladen...",

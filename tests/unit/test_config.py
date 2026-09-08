@@ -80,6 +80,17 @@ def test_opensearch_pool_config_defaults_and_clamps():
 
 
 @pytest.mark.unit
+def test_query_pagination_pit_keep_alive_default_and_override() -> None:
+    cfg = _config_with({})
+
+    assert cfg.query_pagination_pit_keep_alive() == "5m"
+
+    cfg = _config_with({"query_pagination_pit_keep_alive": "90s"})
+
+    assert cfg.query_pagination_pit_keep_alive() == "90s"
+
+
+@pytest.mark.unit
 def test_instance_roles_environment_override(monkeypatch):
     cfg = _config_with({"instance_roles": ["ingest"]})
 
