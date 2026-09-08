@@ -32,11 +32,11 @@ import {
 } from "@/ui/ContextMenu";
 import { useTableConfig } from "@/hooks/useTableConfig";
 import { Locale } from "@/locales";
+import { Input } from "@/ui/Input";
 
 export type Object = Record<string, any>;
 
 type RowRecord = Record<string, unknown>;
-
 interface ColumnAccessor {
 	/** Column key used by headers, visibility settings, and render callbacks. */
 	key: string;
@@ -76,11 +76,7 @@ const SHARED_TOOLTIP_MAX_WIDTH = 400;
 const SHARED_TOOLTIP_MAX_HEIGHT = 300;
 const SHARED_TOOLTIP_HIDE_DELAY_MSEC = 160;
 
-/**
- * Places a shared cell tooltip on the viewport sides with the most free space.
- * @param trigger Cell text element that anchors the tooltip.
- * @returns Fixed-position coordinates and collision-aware size limits.
- */
+
 function resolveSharedTooltipPlacement(
 	trigger: HTMLElement,
 ): Pick<
@@ -131,20 +127,20 @@ function resolveSharedTooltipPlacement(
 			: { bottom: viewportHeight - rect.top + SHARED_TOOLTIP_GAP }),
 		...(alignFromLeft
 			? {
-					left: Math.max(
-						SHARED_TOOLTIP_MARGIN,
-						Math.min(rect.left, maximumHorizontalInset),
-					),
-				}
+				left: Math.max(
+					SHARED_TOOLTIP_MARGIN,
+					Math.min(rect.left, maximumHorizontalInset),
+				),
+			}
 			: {
-					right: Math.max(
-						SHARED_TOOLTIP_MARGIN,
-						Math.min(
-							viewportWidth - rect.right,
-							maximumHorizontalInset,
-						),
+				right: Math.max(
+					SHARED_TOOLTIP_MARGIN,
+					Math.min(
+						viewportWidth - rect.right,
+						maximumHorizontalInset,
 					),
-				}),
+				),
+			}),
 		maxWidth,
 		maxHeight,
 	};
@@ -260,15 +256,24 @@ export namespace Table {
 		// --- Virtualization ---
 		/** Enables viewport row rendering for large tables. Set to false to render all rows. */
 		virtualization?:
-			| false
-			| {
-					/** Row count above which virtualization is enabled. Defaults to 40. */
-					threshold?: number;
-					/** Number of extra rows rendered above and below the viewport. Defaults to 8. */
-					overscan?: number;
-					/** Estimated row height in pixels. Defaults to 28. */
-					estimatedRowHeight?: number;
-			  };
+		| false
+		| {
+			/** Row count above which virtualization is enabled. Defaults to 40. */
+			threshold?: number;
+			/** Number of extra rows rendered above and below the viewport. Defaults to 8. */
+			overscan?: number;
+			/** Estimated row height in pixels. Defaults to 28. */
+			estimatedRowHeight?: number;
+		};
+		/** Enables opt-in viewport rendering for wide column sets. Disabled by default. */
+		horizontalVirtualization?:
+		| false
+		| {
+			/** Column count above which virtualization is enabled. Defaults to 40. */
+			threshold?: number;
+			/** Number of extra columns rendered before and after the viewport. Defaults to 3. */
+			overscan?: number;
+		};
 	}
 }
 
@@ -300,11 +305,28 @@ interface VirtualizationConfig {
 	estimatedRowHeight: number;
 }
 
+interface HorizontalVirtualizationConfig {
+	/** Column count above which horizontal virtualization is enabled. */
+	threshold: number;
+	/** Number of additional columns rendered outside the horizontal viewport. */
+	overscan: number;
+}
+
 const DEFAULT_VIRTUALIZATION_CONFIG: VirtualizationConfig = {
 	threshold: 40,
 	overscan: 8,
 	estimatedRowHeight: 28,
 };
+
+const DEFAULT_HORIZONTAL_VIRTUALIZATION_CONFIG: HorizontalVirtualizationConfig = {
+	threshold: 40,
+	overscan: 3,
+};
+
+const COLUMN_MENU_ITEM_HEIGHT = 30;
+const COLUMN_MENU_OVERSCAN = 8;
+const COLUMN_MENU_CHROME_HEIGHT = 120;
+const DEFAULT_COLUMN_MENU_LIST_HEIGHT = 320;
 
 const EMPTY_RENDER_MAP: Record<string, never> = {};
 
@@ -327,6 +349,28 @@ function resolveVirtualizationConfig(
 		estimatedRowHeight:
 			virtualization.estimatedRowHeight ??
 			DEFAULT_VIRTUALIZATION_CONFIG.estimatedRowHeight,
+	};
+}
+
+/**
+ * Resolves horizontal column virtualization settings from the public Table prop.
+ * @param virtualization Optional horizontal virtualization configuration or false.
+ * @returns Concrete horizontal virtualization settings.
+ */
+function resolveHorizontalVirtualizationConfig(
+	virtualization: Table.Props<Object>["horizontalVirtualization"],
+): HorizontalVirtualizationConfig {
+	if (!virtualization) {
+		return DEFAULT_HORIZONTAL_VIRTUALIZATION_CONFIG;
+	}
+
+	return {
+		threshold:
+			virtualization.threshold ??
+			DEFAULT_HORIZONTAL_VIRTUALIZATION_CONFIG.threshold,
+		overscan:
+			virtualization.overscan ??
+			DEFAULT_HORIZONTAL_VIRTUALIZATION_CONFIG.overscan,
 	};
 }
 
@@ -399,6 +443,29 @@ function createColumnAccessors(
 }
 
 /**
+ * Traverses nested objects while preferring the longest literal dotted key
+ * available at each level. Numeric path parts naturally address arrays.
+ * @param current Current object or array in the traversal.
+ * @param parts Remaining dotted path parts.
+ * @returns Resolved value, including an explicitly present undefined value.
+ */
+function readDottedPath(current: unknown, parts: string[]): unknown {
+	if ((!current || typeof current !== "object") || parts.length === 0) {
+		return parts.length === 0 ? current : undefined;
+	}
+
+	const record = current as Record<string, unknown>;
+	for (let end = parts.length; end > 0; end--) {
+		const literalKey = parts.slice(0, end).join(".");
+		if (Object.prototype.hasOwnProperty.call(record, literalKey)) {
+			return readDottedPath(record[literalKey], parts.slice(end));
+		}
+	}
+
+	return undefined;
+}
+
+/**
  * Reads a field from a row using precomputed dotted-path metadata.
  * @param row Source row object.
  * @param accessor Column accessor metadata.
@@ -413,13 +480,7 @@ function readRowValue(row: RowRecord, accessor: ColumnAccessor): unknown {
 		return undefined;
 	}
 
-	return accessor.pathParts.reduce<unknown>((current, part) => {
-		if (!current || typeof current !== "object") {
-			return undefined;
-		}
-
-		return (current as Record<string, unknown>)[part];
-	}, row);
+	return readDottedPath(row, accessor.pathParts);
 }
 
 /**
@@ -789,6 +850,7 @@ export function Table<T extends Object>({
 	columnVisibility: _columnVisibility,
 	persistId: _persistId,
 	virtualization: virtualizationProp,
+	horizontalVirtualization: horizontalVirtualizationProp,
 	...props
 }: Table.Props<T>) {
 	const { style: stackStyle, onScroll: stackOnScroll, ...stackProps } = props;
@@ -801,7 +863,10 @@ export function Table<T extends Object>({
 	const isResizingRef = useRef(false);
 	const lastResolvedActionsRef = useRef<Table.Action<T>[]>([]);
 	const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+	const [columnMenuSearch, setColumnMenuSearch] = useState("");
 	const [columnMenuMaxHeight, setColumnMenuMaxHeight] = useState<number>();
+	const columnMenuSearchRef = useRef<HTMLInputElement | null>(null);
+	const columnMenuListRef = useRef<HTMLDivElement | null>(null);
 	const [sharedTooltip, setSharedTooltip] =
 		useState<SharedTooltipState | null>(null);
 	const sharedTooltipRef = useRef<HTMLDivElement | null>(null);
@@ -831,6 +896,24 @@ export function Table<T extends Object>({
 			virtualizationThreshold,
 			virtualizationOverscan,
 			virtualizationEstimatedRowHeight,
+		],
+	);
+	const hasCustomHorizontalVirtualizationConfig =
+		typeof horizontalVirtualizationProp === "object";
+	const horizontalVirtualizationThreshold =
+		hasCustomHorizontalVirtualizationConfig
+			? horizontalVirtualizationProp.threshold
+			: undefined;
+	const horizontalVirtualizationOverscan =
+		hasCustomHorizontalVirtualizationConfig
+			? horizontalVirtualizationProp.overscan
+			: undefined;
+	const horizontalVirtualizationConfig = useMemo(
+		() => resolveHorizontalVirtualizationConfig(horizontalVirtualizationProp),
+		[
+			horizontalVirtualizationProp === false,
+			horizontalVirtualizationThreshold,
+			horizontalVirtualizationOverscan,
 		],
 	);
 	const formatCache = useMemo<FormatCellValueCache>(
@@ -917,10 +1000,10 @@ export function Table<T extends Object>({
 	const bottomSpacerHeight =
 		isVirtualizationEnabled && virtualItems.length > 0
 			? Math.max(
-					0,
-					rowVirtualizer.getTotalSize() -
-						virtualItems[virtualItems.length - 1].end,
-				)
+				0,
+				rowVirtualizer.getTotalSize() -
+				virtualItems[virtualItems.length - 1].end,
+			)
 			: 0;
 
 	/** Combined custom cell renderers from column definition and renderMap prop. */
@@ -973,6 +1056,10 @@ export function Table<T extends Object>({
 	// ─── Column Resizing ───────────────────────────────────────────────
 	const MIN_COL_WIDTH = 30;
 	const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+	const shouldVirtualizeWideColumns =
+		horizontalVirtualizationProp !== undefined &&
+		horizontalVirtualizationProp !== false &&
+		visibleColumns.length > horizontalVirtualizationConfig.threshold;
 
 	/** Calculate default column widths for currently visible columns. */
 	const defaultWidths = useMemo(
@@ -982,7 +1069,9 @@ export function Table<T extends Object>({
 				return widths;
 			}
 			const skipRowSampling =
-				isVirtualizationEnabled || rows.length > virtualizationConfig.threshold;
+				isVirtualizationEnabled ||
+				rows.length > virtualizationConfig.threshold ||
+				shouldVirtualizeWideColumns;
 
 			visibleColumnAccessors.forEach((accessor) => {
 				const column = accessor.key;
@@ -1006,9 +1095,9 @@ export function Table<T extends Object>({
 						const rowForRead = hasExplicitColumns
 							? sampleRow
 							: (getFlattenedRow(
-									sampleRow as RowRecord,
-									flattenedRowCache,
-								) as T);
+								sampleRow as RowRecord,
+								flattenedRowCache,
+							) as T);
 						const value = readTableCellValue(
 							rowForRead,
 							accessor,
@@ -1040,8 +1129,72 @@ export function Table<T extends Object>({
 			flattenedRowCache,
 			formatCache,
 			configLoaded,
+			shouldVirtualizeWideColumns,
 		],
 	);
+
+	const hasFlexibleColumnWidth = useMemo(
+		() =>
+			visibleColumns.some(
+				(column) =>
+					typeof (columnWidths[column] ?? defaultWidths[column]) !== "number",
+			),
+		[visibleColumns, columnWidths, defaultWidths],
+	);
+	const isHorizontalVirtualizationEnabled =
+		shouldVirtualizeWideColumns &&
+		configLoaded &&
+		!hasFlexibleColumnWidth;
+	const columnVirtualizer = useVirtualizer({
+		count: visibleColumns.length,
+		getScrollElement: () => wrapperRef.current,
+		estimateSize: (index) => {
+			const column = visibleColumns[index];
+			const width = columnWidths[column] ?? defaultWidths[column];
+			return typeof width === "number" ? width : 120;
+		},
+		horizontal: true,
+		overscan: horizontalVirtualizationConfig.overscan,
+		enabled: isHorizontalVirtualizationEnabled,
+	});
+	const virtualColumnItems = isHorizontalVirtualizationEnabled
+		? columnVirtualizer.getVirtualItems()
+		: [];
+	const renderedColumns = useMemo(
+		() =>
+			isHorizontalVirtualizationEnabled
+				? virtualColumnItems.map((item) => visibleColumns[item.index])
+				: visibleColumns,
+		[isHorizontalVirtualizationEnabled, virtualColumnItems, visibleColumns],
+	);
+	const renderedColumnAccessors = useMemo(
+		() => renderedColumns.map((column) => columnAccessors[column]),
+		[renderedColumns, columnAccessors],
+	);
+	const leftColumnSpacerWidth =
+		isHorizontalVirtualizationEnabled && virtualColumnItems.length > 0
+			? virtualColumnItems[0].start
+			: 0;
+	const rightColumnSpacerWidth =
+		isHorizontalVirtualizationEnabled && virtualColumnItems.length > 0
+			? Math.max(
+				0,
+				columnVirtualizer.getTotalSize() -
+				virtualColumnItems[virtualColumnItems.length - 1].end,
+			)
+			: 0;
+
+	useEffect(() => {
+		if (isHorizontalVirtualizationEnabled) {
+			columnVirtualizer.measure();
+		}
+	}, [
+		columnVirtualizer,
+		columnWidths,
+		defaultWidths,
+		isHorizontalVirtualizationEnabled,
+		visibleColumns,
+	]);
 
 	/**
 	 * Handles the start of a column resize drag operation.
@@ -1122,33 +1275,33 @@ export function Table<T extends Object>({
 	/** Calculates the total width of the table by summing all column widths. */
 	const totalTableWidth = useMemo(() => {
 		let width = 0;
-		let hasFlexible = false;
 		if (selectable) width += 40;
 		visibleColumns.forEach((c) => {
 			const w = columnWidths[c] ?? defaultWidths[c];
 			if (typeof w === "number") {
 				width += w;
-			} else {
-				hasFlexible = true;
 			}
 		});
 		if (resolvedActions.length > 0) {
 			width += resolvedActions.length * 32 + 16;
 		}
-		return hasFlexible ? "100%" : width;
+		return hasFlexibleColumnWidth ? "100%" : width;
 	}, [
 		selectable,
 		visibleColumns,
 		columnWidths,
 		defaultWidths,
 		resolvedActions,
+		hasFlexibleColumnWidth,
 	]);
 
 	const bodyColumnCount = Math.max(
 		1,
-		visibleColumns.length +
-			(selectable ? 1 : 0) +
-			(resolvedActions.length > 0 ? 1 : 0),
+		renderedColumns.length +
+		(leftColumnSpacerWidth > 0 ? 1 : 0) +
+		(rightColumnSpacerWidth > 0 ? 1 : 0) +
+		(selectable ? 1 : 0) +
+		(resolvedActions.length > 0 ? 1 : 0),
 	);
 
 	/**
@@ -1268,7 +1421,7 @@ export function Table<T extends Object>({
 
 			const relatedTarget =
 				event.relatedTarget &&
-				typeof (event.relatedTarget as Node).nodeType === "number"
+					typeof (event.relatedTarget as Node).nodeType === "number"
 					? (event.relatedTarget as Node)
 					: null;
 			if (relatedTarget && trigger.contains(relatedTarget)) {
@@ -1352,6 +1505,7 @@ export function Table<T extends Object>({
 		(open: boolean) => {
 			setIsColumnMenuOpen(open);
 			if (open) {
+				setColumnMenuSearch("");
 				const tableViewportHeight = wrapperRef.current?.clientHeight;
 				setColumnMenuMaxHeight(
 					tableViewportHeight && tableViewportHeight > 0
@@ -1363,6 +1517,49 @@ export function Table<T extends Object>({
 		},
 		[hideSharedTooltip],
 	);
+
+	useEffect(() => {
+		if (!isColumnMenuOpen) return;
+		const ownerWindow = columnMenuSearchRef.current?.ownerDocument.defaultView;
+		const timeoutId = ownerWindow?.setTimeout(
+			() => columnMenuSearchRef.current?.focus({ preventScroll: true }),
+			0,
+		);
+		return () => {
+			if (timeoutId !== undefined) ownerWindow?.clearTimeout(timeoutId);
+		};
+	}, [isColumnMenuOpen]);
+
+	const columnMenuResults = useMemo(() => {
+		const normalizedSearch = columnMenuSearch.trim().toLocaleLowerCase();
+		return columns.filter((column) => {
+			if (!normalizedSearch) return true;
+			const label = columnLabels[column] || column;
+			return label.toLocaleLowerCase().includes(normalizedSearch);
+		});
+	}, [columnLabels, columnMenuSearch, columns]);
+	const columnMenuVirtualizer = useVirtualizer({
+		count: columnMenuResults.length,
+		getScrollElement: () => columnMenuListRef.current,
+		estimateSize: () => COLUMN_MENU_ITEM_HEIGHT,
+		overscan: COLUMN_MENU_OVERSCAN,
+		enabled: isColumnMenuOpen,
+		getItemKey: (index) => columnMenuResults[index],
+	});
+	const columnMenuVirtualItems = isColumnMenuOpen
+		? columnMenuVirtualizer.getVirtualItems()
+		: [];
+	const columnMenuListMaxHeight = columnMenuMaxHeight
+		? Math.max(
+			COLUMN_MENU_ITEM_HEIGHT,
+			columnMenuMaxHeight - COLUMN_MENU_CHROME_HEIGHT,
+		)
+		: DEFAULT_COLUMN_MENU_LIST_HEIGHT;
+
+	useEffect(() => {
+		if (!isColumnMenuOpen) return;
+		columnMenuVirtualizer.scrollToOffset(0);
+	}, [columnMenuSearch, columnMenuVirtualizer, isColumnMenuOpen]);
 
 	/**
 	 * Renders a table body row from a virtual or sequential row index.
@@ -1384,7 +1581,9 @@ export function Table<T extends Object>({
 
 			return (
 				<Item
-					columns={visibleColumnAccessors}
+					columns={renderedColumnAccessors}
+					leftColumnSpacerWidth={leftColumnSpacerWidth}
+					rightColumnSpacerWidth={rightColumnSpacerWidth}
 					key={getRowKey(record, rowIndex)}
 					i={row}
 					index={rowIndex}
@@ -1404,7 +1603,9 @@ export function Table<T extends Object>({
 		},
 		[
 			rows,
-			visibleColumnAccessors,
+			renderedColumnAccessors,
+			leftColumnSpacerWidth,
+			rightColumnSpacerWidth,
 			hasExplicitColumns,
 			flattenedRowCache,
 			selectable,
@@ -1432,7 +1633,10 @@ export function Table<T extends Object>({
 		>
 			<colgroup>
 				{selectable && <col style={{ width: 40 }} />}
-				{visibleColumns.map((c) => {
+				{leftColumnSpacerWidth > 0 && (
+					<col style={{ width: leftColumnSpacerWidth }} />
+				)}
+				{renderedColumns.map((c) => {
 					const w: number | string = columnWidths[c] ?? defaultWidths[c];
 					return (
 						<col
@@ -1444,6 +1648,9 @@ export function Table<T extends Object>({
 						/>
 					);
 				})}
+				{rightColumnSpacerWidth > 0 && (
+					<col style={{ width: rightColumnSpacerWidth }} />
+				)}
 				{resolvedActions.length > 0 && (
 					<col style={{ width: resolvedActions.length * 32 + 16 }} />
 				)}
@@ -1465,7 +1672,13 @@ export function Table<T extends Object>({
 							) : null}
 						</th>
 					)}
-					{visibleColumns.map((c) => {
+					{leftColumnSpacerWidth > 0 && (
+						<th
+							className={s.horizontalSpacerCell}
+							aria-hidden="true"
+						/>
+					)}
+					{renderedColumns.map((c) => {
 						const isSorted = isTableColumnSorted(c, sortField);
 						return (
 							<MemoCol
@@ -1479,6 +1692,12 @@ export function Table<T extends Object>({
 							/>
 						);
 					})}
+					{rightColumnSpacerWidth > 0 && (
+						<th
+							className={s.horizontalSpacerCell}
+							aria-hidden="true"
+						/>
+					)}
 					{resolvedActions.length > 0 && (
 						<th
 							className={cn(s.actionCell, s.stickyActionsCell)}
@@ -1520,9 +1739,9 @@ export function Table<T extends Object>({
 	) : null;
 	const wrapperStyle: React.CSSProperties &
 		Record<"--highlight-color", string> = {
-			...stackStyle,
-			"--highlight-color": Color.Themer.getTargetGuideColor(),
-		};
+		...stackStyle,
+		"--highlight-color": Color.Themer.getTargetGuideColor(),
+	};
 
 	return (
 		<TooltipProvider>
@@ -1551,16 +1770,51 @@ export function Table<T extends Object>({
 							>
 								<ContextMenuLabel>{t("table.columnVisibility")}</ContextMenuLabel>
 								<ContextMenuSeparator />
-								{columns.map((col) => (
-									<ContextMenuCheckboxItem
-										key={col}
-										checked={!hiddenColumns.has(col)}
-										onCheckedChange={() => toggleColumn(col)}
-										onSelect={(e) => e.preventDefault()}
+								<div className={s.columnVisibilitySearch}>
+									<Input
+										ref={columnMenuSearchRef}
+										size="sm"
+										value={columnMenuSearch}
+										placeholder={t("common.search")}
+										aria-label={t("common.search")}
+										onChange={(event) =>
+											setColumnMenuSearch(event.target.value)
+										}
+										onKeyDown={(event) => event.stopPropagation()}
+									/>
+								</div>
+								<ContextMenuSeparator />
+								<div
+									ref={columnMenuListRef}
+									className={s.columnVisibilityOptions}
+									data-column-menu-count={columnMenuResults.length}
+									style={{ maxHeight: columnMenuListMaxHeight }}
+								>
+									<div
+										className={s.columnVisibilityOptionsSizer}
+										style={{ height: columnMenuVirtualizer.getTotalSize() }}
 									>
-										{columnLabels[col] || col}
-									</ContextMenuCheckboxItem>
-								))}
+										{columnMenuVirtualItems.map((virtualItem) => {
+											const col = columnMenuResults[virtualItem.index];
+											return (
+												<ContextMenuCheckboxItem
+													key={col}
+													className={s.columnVisibilityOption}
+													data-column-menu-option={col}
+													checked={!hiddenColumns.has(col)}
+													onCheckedChange={() => toggleColumn(col)}
+													onSelect={(e) => e.preventDefault()}
+													style={{
+														height: virtualItem.size,
+														transform: `translateY(${virtualItem.start}px)`,
+													}}
+												>
+													{columnLabels[col] || col}
+												</ContextMenuCheckboxItem>
+											);
+										})}
+									</div>
+								</div>
 								{hiddenColumns.size > 0 && (
 									<>
 										<ContextMenuSeparator />
@@ -1581,52 +1835,52 @@ export function Table<T extends Object>({
 				)}
 				{sharedTooltip
 					? createPortal(
+						<div
+							ref={sharedTooltipRef}
+							className={s.sharedTooltip}
+							data-table-tooltip="true"
+							data-table-tooltip-pinned={sharedTooltip.pinned || undefined}
+							style={{
+								...(sharedTooltip.top !== undefined
+									? { top: sharedTooltip.top }
+									: {}),
+								...(sharedTooltip.bottom !== undefined
+									? { bottom: sharedTooltip.bottom }
+									: {}),
+								...(sharedTooltip.left !== undefined
+									? { left: sharedTooltip.left }
+									: {}),
+								...(sharedTooltip.right !== undefined
+									? { right: sharedTooltip.right }
+									: {}),
+								maxWidth: sharedTooltip.maxWidth,
+								maxHeight: sharedTooltip.maxHeight,
+							}}
+							onMouseEnter={clearSharedTooltipHideTimer}
+							onMouseLeave={scheduleSharedTooltipHide}
+							onPointerDown={pinSharedTooltip}
+						>
+							<div className={s.sharedTooltipToolbar}>
+								<Button
+									className={s.sharedTooltipCopyButton}
+									type="button"
+									variant="tertiary"
+									size="sm"
+									icon="Copy"
+									aria-label={t("common.copy")}
+									title={t("common.copy")}
+									onClick={() => copy(sharedTooltip.text)}
+								/>
+							</div>
 							<div
-								ref={sharedTooltipRef}
-								className={s.sharedTooltip}
-								data-table-tooltip="true"
-								data-table-tooltip-pinned={sharedTooltip.pinned || undefined}
-								style={{
-									...(sharedTooltip.top !== undefined
-										? { top: sharedTooltip.top }
-										: {}),
-									...(sharedTooltip.bottom !== undefined
-										? { bottom: sharedTooltip.bottom }
-										: {}),
-									...(sharedTooltip.left !== undefined
-										? { left: sharedTooltip.left }
-										: {}),
-									...(sharedTooltip.right !== undefined
-										? { right: sharedTooltip.right }
-										: {}),
-									maxWidth: sharedTooltip.maxWidth,
-									maxHeight: sharedTooltip.maxHeight,
-								}}
-								onMouseEnter={clearSharedTooltipHideTimer}
-								onMouseLeave={scheduleSharedTooltipHide}
-								onPointerDown={pinSharedTooltip}
+								className={s.sharedTooltipText}
+								tabIndex={0}
 							>
-								<div className={s.sharedTooltipToolbar}>
-									<Button
-										className={s.sharedTooltipCopyButton}
-										type="button"
-										variant="tertiary"
-										size="sm"
-										icon="Copy"
-										aria-label={t("common.copy")}
-										title={t("common.copy")}
-										onClick={() => copy(sharedTooltip.text)}
-									/>
-								</div>
-								<div
-									className={s.sharedTooltipText}
-									tabIndex={0}
-								>
-									{sharedTooltip.text}
-								</div>
-							</div>,
-							sharedTooltip.portalContainer,
-						)
+								{sharedTooltip.text}
+							</div>
+						</div>,
+						sharedTooltip.portalContainer,
+					)
 					: null}
 			</Stack>
 		</TooltipProvider>
@@ -1711,6 +1965,7 @@ function Col({
 			{onResizeStart && (
 				<div
 					className={s.resizeHandle}
+					data-table-resize-column={c}
 					onMouseDown={handleResizeMouseDown}
 					onClick={(e) => {
 						e.stopPropagation();
@@ -1731,6 +1986,10 @@ namespace Item {
 		i: T;
 		/** Visible column accessors. */
 		columns: ColumnAccessor[];
+		/** Width reserved before the horizontally rendered column window. */
+		leftColumnSpacerWidth: number;
+		/** Width reserved after the horizontally rendered column window. */
+		rightColumnSpacerWidth: number;
 		/** Row index within the table. */
 		index: number;
 		/** Whether the table uses caller-provided columns and raw row reads. */
@@ -1765,6 +2024,8 @@ const Item = React.memo(
 	function ItemInner<T extends Object>({
 		i,
 		columns,
+		leftColumnSpacerWidth,
+		rightColumnSpacerWidth,
 		index,
 		hasExplicitColumns,
 		flattenedRowCache,
@@ -1821,6 +2082,12 @@ const Item = React.memo(
 						</div>
 					</td>
 				)}
+				{leftColumnSpacerWidth > 0 && (
+					<td
+						className={s.horizontalSpacerCell}
+						aria-hidden="true"
+					/>
+				)}
 				{columns.map((column) => {
 					const c = column.key;
 					const cellValue = readTableCellValue(
@@ -1860,6 +2127,12 @@ const Item = React.memo(
 						/>
 					);
 				})}
+				{rightColumnSpacerWidth > 0 && (
+					<td
+						className={s.horizontalSpacerCell}
+						aria-hidden="true"
+					/>
+				)}
 				{actions.length > 0 && (
 					<td
 						className={cn(s.value, s.actionsCell, s.stickyActionsCell)}
@@ -1903,6 +2176,12 @@ const Item = React.memo(
 		if (prevProps.isActive !== nextProps.isActive) return false;
 		if (prevProps.highlighted !== nextProps.highlighted) return false;
 		if (prevProps.i !== nextProps.i) return false;
+		if (prevProps.leftColumnSpacerWidth !== nextProps.leftColumnSpacerWidth) {
+			return false;
+		}
+		if (prevProps.rightColumnSpacerWidth !== nextProps.rightColumnSpacerWidth) {
+			return false;
+		}
 		if (prevProps.columns.length !== nextProps.columns.length) return false;
 		for (let i = 0; i < prevProps.columns.length; i++) {
 			if (prevProps.columns[i] !== nextProps.columns[i]) return false;
@@ -1937,9 +2216,9 @@ const Value = React.memo(
 		const valueStyle =
 			k === "color"
 				? {
-						...style,
-						color: stringified,
-					}
+					...style,
+					color: stringified,
+				}
 				: style;
 		const glyph = k === "glyph_id" ? Glyph.List.get(v as Glyph.Id) : undefined;
 		const icon =

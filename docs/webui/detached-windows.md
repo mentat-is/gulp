@@ -157,7 +157,7 @@ capabilities.
 | Application | Main-to-detached state |
 | --- | --- |
 | Notes | Compact operation/context/source summaries, canonical selected-source note state, realtime note deltas, selected event ID, and optional Canvas-rendered source IDs. |
-| Table View | Operation/context/source summaries, selected event ID, source-selection commands, and query/frame state while synchronized mode is enabled. |
+| Table View | Compact operation/context/source catalog, selected event ID, source-selection commands, and query/frame state while synchronized mode is enabled. |
 | Dashboard | Operation/context/source summaries used by dashboard definitions, field discovery, and aggregations. |
 | Built-in Assistant | Operation identity and an independent websocket connection ID. |
 | Plugin Assistant | Assistant state plus query/frame state when the plugin advertises query synchronization. |
@@ -170,9 +170,18 @@ settings required to normalize note documents. Its full authoritative note
 state is addressed only to the Notes client. Realtime changes are filtered to
 the selected operation and sources before delivery.
 
-Other source summaries exclude cached sample event data and source
-color-override lookup maps. Bridge projections never contain Canvas scale,
-render caches, complete timeline event collections, or render-version counters.
+Table View source summaries contain identity, labels, plugin/update metadata,
+time ranges, totals, pin/glyph state, and only the offset, field, hash, and
+sampling settings consumed by its UI. They exclude ACLs, query cache state,
+sample data, render palettes, and color lookup maps. When Table query sync is
+enabled, its query projection also excludes `fieldTypeMap` because Table loads
+the canonical field map directly with bounded concurrency.
+
+Dashboard and supported Dialog source summaries continue to carry their wider
+application-specific metadata while excluding cached sample event data and
+source color-override lookup maps. Bridge projections never contain Canvas
+scale, render caches, complete timeline event collections, or render-version
+counters.
 
 The Notes “visible sources only” option enables the rendered-source
 subscription. The subscription is disabled when that option is off. Table
@@ -277,11 +286,12 @@ Backend requests are keyed by query meaning rather than React object identity:
 
 - Notes keys a load by operation, effective source IDs, search-result IDs,
   tags, pagination, and explicit refresh revision.
-- Table View serializes operation, source metadata, filters, text, range, flags,
+- Table View serializes operation, source IDs, filters, text, range, flags,
   sort, and page size into one semantic signature and debounces synchronized
-  frame changes by 150 ms. That signature owns a PIT snapshot and its reached
-  page cursors. A semantic change or window close aborts the active load and
-  closes the PIT best-effort; late responses are ignored.
+  frame changes by 150 ms. Independently loaded field metadata is excluded from
+  that signature. The signature owns a PIT snapshot and its reached page
+  cursors. A semantic change or window close aborts the active load and closes
+  the PIT best-effort; late responses are ignored.
 - Dashboard uses deterministic filter and source-metadata signatures for field
   discovery and aggregation requests.
 - Event Dialog keys detail loading by operation and event ID. It aborts stale
@@ -326,6 +336,8 @@ retain the visible page and expose the Notes-changed acknowledgement flow.
   detached applications.
 - A detached Dialog projects at most eleven nearby event indicators and never
   transfers a complete source event collection or Canvas render state.
+- A detached Table receives compact source and query projections without ACLs,
+  query caches, render settings, sample data, or duplicated field maps.
 - Main state projection returns immediately when no matching client capability
   is registered.
 - Query, context, rendered-source, event, Assistant, Dialog, and theme updates

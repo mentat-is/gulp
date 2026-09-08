@@ -949,14 +949,9 @@ export namespace Source {
 
 		interface ContextGroupProps {
 			context: Context.Type;
-			toggleContext: (
-				contextId: Context.Id,
-				currentSelectedContextSources: Source.Type[],
-				allContextSources: Source.Type[],
-			) => void;
+			toggleContext: (contextSources: Source.Type[]) => void;
 			isAllContextSelected: boolean;
 			isIndeterminate: boolean;
-			selectedContextSources: Source.Type[];
 			contextSources: Source.Type[];
 		}
 
@@ -971,7 +966,6 @@ export namespace Source {
 			toggleContext,
 			isAllContextSelected,
 			isIndeterminate,
-			selectedContextSources,
 			contextSources,
 		}: ContextGroupProps) {
 			const { app } = Application.use();
@@ -1018,11 +1012,7 @@ export namespace Source {
 										: false
 							}
 							onCheckedChange={() =>
-								toggleContext(
-									context.id,
-									selectedContextSources,
-									contextSources,
-								)
+								toggleContext(contextSources)
 							}
 						/>
 						{context.name}
@@ -1067,47 +1057,58 @@ export namespace Source {
 		}: Select.Multi.Props) {
 			const { app } = Application.use();
 			const { t } = Locale.use();
+			const appSources = app.target.files;
 
 			const all = useMemo(
-				() => sources ?? Source.Entity.selected(app),
-				[sources, app.timeline.filter, app.target.files],
+				() =>
+					sources ??
+					Source.Entity.pins(appSources.filter((source) => source.selected)),
+				[sources, appSources],
+			);
+			const selectedSet = useMemo(() => new Set(selected), [selected]);
+			const selectedOperationId = useMemo(
+				() => app.target.operations.find((operation) => operation.selected)?.id,
+				[app.target.operations],
 			);
 			const availableContexts = useMemo(() => {
 				const contextIds = new Set(all.map((s) => s.context_id));
-				return Context.Entity.selected(app).filter((c) => contextIds.has(c.id));
-			}, [all, app]);
+				return app.target.contexts.filter(
+					(context) =>
+						context.selected &&
+						context.operation_id === selectedOperationId &&
+						contextIds.has(context.id),
+				);
+			}, [all, app.target.contexts, selectedOperationId]);
 
 			const isAllSelected = useMemo(
-				() => all.length > 0 && all.every((s) => selected.includes(s.id)),
-				[all, selected],
+				() => all.length > 0 && all.every((source) => selectedSet.has(source.id)),
+				[all, selectedSet],
 			);
+			const sourcesByContext = useMemo(() => {
+				const groupedSources = new Map<Context.Id, Source.Type[]>();
+				all.forEach((source) => {
+					const contextSources = groupedSources.get(source.context_id) ?? [];
+					contextSources.push(source);
+					groupedSources.set(source.context_id, contextSources);
+				});
+				return groupedSources;
+			}, [all]);
 
-			const toggleContext = (
-				contextId: Context.Id,
-				currentSelectedContextSources: Source.Type[],
-				allContextSources: Source.Type[],
-			) => {
-				const allContextSourceIds = allContextSources.map((s) => s.id);
-				const isAllContextSelected =
-					currentSelectedContextSources.length === allContextSources.length;
-
-				let newSelected = [...selected];
-
-				if (isAllContextSelected) {
-					// Deselect all in context
-					newSelected = newSelected.filter(
-						(id) => !allContextSourceIds.includes(id),
-					);
-				} else {
-					// Select all in context
-					// Add ones that are not already present
-					allContextSourceIds.forEach((id) => {
-						if (!newSelected.includes(id)) {
-							newSelected.push(id);
-						}
-					});
-				}
-				setSelected(newSelected);
+			/**
+			 * Toggles every source in one context using constant-time membership checks.
+			 * @param contextSources Sources belonging to the context being toggled.
+			 * @returns Nothing.
+			 */
+			const toggleContext = (contextSources: Source.Type[]): void => {
+				const nextSelected = new Set(selectedSet);
+				const isAllContextSelected = contextSources.every((source) =>
+					selectedSet.has(source.id),
+				);
+				contextSources.forEach((source) => {
+					if (isAllContextSelected) nextSelected.delete(source.id);
+					else nextSelected.add(source.id);
+				});
+				setSelected(Array.from(nextSelected));
 			};
 
 			const [isOpen, setIsOpen] = useState(false);
@@ -1154,16 +1155,17 @@ export namespace Source {
 									}
 								/>
 								{availableContexts.map((context, index) => {
-									const contextSources = all.filter(
-										(s) => s.context_id === context.id,
-									);
-									const selectedContextSources = contextSources.filter((s) =>
-										selected.includes(s.id),
+									const contextSources =
+										sourcesByContext.get(context.id) ?? [];
+									const selectedContextSourceCount = contextSources.reduce(
+										(count, source) =>
+											count + (selectedSet.has(source.id) ? 1 : 0),
+										0,
 									);
 									const isAllContextSelected =
-										selectedContextSources.length === contextSources.length;
+										selectedContextSourceCount === contextSources.length;
 									const isIndeterminate =
-										selectedContextSources.length > 0 && !isAllContextSelected;
+										selectedContextSourceCount > 0 && !isAllContextSelected;
 
 									return (
 										<Fragment key={context.id}>
@@ -1172,7 +1174,6 @@ export namespace Source {
 												toggleContext={toggleContext}
 												isAllContextSelected={isAllContextSelected}
 												isIndeterminate={isIndeterminate}
-												selectedContextSources={selectedContextSources}
 												contextSources={contextSources}
 											/>
 											{index < availableContexts.length - 1 && (

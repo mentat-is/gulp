@@ -86,13 +86,60 @@ export namespace DetachedApp {
 }
 
 /**
+ * Checks whether a detached source uses the compact Table View projection.
+ * @param source Detached source payload to inspect.
+ * @returns True for compact Table View source summaries.
+ */
+function isDetachedTableSource(
+	source:
+		| WindowBridge.DetachedSourceSummary
+		| WindowBridge.DetachedNotesSourceSummary
+		| WindowBridge.DetachedTableSourceSummary,
+): source is WindowBridge.DetachedTableSourceSummary {
+	return "projection" in source && source.projection === "table";
+}
+
+/**
  * Restores a serializable source summary to the Source shape used by the UI.
+ * @param source Full or capability-scoped detached source payload.
+ * @returns Hydrated source entity with required client-only defaults.
  */
 function hydrateDetachedSource(
 	source:
 		| WindowBridge.DetachedSourceSummary
-		| WindowBridge.DetachedNotesSourceSummary,
+		| WindowBridge.DetachedNotesSourceSummary
+		| WindowBridge.DetachedTableSourceSummary,
 ): Source.Type {
+	if (isDetachedTableSource(source)) {
+		const { projection: _projection, ...tableSource } = source;
+		return {
+			...tableSource,
+			owner_user_id: "" as User.Id,
+			granted_user_ids: [],
+			granted_user_group_ids: [],
+			time_created: 0,
+			selected: true,
+			appliedQuery: null,
+			queryCache: createEmptyQueryCacheState(),
+			nanotimestamp: {
+				min: BigInt(source.nanotimestamp.min),
+				max: BigInt(source.nanotimestamp.max),
+			},
+			settings: {
+				render_color_palette: "plasma",
+				render_engine: "default",
+				timeline_label: "filename",
+				...source.settings,
+			},
+			_sampleDataCached: {
+				frequency_sample: source.settings.frequency_sample,
+				min_timestamp: source.timestamp.min,
+				max_timestampe: source.timestamp.max,
+				sample_data: null,
+			},
+		};
+	}
+
 	if (!("nanotimestamp" in source)) {
 		return {
 			...source,

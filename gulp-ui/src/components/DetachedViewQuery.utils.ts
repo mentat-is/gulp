@@ -101,22 +101,14 @@ export function serializeSourceFieldMetadata(
 	return serializeSemanticValue(metadata);
 }
 
-/**
- * Selects only the synchronized filter fields that affect the OpenSearch query.
- * The human-readable `string` label is presentation-only.
- *
- * @param query Synchronized source query, when one is configured.
- * @returns Query-relevant filter payload or null.
- */
 export function getSemanticSyncedQuery(
 	query: Query.Type | null | undefined,
-): Omit<Query.Type, "string" | "source_config"> | null {
+): Omit<Query.Type, "string" | "source_config" | "fieldTypeMap"> | null {
 	if (!query) return null;
 
 	return {
 		filters: query.filters ?? [],
 		text_filter: query.text_filter ?? "",
-		fieldTypeMap: query.fieldTypeMap,
 		isManual: query.isManual,
 		raw: query.raw,
 	};

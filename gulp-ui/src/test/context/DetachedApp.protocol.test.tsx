@@ -14,6 +14,7 @@ const mockSocketConstruct = jest.fn<
 const mockSocketDestroy = jest.fn<void, [string]>();
 let mockOwnsIndependentDataStore = false;
 let mockApplicationContextValue: {
+	app: App.Type;
 	detachedEventDetail: Doc.Type | null;
 	requestMainEventAction: (
 		payload: WindowBridge.OpenEventActionRequestPayload,
@@ -442,6 +443,120 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 		expect(getReadyMessages()).toHaveLength(2);
 		expect(privateMessages).toHaveLength(1);
 		expect(container.textContent?.includes("detachedApp.idle")).toBe(true);
+	});
+
+	it("hydrates compact Table source and query projections to equivalent UI state", () => {
+		const operationId = "table-operation" as Operation.Id;
+		const sourceId =
+			"table-source" as WindowBridge.DetachedTableSourceSummary["id"];
+		const contextId =
+			"table-context" as WindowBridge.DetachedTableSourceSummary["context_id"];
+		const payload: WindowBridge.DetachedBootstrapPayload = {
+			status: "active",
+			theme: {
+				theme: "classic-dark",
+				mode: "dark",
+				cssVariables: {},
+			},
+			context: {
+				operation: {
+					id: operationId,
+					name: "Table operation",
+					selected: true,
+				} as Operation.Type,
+				contexts: [
+					{
+						id: contextId,
+						operation_id: operationId,
+						type: "context",
+						name: "Table context",
+						color: "#123456",
+						selected: true,
+					},
+				],
+				sources: [
+					{
+						projection: "table",
+						id: sourceId,
+						operation_id: operationId,
+						context_id: contextId,
+						type: "source",
+						name: "Table source",
+						selected: true,
+						pinned: true,
+						glyph_id: null as never,
+						plugin: "table-plugin",
+						time_updated: 42,
+						timestamp: { min: 1, max: 2 },
+						nanotimestamp: { min: "1000000", max: "2000000" },
+						total: 331_000,
+						settings: {
+							offset: 250,
+							field: "_id",
+							hash_function: "fnv1a",
+							frequency_sample: 1000,
+						},
+					},
+				],
+				cacheNamespaceId: null,
+			},
+			queryContext: {
+				filters: {
+					[sourceId]: {
+						string: "",
+						filters: [],
+						text_filter: "needle",
+					},
+				},
+				frame: { min: 10, max: 20 },
+			},
+		};
+
+		act(() => {
+			root.render(
+				<DetachedAppProvider
+					initialApp={App.Base}
+					bridgeId={clientId}
+					coordinatorId={coordinatorId}
+					kind="table"
+				>
+					<div>table detached app</div>
+				</DetachedAppProvider>,
+			);
+		});
+		act(() => {
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.DETACHED_BOOTSTRAP,
+				payload,
+			);
+		});
+
+		const hydratedSource = mockApplicationContextValue?.app.target.files[0];
+		expect(hydratedSource).toMatchObject({
+			id: sourceId,
+			plugin: "table-plugin",
+			time_updated: 42,
+			pinned: true,
+		});
+		expect(hydratedSource?.appliedQuery).toMatchObject({
+			text_filter: "needle",
+		});
+		expect(hydratedSource?.settings).toMatchObject({
+			offset: 250,
+			field: "_id",
+			hash_function: "fnv1a",
+		});
+		expect(hydratedSource?.nanotimestamp).toEqual({
+			min: 1_000_000n,
+			max: 2_000_000n,
+		});
+		expect(hydratedSource?.queryCache !== undefined).toBe(true);
+		expect(hydratedSource?.granted_user_ids).toEqual([]);
+		expect(hydratedSource?._sampleDataCached.sample_data).toBeNull();
+		expect(mockApplicationContextValue?.app.timeline.frame).toEqual({
+			min: 10,
+			max: 20,
+		});
 	});
 
 	it("does not duplicate READY when the stored main status is already active", () => {

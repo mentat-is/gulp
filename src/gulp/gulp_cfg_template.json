@@ -82,6 +82,8 @@
   "query_circuit_breaker_backoff_attempts": 5,
   // minimum query page size during circuit-breaker backoff (default=100)
   "query_circuit_breaker_min_limit": 100,
+  // keep-alive renewed by every point-in-time paginated query (default=5m)
+  "query_pagination_pit_keep_alive": "5m",
   // how many queries to keep in the history per user(default=20, max=50)
   "query_history_max_size": 20,
   // max Redis connections per process for redis-py async pool (0=unlimited, default=0)

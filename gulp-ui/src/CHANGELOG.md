@@ -5,6 +5,12 @@
 - `Source query cache pool`: Added up to five IndexedDB query generations per source, exact startup reuse with latest-cache fallback, source-local Undo/Redo, query provenance restoration, rollback-safe forced queries, and cache invalidation for rebase/source deletion.
 - `Source query range coverage`: Reuses fresh same-query caches when their source-local range covers the newly selected timeframe, while preserving source-change warnings and latest-cache fallback behavior.
 - `Table View deep pagination`: Keeps a point-in-time snapshot per semantic table query, reuses page cursors for adjacent navigation, supports direct jumps beyond the OpenSearch result window, and releases snapshots when the table query changes or closes.
+- `Table View wide schemas`: Added opt-in horizontal column virtualization,
+  complete virtualized and searchable column visibility, non-blocking
+  eight-source field discovery, compact detached projections, and hybrid
+  dotted-field resolution for `gulp.unmapped.*` and `gulp.enriched.*` values;
+  the timestamp sorting selector now remains populated after asynchronous field
+  discovery.
 
 ## UI/UX and Rendering
 

@@ -1,9 +1,17 @@
 # v2.0.0
 
+- kept Table View responsive across operations with many disjoint source fields
+  through horizontal column virtualization, bounded field discovery, a complete
+  virtualized column menu, compact detached payloads, and correct hybrid
+  `gulp.unmapped.*` value resolution; timestamp sorting now stays selected when
+  the backend `@timestamp` metadata replaces the initial fallback.
+- documented Web UI global-query timeline performance, including per-source
+  React invalidations and measured operation-wide IndexedDB lookup amplification.
 - replaced deep `query_raw_paginate` offsets with bounded PIT plus `search_after`
   seeking while preserving the legacy offset contract; added stable Table View
   pagination sessions, explicit PIT cleanup and expiry handling, and matching
-  SDK and CLI controls.
+  SDK and CLI controls; PIT boolean query parameters are serialized as lowercase
+  OpenSearch literals for `opensearch-py` compatibility.
 - added a `query-external` Web UI extension slot with exact backend-plugin manifest association, controlled request/validation handoff, full fallback behavior, and state restoration across Preview and Ingest navigation.
 - added a bounded, source-local consecutive timestamp cache shared by every core and paid ingestion plugin, with isolated streams for multi-timestamp parsers; also removed repeated group extraction and invariant parser setup from Apache, IIS, and Zsh record loops while preserving timestamp offsets, validation, and document IDs.
 - changed CSV Pro, JSON Lines Pro, and XRY parallel parsing to feed one source-owned ingestion pipeline, preserving bounded prefetch while restoring adaptive sizing, ordered callbacks/statistics, complete final bulk acknowledgement, and one final refresh.

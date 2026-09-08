@@ -869,6 +869,7 @@ function _({ children }: { children: ReactNode }) {
 					),
 					includeDialogUser: client.kind === "dialog",
 					compactNotes: client.kind === "notes",
+					compactTable: client.kind === "table",
 				},
 			);
 
@@ -880,6 +881,7 @@ function _({ children }: { children: ReactNode }) {
 				payload.queryContext = WindowBridge.createQueryContext(
 					currentApp,
 					operationId,
+					{ omitFieldTypeMap: client.kind === "table" },
 				);
 			}
 
@@ -1015,8 +1017,9 @@ function _({ children }: { children: ReactNode }) {
 					!client.assistantQuerySyncEnabled;
 				const includeDialogUser = client.kind === "dialog";
 				const compactNotes = client.kind === "notes";
+				const compactTable = client.kind === "table";
 				const projectionKey =
-					`${operationOnly}:${includeDialogUser}:${compactNotes}`;
+					`${operationOnly}:${includeDialogUser}:${compactNotes}:${compactTable}`;
 				let projection = contextPayloads.get(projectionKey);
 				if (!projection) {
 					const payload = WindowBridge.createContextSnapshot(
@@ -1031,11 +1034,12 @@ function _({ children }: { children: ReactNode }) {
 											: dialogProjectionRef.current ??
 												getProjectedDialogPayload()
 									).events.map(
-										(event) => event["gulp.source_id"],
-									)
-								: undefined,
+									(event) => event["gulp.source_id"],
+								)
+							: undefined,
 							includeDialogUser,
 							compactNotes,
+							compactTable,
 						},
 					);
 					projection = {
@@ -1062,20 +1066,36 @@ function _({ children }: { children: ReactNode }) {
 					(client.kind === "table" && client.tableSyncEnabled),
 			);
 			if (queryClients.length > 0) {
-				const queryPayload = WindowBridge.createQueryContext(
-					currentApp,
-					operationId,
-				);
-				const signature = getPayloadSignature(queryPayload);
-				queryClients.forEach((client) =>
+				const queryPayloads = new Map<
+					boolean,
+					{
+						payload: WindowBridge.QueryContextPayload;
+						signature: string;
+					}
+				>();
+				queryClients.forEach((client) => {
+					const omitFieldTypeMap = client.kind === "table";
+					let projection = queryPayloads.get(omitFieldTypeMap);
+					if (!projection) {
+						const payload = WindowBridge.createQueryContext(
+							currentApp,
+							operationId,
+							{ omitFieldTypeMap },
+						);
+						projection = {
+							payload,
+							signature: getPayloadSignature(payload),
+						};
+						queryPayloads.set(omitFieldTypeMap, projection);
+					}
 					sendDomain(
 						client,
 						"query",
 						WindowBridge.MessageType.QUERY_CONTEXT,
-						queryPayload,
-						signature,
-					),
-				);
+						projection.payload,
+						projection.signature,
+					);
+				});
 			}
 		}
 

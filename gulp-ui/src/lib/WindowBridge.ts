@@ -193,7 +193,11 @@ export namespace WindowBridge {
   export interface ContextSnapshotPayload {
     operation: Operation.Type | null
     contexts: Array<Context.Type | DetachedNotesContextSummary>
-    sources: Array<DetachedSourceSummary | DetachedNotesSourceSummary>
+    sources: Array<
+      DetachedSourceSummary |
+      DetachedNotesSourceSummary |
+      DetachedTableSourceSummary
+    >
     /** Stable backend/user identity used by detached EventStore readers. */
     cacheNamespaceId: string | null
     /** Compact identity/preference subset needed by supported Dialogs. */
@@ -212,6 +216,13 @@ export namespace WindowBridge {
     includeDialogUser?: boolean
     /** Project only the source/context fields consumed by Notes. */
     compactNotes?: boolean
+    /** Project only the source/context fields consumed by Table View. */
+    compactTable?: boolean
+  }
+
+  export interface QueryContextOptions {
+    /** Exclude field metadata already loaded independently by Table View. */
+    omitFieldTypeMap?: boolean
   }
 
   export interface QueryContextPayload {
@@ -348,6 +359,29 @@ export namespace WindowBridge {
     _sampleDataCached: Omit<Source.Type['_sampleDataCached'], 'sample_data'> & {
       sample_data: null
     }
+  }
+
+  /** Source catalog entry consumed by a detached Table View. */
+  export interface DetachedTableSourceSummary {
+    projection: 'table'
+    id: Source.Id
+    operation_id: Operation.Id
+    context_id: Context.Id
+    type: 'source'
+    name: string
+    color?: string
+    selected: true
+    pinned: boolean
+    glyph_id: Source.Type['glyph_id']
+    plugin: string
+    time_updated: Source.Type['time_updated']
+    timestamp: Source.Type['timestamp']
+    nanotimestamp: SerializedNanoMinMax
+    total: number
+    settings: Pick<
+      Source.Type['settings'],
+      'offset' | 'field' | 'hash_function' | 'frequency_sample'
+    >
   }
 
   /** Minimal source metadata needed for Notes labels and doc normalization. */
@@ -922,6 +956,66 @@ export namespace WindowBridge {
   }
 
   /**
+   * Projects only source fields used by Table View selection, metadata loading,
+   * time scoping, and event normalization.
+   *
+   * @param source Source from the main application state.
+   * @returns Compact serializable Table View source summary.
+   */
+  function createDetachedTableSourceSummary(
+    source: Source.Type,
+  ): DetachedTableSourceSummary {
+    const fallbackTimestamp = source.timestamp ?? { min: 0, max: 0 }
+
+    /**
+     * Converts a source nanosecond value to a bridge-safe string.
+     * @param value Source nanosecond value when available.
+     * @param fallbackMs Millisecond value used when nanoseconds are absent.
+     * @returns Serializable nanosecond timestamp.
+     */
+    const serializeNanoTimestamp = (
+      value: bigint | number | string | undefined,
+      fallbackMs: number,
+    ): string => {
+      if (value !== undefined) return String(value)
+      return Math.round(fallbackMs * 1_000_000).toString()
+    }
+
+    return {
+      projection: 'table',
+      id: source.id,
+      operation_id: source.operation_id,
+      context_id: source.context_id,
+      type: 'source',
+      name: source.name,
+      color: source.color,
+      selected: true,
+      pinned: source.pinned,
+      glyph_id: source.glyph_id,
+      plugin: source.plugin,
+      time_updated: source.time_updated,
+      timestamp: fallbackTimestamp,
+      nanotimestamp: {
+        min: serializeNanoTimestamp(
+          source.nanotimestamp?.min,
+          fallbackTimestamp.min,
+        ),
+        max: serializeNanoTimestamp(
+          source.nanotimestamp?.max,
+          fallbackTimestamp.max,
+        ),
+      },
+      total: source.total,
+      settings: {
+        offset: source.settings.offset ?? 0,
+        field: source.settings.field,
+        hash_function: source.settings.hash_function,
+        frequency_sample: source.settings.frequency_sample ?? 0,
+      },
+    }
+  }
+
+  /**
    * Projects only the source identity and normalization settings consumed by
    * Notes. Render palettes, grants, timestamps, totals, and plugin metadata are
    * deliberately excluded.
@@ -949,18 +1043,28 @@ export namespace WindowBridge {
    *
    * @param app - Current application state.
    * @param sourceIds - Source identifiers included in the detached snapshot.
+   * @param options Capability-specific query projection options.
    * @returns Serializable filters keyed by source id.
    */
   function createDetachedFilters(
     app: App.Type,
     sourceIds: Source.Id[],
+    options: QueryContextOptions = {},
   ): Partial<Record<Source.Id, Query.Type>> {
+    const appliedQueryBySourceId = new Map(
+      app.target.files.map((source) => [source.id, source.appliedQuery]),
+    )
     return Object.fromEntries(
       sourceIds
-        .map((sourceId) => [
-          sourceId,
-          app.target.files.find((source) => source.id === sourceId)?.appliedQuery,
-        ] as const)
+        .map((sourceId) => {
+          const filter = appliedQueryBySourceId.get(sourceId)
+          if (!filter || !options.omitFieldTypeMap) {
+            return [sourceId, filter] as const
+          }
+
+          const { fieldTypeMap: _fieldTypeMap, ...compactFilter } = filter
+          return [sourceId, compactFilter as Query.Type] as const
+        })
         .filter(([, filter]) => Boolean(filter)),
     ) as Partial<Record<Source.Id, Query.Type>>
   }
@@ -970,6 +1074,7 @@ export namespace WindowBridge {
    *
    * @param app Main application state.
    * @param operationId Operation selected by the current route.
+   * @param options Capability-specific context projection options.
    * @returns Serializable operation, context, and selected-source state.
    */
   export function createContextSnapshot(
@@ -985,7 +1090,7 @@ export namespace WindowBridge {
       ? new Set(options.sourceIds)
       : null
     const selectedSources = options.operationOnly
-        ? []
+      ? []
       : app.target.files.filter(
         (source) =>
           (!selectedOperationId || source.operation_id === selectedOperationId) &&
@@ -1016,7 +1121,7 @@ export namespace WindowBridge {
             context.operation_id === selectedOperationId &&
             selectedContextIds.has(context.id),
         ).map((context) =>
-          options.compactNotes
+          options.compactNotes || options.compactTable
             ? {
               id: context.id,
               operation_id: context.operation_id,
@@ -1031,7 +1136,9 @@ export namespace WindowBridge {
       sources: selectedSources.map((source) =>
         options.compactNotes
           ? createDetachedNotesSourceSummary(source)
-          : createDetachedSourceSummary(source),
+          : options.compactTable
+            ? createDetachedTableSourceSummary(source)
+            : createDetachedSourceSummary(source),
       ),
       user: options.includeDialogUser
         ? app.general.user
@@ -1049,11 +1156,13 @@ export namespace WindowBridge {
    *
    * @param app Main application state.
    * @param operationId Active operation identifier.
+   * @param options Capability-specific query projection options.
    * @returns Query synchronization state.
    */
   export function createQueryContext(
     app: App.Type,
     operationId?: Operation.Id | null,
+    options: QueryContextOptions = {},
   ): QueryContextPayload {
     const sourceIds = app.target.files
       .filter(
@@ -1064,7 +1173,7 @@ export namespace WindowBridge {
       .map((source) => source.id)
 
     return {
-      filters: createDetachedFilters(app, sourceIds),
+      filters: createDetachedFilters(app, sourceIds, options),
       frame: app.timeline.frame,
     }
   }

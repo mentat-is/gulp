@@ -108,14 +108,21 @@ describe("detached view query fingerprints", () => {
 		const equivalentQuery = {
 			...query,
 			string: "translated display label",
+			fieldTypeMap: { "event.code": "keyword", extra: "date" },
 			source_config: {
 				...query.source_config!,
 				range: { min: "100", max: "200" },
 			},
-		};
+		} as Query.Type;
 
 		expect(serializeSemanticValue(getSemanticSyncedQuery(query))).toBe(
 			serializeSemanticValue(getSemanticSyncedQuery(equivalentQuery)),
 		);
+		expect(
+			Object.prototype.hasOwnProperty.call(
+				getSemanticSyncedQuery(query) ?? {},
+				"fieldTypeMap",
+			),
+		).toBe(false);
 	});
 });

@@ -80,7 +80,7 @@ The Table View window displays source events in a paginated table.
 
 Table View supports:
 
-- selecting a source;
+- selecting one or more sources across the active contexts;
 - synced mode, which follows global filters and timeline range;
 - detached mode, which uses local search and independent time filters;
 - local structured filters;
@@ -104,8 +104,27 @@ request does not replace the last successfully displayed page.
 
 When horizontal scrolling is required, the optional row-selection column stays
 fixed to the left edge and the optional row-actions column stays fixed to the
-right edge. The column-visibility context menu is limited to the table viewport
-height and scrolls independently when the source exposes many fields.
+right edge. Wide schemas keep every column logically visible while mounting only
+the columns inside the horizontal viewport plus a small overscan. Row and column
+virtualization therefore bound the rendered cell matrix independently of the
+operation's event count.
+
+Table View loads field metadata for at most eight sources at a time. An
+unfiltered first page can render immediately with columns inferred from its
+documents; the complete union of source fields replaces that temporary schema
+when metadata is ready. Structured filters wait for field types because their
+OpenSearch clauses depend on those types. Metadata-only schema updates do not
+repeat the event query. The logical `timestamp` sort value remains stable while
+its displayed field changes to the backend `@timestamp` name, so asynchronous
+metadata updates do not clear the sorting selector or repeat the initial query.
+
+The column-visibility context menu is limited to the table viewport height and
+virtualizes the complete matching field list. Scrolling therefore reaches every
+column without mounting the entire schema, while its search box filters the
+same complete catalog. Visibility choices and “show all columns” keep their
+normal persisted behavior. Dotted columns resolve flat, nested, and hybrid
+event shapes, including values stored below literal `gulp.unmapped` or
+`gulp.enriched` object keys.
 
 ## Dashboard
 

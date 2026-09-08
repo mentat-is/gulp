@@ -150,6 +150,12 @@
 	height: 0;
 }
 
+.horizontalSpacerCell {
+	padding: 0 !important;
+	border-right: 0 !important;
+	pointer-events: none;
+}
+
 /* Hover is only active when parent tbody has data-clickable attribute */
 [data-clickable] .item:hover {
 	background: var(--background-200);
@@ -231,8 +237,35 @@
 /* ─── Column visibility menu ─── */
 .columnVisibilityMenu.columnVisibilityMenu {
 	overflow-x: hidden;
+	overflow-y: hidden;
+	overscroll-behavior: contain;
+}
+
+.columnVisibilitySearch {
+	padding: 4px 8px;
+	background: var(--background-100);
+}
+
+.columnVisibilityOptions {
+	overflow-x: hidden;
 	overflow-y: auto;
 	overscroll-behavior: contain;
+}
+
+.columnVisibilityOptionsSizer {
+	position: relative;
+	width: 100%;
+}
+
+.columnVisibilityOption.columnVisibilityOption {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	box-sizing: border-box;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
 }
 
 .headerStack {

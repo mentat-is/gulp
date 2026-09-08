@@ -61,15 +61,25 @@ function createDocument(id: string): Doc.Type & QueryRawDocument {
 
 /**
  * Creates the minimal application snapshot required by TableViewWindow.
- * @param source Source included in the snapshot.
+ * @param sourceOrSources Sources included in the snapshot.
  * @returns Application fixture.
  */
-function createApp(source: Source.Type): App.Type {
+function createApp(sourceOrSources: Source.Type | Source.Type[]): App.Type {
+	const sources = Array.isArray(sourceOrSources)
+		? sourceOrSources
+		: [sourceOrSources];
 	return {
 		target: {
-			files: [source],
+			files: sources,
 			operations: [{ id: OPERATION_ID, selected: true }],
-			contexts: [],
+			contexts: Array.from(new Set(sources.map((source) => source.context_id))).map(
+				(contextId) => ({
+					id: contextId,
+					operation_id: OPERATION_ID,
+					selected: true,
+					name: contextId,
+				}),
+			),
 		},
 		timeline: {
 			frame: { min: 1, max: 100 },
@@ -80,6 +90,9 @@ function createApp(source: Source.Type): App.Type {
 
 let mockApp = createApp(createSource());
 let mockEventKeysCalls = 0;
+let mockEventKeysImplementation: (
+	source: Source.Type,
+) => Promise<Record<string, string>>;
 let mockQueryPaginateCalls = 0;
 let mockQueryPaginateRequests: Array<{
 	query: Query.Type;
@@ -101,12 +114,23 @@ let mockTablePagination:
 			onPageSizeChange: (pageSize: number) => void;
 	  }
 	| undefined;
+let mockTableSorting:
+	| {
+			value: string;
+			options: Array<{ value: string; label?: string }>;
+	  }
+	| undefined;
 let mockToastErrorCalls: unknown[][] = [];
 let mockRenderedTableValues: Doc.Type[] | undefined;
+let mockRenderedTableColumns: string[] | undefined;
+let mockHorizontalVirtualization: unknown;
+let mockSourceSelectionChange:
+	| ((sourceIds: Source.Id[]) => void)
+	| null = null;
 const mockInfo = {
-	event_keys: async (): Promise<Record<string, string>> => {
+	event_keys: async (source: Source.Type): Promise<Record<string, string>> => {
 		mockEventKeysCalls += 1;
-		return { timestamp: "date" };
+		return mockEventKeysImplementation(source);
 	},
 	query_paginate: async (
 		query: Query.Type,
@@ -149,12 +173,21 @@ jest.mock("@/locales", () => ({
 }));
 
 jest.mock("@/entities/Source", () => ({
-	Source: {
+		Source: {
 		Entity: {
 			id: (app: App.Type, id: Source.Id): Source.Type | undefined =>
 				app.target.files.find((source) => source.id === id),
 		},
-		Select: { Multi: (): null => null },
+		Select: {
+			Multi: ({
+				setSelected,
+			}: {
+				setSelected: (sourceIds: Source.Id[]) => void;
+			}): null => {
+				mockSourceSelectionChange = setSelected;
+				return null;
+			},
+		},
 	},
 }));
 
@@ -216,8 +249,18 @@ jest.mock("@/components/QueryBuilder", () => ({
 }));
 
 jest.mock("@/components/Table", () => ({
-	Table: ({ values }: { values: Doc.Type[] }): null => {
+	Table: ({
+		values,
+		columns,
+		horizontalVirtualization,
+	}: {
+		values: Doc.Type[];
+		columns?: string[];
+		horizontalVirtualization?: unknown;
+	}): null => {
 		mockRenderedTableValues = values;
+		mockRenderedTableColumns = columns;
+		mockHorizontalVirtualization = horizontalVirtualization;
 		return null;
 	},
 }));
@@ -225,13 +268,19 @@ jest.mock("@/components/Table", () => ({
 jest.mock("@/ui/TableHeader", () => ({
 	TableHeader: ({
 		pagination,
+		sorting,
 	}: {
 		pagination: {
 			onPageChange: (page: number) => void;
 			onPageSizeChange: (pageSize: number) => void;
 		};
+		sorting?: {
+			value: string;
+			options: Array<{ value: string; label?: string }>;
+		};
 	}): null => {
 		mockTablePagination = pagination;
+		mockTableSorting = sorting;
 		return null;
 	},
 }));
@@ -325,6 +374,7 @@ describe("TableViewWindow query stability", () => {
 	beforeEach(() => {
 		mockApp = createApp(createSource());
 		mockEventKeysCalls = 0;
+		mockEventKeysImplementation = async () => ({ timestamp: "date" });
 		mockQueryPaginateCalls = 0;
 		mockQueryPaginateRequests = [];
 		mockQueryPaginateCloseRequests = [];
@@ -335,8 +385,12 @@ describe("TableViewWindow query stability", () => {
 		mockSyncChange = null;
 		mockTableFilterOptions = undefined;
 		mockTablePagination = undefined;
+		mockTableSorting = undefined;
 		mockToastErrorCalls = [];
 		mockRenderedTableValues = undefined;
+		mockRenderedTableColumns = undefined;
+		mockHorizontalVirtualization = undefined;
+		mockSourceSelectionChange = null;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -382,6 +436,101 @@ describe("TableViewWindow query stability", () => {
 		await flushRequests();
 
 		expect(mockEventKeysCalls).toBe(2);
+		expect(mockQueryPaginateCalls).toBe(1);
+	});
+
+	it("keeps the timestamp sort selected when backend metadata arrives", async () => {
+		mockEventKeysImplementation = async () => ({
+			"@timestamp": "date",
+			"agent.type": "keyword",
+		});
+
+		act(() => {
+			root.render(<TableViewWindow initialSourceId={SOURCE_ID} />);
+		});
+		await flushRequests();
+
+		expect(mockQueryPaginateCalls).toBe(1);
+		expect(mockTableSorting?.value).toBe("timestamp");
+		expect(
+			mockTableSorting?.options.find((option) => option.value === "timestamp"),
+		).toEqual({
+			value: "timestamp",
+			label: "@timestamp",
+		});
+		expect(
+			mockTableSorting?.options.some((option) => option.value === "@timestamp"),
+		).toBe(false);
+	});
+
+	it("renders a 140-source first page before bounded metadata loading completes", async () => {
+		const sources = Array.from({ length: 140 }, (_value, index) =>
+			createSource({
+				id: (index === 0 ? SOURCE_ID : `table-query-source-${index}`) as Source.Id,
+				context_id: `table-query-context-${index % 3}` as Context.Id,
+				name: `Source ${index}`,
+			}),
+		);
+		mockApp = createApp(sources);
+		let activeMetadataLoads = 0;
+		let maximumMetadataLoads = 0;
+		const pendingMetadataResolutions: Array<() => void> = [];
+		mockEventKeysImplementation = (source) =>
+			new Promise((resolve) => {
+				activeMetadataLoads += 1;
+				maximumMetadataLoads = Math.max(
+					maximumMetadataLoads,
+					activeMetadataLoads,
+				);
+				pendingMetadataResolutions.push(() => {
+					activeMetadataLoads -= 1;
+					resolve({ [`field.${source.id}`]: "keyword" });
+				});
+			});
+		mockQueryPaginateImplementation = async () => ({
+			docs: [createDocument("first-wide-page")],
+			total_hits: 331_000,
+			pit_id: "wide-schema-pit",
+			search_after: ["next-wide-page"],
+		});
+
+		act(() => root.render(<TableViewWindow />));
+		await flushRequests();
+		if (!mockSourceSelectionChange) {
+			throw new Error("Expected the source selector callback");
+		}
+		act(() => mockSourceSelectionChange?.(sources.map((source) => source.id)));
+		await flushRequests();
+
+		expect(mockQueryPaginateCalls).toBe(1);
+		expect(mockRenderedTableValues?.map((document) => document._id)).toEqual([
+			"first-wide-page",
+		]);
+		expect(mockRenderedTableColumns).toBeUndefined();
+		expect(mockEventKeysCalls).toBe(8);
+		expect(maximumMetadataLoads).toBe(8);
+		expect(mockHorizontalVirtualization).toEqual({ threshold: 40, overscan: 3 });
+
+		while (
+			mockEventKeysCalls < sources.length ||
+			pendingMetadataResolutions.length > 0
+		) {
+			const currentBatch = pendingMetadataResolutions.splice(0);
+			if (currentBatch.length === 0) {
+				await flushRequests();
+				continue;
+			}
+			await act(async () => {
+				currentBatch.forEach((resolve) => resolve());
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+		}
+		await flushRequests();
+
+		expect(mockEventKeysCalls).toBe(140);
+		expect(maximumMetadataLoads).toBe(8);
+		expect(mockRenderedTableColumns).toHaveLength(140);
 		expect(mockQueryPaginateCalls).toBe(1);
 	});
 

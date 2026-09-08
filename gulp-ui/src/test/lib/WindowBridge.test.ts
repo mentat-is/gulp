@@ -234,7 +234,7 @@ describe("WindowBridge capability-scoped projections", () => {
 			selectedSource.id,
 		]);
 		const projectedSource = context.sources[0];
-		if (!projectedSource || !("nanotimestamp" in projectedSource)) {
+		if (!projectedSource || !("_sampleDataCached" in projectedSource)) {
 			throw new Error("Expected full detached source projection");
 		}
 		expect(projectedSource.nanotimestamp).toEqual({
@@ -301,6 +301,81 @@ describe("WindowBridge capability-scoped projections", () => {
 		).toBe(false);
 		expect(
 			Object.prototype.hasOwnProperty.call(context.sources[0], "total"),
+		).toBe(false);
+	});
+
+	it("projects compact Table sources and synchronized queries without field maps", () => {
+		const app = createApp();
+		const source = createSource("selected", "Selected");
+		source.plugin = "wide-schema-plugin";
+		source.time_updated = 123;
+		source.glyph_id = "source-glyph" as Glyph.Id;
+		source.pinned = true;
+		source.settings.offset = 250;
+		source.appliedQuery = {
+			string: "event.code: 42",
+			filters: [],
+			text_filter: "needle",
+			fieldTypeMap: {
+				"event.code": "long",
+				"gulp.unmapped.Guid": "keyword",
+			},
+		};
+		app.target.files = [source];
+
+		const context = WindowBridge.createContextSnapshot(app, OPERATION_ID, {
+			compactTable: true,
+		});
+		const query = WindowBridge.createQueryContext(app, OPERATION_ID, {
+			omitFieldTypeMap: true,
+		});
+
+		expect(context.contexts).toHaveLength(1);
+		expect(context.contexts[0]).toMatchObject({
+			id: CONTEXT_ID,
+			name: "Context",
+			selected: true,
+		});
+		expect(
+			Object.prototype.hasOwnProperty.call(
+				context.contexts[0],
+				"granted_user_ids",
+			),
+		).toBe(false);
+		expect(context.sources).toHaveLength(1);
+		const tableSource = context.sources[0];
+		expect(tableSource).toMatchObject({
+			projection: "table",
+			id: source.id,
+			plugin: "wide-schema-plugin",
+			time_updated: 123,
+			pinned: true,
+			nanotimestamp: { min: "0", max: "100000000" },
+		});
+		expect(tableSource.settings).toMatchObject({ offset: 250 });
+		[
+			"appliedQuery",
+			"queryCache",
+			"granted_user_ids",
+			"_sampleDataCached",
+		].forEach((field) => {
+			expect(Object.prototype.hasOwnProperty.call(tableSource, field)).toBe(false);
+		});
+		expect(
+			Object.prototype.hasOwnProperty.call(
+				tableSource.settings,
+				"render_color_palette",
+			),
+		).toBe(false);
+		expect(query.filters[source.id]).toMatchObject({
+			filters: [],
+			text_filter: "needle",
+		});
+		expect(
+			Object.prototype.hasOwnProperty.call(
+				query.filters[source.id] ?? {},
+				"fieldTypeMap",
+			),
 		).toBe(false);
 	});
 

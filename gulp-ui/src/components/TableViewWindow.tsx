@@ -4,6 +4,7 @@ import {
 	useCallback,
 	useRef,
 	useMemo,
+	useTransition,
 	type SetStateAction,
 } from "react";
 import { Application } from "@/context/Application.context";
@@ -84,6 +85,42 @@ const DEFAULT_HIDDEN_FIELDS: string[] = [
 
 const DEFAULT_HIDDEN_FIELD_SET = new Set(DEFAULT_HIDDEN_FIELDS);
 const SYNCED_QUERY_DEBOUNCE_MSEC = 150;
+const FIELD_METADATA_CONCURRENCY = 8;
+
+async function loadSourceFieldMetadata(
+	sources: Source.Type[],
+	loadFields: (source: Source.Type) => Promise<Filter.Options>,
+	shouldContinue: () => boolean,
+): Promise<Filter.Options> {
+	const results: Filter.Options[] = new Array(sources.length);
+	let nextSourceIndex = 0;
+
+	const worker = async (): Promise<void> => {
+		while (shouldContinue()) {
+			const sourceIndex = nextSourceIndex;
+			nextSourceIndex += 1;
+			if (sourceIndex >= sources.length) return;
+
+			try {
+				results[sourceIndex] = await loadFields(sources[sourceIndex]);
+			} catch {
+				results[sourceIndex] = {};
+			}
+		}
+	};
+
+	await Promise.all(
+		Array.from(
+			{ length: Math.min(FIELD_METADATA_CONCURRENCY, sources.length) },
+			() => worker(),
+		),
+	);
+
+	return results.reduce<Filter.Options>(
+		(merged, sourceFields) => Object.assign(merged, sourceFields),
+		{},
+	);
+}
 
 /**
  * Creates a stable signature for source-id selections.
@@ -92,6 +129,15 @@ const SYNCED_QUERY_DEBOUNCE_MSEC = 150;
  */
 function getSourceIdsSignature(sourceIds: Source.Id[]): string {
 	return [...sourceIds].sort((left, right) => left.localeCompare(right)).join(",");
+}
+
+/**
+ * Keeps the timestamp sort alias stable before and after field metadata arrives.
+ * @param field Displayed or backend timestamp field name.
+ * @returns Logical sort field stored by Table View.
+ */
+function getLogicalSortField(field: string): string {
+	return field === "@timestamp" ? "timestamp" : field;
 }
 
 /**
@@ -335,7 +381,9 @@ export function TableViewWindow({
 	const tableRequestControllerRef = useRef<AbortController | null>(null);
 	const paginationSessionRef = useRef<TablePaginationSession | null>(null);
 	const paginationRecoveryAttemptedRef = useRef<string | null>(null);
+	const fieldMetadataLoadRef = useRef<Promise<void>>(Promise.resolve());
 	const [, setFlagsRevision] = useState(0);
+	const [, startFieldMetadataTransition] = useTransition();
 
 	// --- Selection & Sync State ---
 	const [isSynced, setIsSynced] = useState<boolean>(false);
@@ -348,14 +396,20 @@ export function TableViewWindow({
 		[selectedSourceIds],
 	);
 
+	const sourceById = useMemo(
+		() =>
+			new Map<Source.Id, Source.Type>(
+				app.target.files.map((source) => [source.id, source]),
+			),
+		[app.target.files],
+	);
+
 	const selectedSources = useMemo(
 		() =>
 			selectedSourceIds
-				.map((sourceId) =>
-					app.target.files.find((source) => source.id === sourceId),
-				)
+				.map((sourceId) => sourceById.get(sourceId))
 				.filter((source): source is Source.Type => !!source),
-		[app.target.files, selectedSourceIdsSignature],
+		[sourceById, selectedSourceIdsSignature],
 	);
 
 	const selectedSourcesSignature = useMemo(
@@ -404,7 +458,10 @@ export function TableViewWindow({
 
 	const [localFieldTypeMap, setLocalFieldTypeMap] =
 		useState<Filter.Options | null>(null);
-	const fieldMetadataSignature = serializeSourceFieldMetadata(selectedSources);
+	const fieldMetadataSignature = useMemo(
+		() => serializeSourceFieldMetadata(selectedSources),
+		[selectedSources],
+	);
 	const fieldMetadataSources = useSemanticValue(
 		selectedSources,
 		fieldMetadataSignature,
@@ -417,34 +474,39 @@ export function TableViewWindow({
 		}
 
 		let cancelled = false;
-		(async () => {
-			const map: Filter.Options = {};
-			await Promise.all(
-				fieldMetadataSources.map(async (source) => {
-					const fileKeys = await Info.event_keys(source);
-					Object.entries(fileKeys).forEach(([key, type]) => {
-						map[key] = type;
-					});
-				}),
+		const loadPromise = fieldMetadataLoadRef.current
+			.catch(() => undefined)
+			.then(() =>
+				loadSourceFieldMetadata(
+					fieldMetadataSources,
+					(source) => Info.event_keys(source),
+					() => !cancelled,
+				),
 			);
+		fieldMetadataLoadRef.current = loadPromise.then(() => undefined);
+		void loadPromise.then((map) => {
 			if (!cancelled) {
-				setLocalFieldTypeMap((previousMap) =>
-					previousMap !== null &&
-					serializeSemanticValue(previousMap) === serializeSemanticValue(map)
-						? previousMap
-						: map,
-				);
+				startFieldMetadataTransition(() => {
+					setLocalFieldTypeMap((previousMap) =>
+						previousMap !== null &&
+						serializeSemanticValue(previousMap) === serializeSemanticValue(map)
+							? previousMap
+							: map,
+					);
+				});
 			}
-		})();
+		});
 
 		return () => {
 			cancelled = true;
 		};
-	}, [fieldMetadataSources, Info]);
+	}, [fieldMetadataSources, Info, startFieldMetadataTransition]);
 
 	const columns = useMemo(() => {
 		if (!localFieldTypeMap) return undefined;
-		return Object.keys(localFieldTypeMap).sort((a, b) => a.localeCompare(b));
+		const fieldNames = Object.keys(localFieldTypeMap);
+		if (fieldNames.length === 0) return undefined;
+		return fieldNames.sort((a, b) => a.localeCompare(b));
 	}, [localFieldTypeMap]);
 
 	// --- Pagination & Search State ---
@@ -499,23 +561,25 @@ export function TableViewWindow({
 
 		return fields.sort((a, b) => a.localeCompare(b));
 	}, [localFieldTypeMap]);
+	const sortableFieldOptions = useMemo(() => {
+		const optionValues = new Set<string>();
+		return sortableFields.flatMap((field) => {
+			const value = getLogicalSortField(field);
+			if (optionValues.has(value)) return [];
+			optionValues.add(value);
+			return [{ value, label: value === field ? undefined : field }];
+		});
+	}, [sortableFields]);
 
 	/**
 	 * Resets sort field if it's no longer valid for the selected source.
 	 */
 	useEffect(() => {
-		// If current sortField is not in sortableFields, try to find a valid default
-		if (!sortableFields.includes(sortField)) {
-			if (sortField === "timestamp" && sortableFields.includes("@timestamp")) {
-				setSortField("@timestamp");
-			} else if (
-				sortField === "@timestamp" &&
-				sortableFields.includes("timestamp")
-			) {
-				setSortField("timestamp");
-			} else if (sortField !== "timestamp") {
-				setSortField("timestamp");
-			}
+		const isSortFieldAvailable = sortableFields.some(
+			(field) => getLogicalSortField(field) === sortField,
+		);
+		if (!isSortFieldAvailable && sortField !== "timestamp") {
+			setSortField("timestamp");
 		}
 	}, [sortableFields, sortField]);
 
@@ -601,9 +665,7 @@ export function TableViewWindow({
 		if (opChanged) {
 			setSelectedSourceIds((previousSourceIds) =>
 				previousSourceIds.filter((sourceId) => {
-					const source = app.target.files.find(
-						(candidate) => candidate.id === sourceId,
-					);
+					const source = sourceById.get(sourceId);
 					if (source) {
 						return source.operation_id === selectedOperationId;
 					}
@@ -643,7 +705,13 @@ export function TableViewWindow({
 		isSyncActive && primarySelectedSource
 			? primarySelectedSource.appliedQuery
 			: null;
-	const querySourceIds = selectedSources.map((source) => source.id);
+	const querySourceIds = useMemo(
+		() =>
+			selectedSources
+				.map((source) => source.id)
+				.sort((left, right) => left.localeCompare(right)),
+		[selectedSources],
+	);
 	const flaggedDocIds =
 		appliedFlaggedOnly && activeOperationId
 			? Array.from(Doc.Entity.flag.getList(activeOperationId)).sort(
@@ -668,16 +736,18 @@ export function TableViewWindow({
 	};
 	const tableQuerySignature = serializeSemanticValue({
 		...tableQueryDraft,
-		sourceIds: [...querySourceIds].sort((left, right) =>
-			left.localeCompare(right),
-		),
+		sourceIds: querySourceIds,
 	});
 	const tableQuery = useSemanticValue(tableQueryDraft, tableQuerySignature);
+	const requiresFieldMetadata = tableQuery.isSyncActive
+		? (tableQuery.syncedQuery?.filters.length ?? 0) > 0
+		: tableQuery.localFilters.length > 0;
+	const queryFieldTypeMap = requiresFieldMetadata
+		? localFieldTypeMap
+		: Filter.EMPTY_OPTIONS;
 	const paginationQuerySignature = serializeSemanticValue({
 		operationId: tableQueryDraft.operationId,
-		sourceIds: [...querySourceIds].sort((left, right) =>
-			left.localeCompare(right),
-		),
+		sourceIds: querySourceIds,
 		isSyncActive: tableQueryDraft.isSyncActive,
 		syncedQuery: tableQueryDraft.syncedQuery,
 		localFilters: tableQueryDraft.localFilters,
@@ -764,7 +834,7 @@ export function TableViewWindow({
 		if (
 			tableQuery.sourceIds.length === 0 ||
 			!tableQuery.operationId ||
-			localFieldTypeMap === null
+			queryFieldTypeMap === null
 		) {
 			return;
 		}
@@ -792,9 +862,7 @@ export function TableViewWindow({
 		setLoading(true);
 		try {
 			let queryObj: Query.Type;
-			const sourceIds = [...tableQuery.sourceIds].sort((left, right) =>
-				left.localeCompare(right),
-			);
+			const sourceIds = tableQuery.sourceIds;
 
 			// Branch logic: Determine if we use synced global filters or local search query
 			if (tableQuery.isSyncActive) {
@@ -836,7 +904,7 @@ export function TableViewWindow({
 
 			queryObj = {
 				...queryObj,
-				fieldTypeMap: localFieldTypeMap ?? Filter.EMPTY_OPTIONS,
+				fieldTypeMap: queryFieldTypeMap,
 			};
 
 			if (tableQuery.flaggedOnly) {
@@ -945,8 +1013,8 @@ export function TableViewWindow({
 	}, [
 		Info,
 		closePaginationSession,
-		localFieldTypeMap,
 		paginationQuerySignature,
+		queryFieldTypeMap,
 		tableQuery,
 	]);
 
@@ -1051,7 +1119,7 @@ export function TableViewWindow({
 	 * Updates the sort field and resets to page 1.
 	 */
 	const handleSortFieldChange = useCallback((val: string) => {
-		setSortField(val);
+		setSortField(getLogicalSortField(val));
 		setCurrentPage(1);
 	}, []);
 
@@ -1070,16 +1138,22 @@ export function TableViewWindow({
 	 */
 	const handleTableSort = useCallback(
 		(field: string) => {
-			if (!sortableFields.includes(field)) {
+			const logicalField = getLogicalSortField(field);
+			if (
+				!sortableFields.some(
+					(sortableField) =>
+						getLogicalSortField(sortableField) === logicalField,
+				)
+			) {
 				return;
 			}
 
-			if (sortField === field) {
+			if (sortField === logicalField) {
 				toggleSortDirection();
 				return;
 			}
 
-			handleSortFieldChange(field);
+			handleSortFieldChange(logicalField);
 		},
 		[sortableFields, sortField, toggleSortDirection, handleSortFieldChange],
 	);
@@ -1197,8 +1271,7 @@ export function TableViewWindow({
 
 	const isAllSelected = data.length > 0 && selectedRows.size === data.length;
 	const isInitialTableLoading =
-		selectedSources.length > 0 &&
-		(!localFieldTypeMap || (loading && data.length === 0));
+		selectedSources.length > 0 && loading && data.length === 0;
 	const tableTitle =
 		selectedSources.length === 0
 			? t("tableView.title")
@@ -1398,7 +1471,7 @@ export function TableViewWindow({
 				]}
 				sorting={{
 					value: sortField,
-					options: sortableFields.map((field) => ({ value: field })),
+					options: sortableFieldOptions,
 					direction: sortDirection,
 					onValueChange: handleSortFieldChange,
 					onDirectionToggle: toggleSortDirection,
@@ -1429,6 +1502,7 @@ export function TableViewWindow({
 					<Table
 						persistId={`table-${selectedSourcesSignature}`}
 						columnVisibility={true}
+						horizontalVirtualization={{ threshold: 40, overscan: 3 }}
 						values={data}
 						columns={renderableColumns}
 						includeIndex={false}
