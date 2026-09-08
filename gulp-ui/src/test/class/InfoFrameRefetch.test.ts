@@ -14,6 +14,7 @@ import type {
 	EventSourceQueryCacheReconciliation,
 } from "@/event-store";
 import { requestStore } from "@/store/request.store";
+import type { QueryRawDocument } from "@/workers/DataWorker.types";
 
 jest.mock("@/class/IndexedDB", () => ({
 	GulpIndexedDB: class MockGulpIndexedDB {},
@@ -1095,14 +1096,16 @@ describe("Info timeline-frame refetch", () => {
 		const firstNote = createNote("first-target");
 		const secondNote = createNote("second-target");
 		let secondAttempt = false;
-		const createDocument = (documentId: Doc.Id): Doc.Type =>
+		const createDocument = (
+			documentId: Doc.Id,
+		): Doc.Type & QueryRawDocument =>
 			({
 				_id: documentId,
 				"@timestamp": 1_750_000_000_000,
 				"gulp.source_id": source.id,
 				"gulp.event_code": 7,
 				"event.code": 7,
-			}) as unknown as Doc.Type;
+			}) as unknown as Doc.Type & QueryRawDocument;
 		const querySingleId = jest.fn(
 			async (): Promise<Doc.Type> => createDocument(firstNote.doc._id),
 		);
@@ -1372,5 +1375,125 @@ describe("Info timeline-frame refetch", () => {
 				warningReason: "source-changed",
 			});
 		});
+	});
+
+	it("serializes PIT pagination fields and closes the snapshot", async () => {
+		const source = createSource();
+		const { info, getApp } = createInfoHarness(source);
+		getApp().target.operations = [
+			{
+				id: source.operation_id,
+				name: "Pagination operation",
+				selected: true,
+			} as Operation.Type,
+		];
+		const previousApi = globalThis.api;
+		const apiCalls: Array<[
+			string,
+			Record<string, unknown>,
+		]> = [];
+		globalThis.api = (async (path: string, options: Record<string, unknown>) => {
+			apiCalls.push([path, options]);
+			return {
+				status: "success",
+				data:
+					options.method === "DELETE"
+						? { closed: true }
+						: {
+								docs: [],
+								total_hits: 120,
+								pit_id: "next-pit",
+								search_after: [1_700_000_000_000, "shard-doc"],
+							},
+			};
+		}) as unknown as typeof globalThis.api;
+
+		try {
+			await info.query_paginate(source.appliedQuery!, {
+				limit: 50,
+				offset: 100_000,
+				sort: { "@timestamp": "desc" },
+				fields: "*",
+				paginationMode: "pit",
+				pitId: "current-pit",
+				searchAfter: [1_700_000_000_000, "shard-doc"],
+			});
+			await info.query_raw_paginate_close(
+				"next-pit",
+				source.operation_id,
+			);
+
+			expect(apiCalls[0][0]).toBe("/query_raw_paginate");
+			expect(apiCalls[0][1].method).toBe("POST");
+			expect(apiCalls[0][1].showErrorToast).toBe(false);
+			const requestBody = apiCalls[0][1].body as {
+				q_options: Record<string, unknown>;
+			};
+			expect(requestBody.q_options).toEqual({
+				limit: 50,
+				offset: 100_000,
+				sort: { "@timestamp": "desc" },
+				fields: "*",
+				pagination_mode: "pit",
+				pit_id: "current-pit",
+				search_after: [1_700_000_000_000, "shard-doc"],
+			});
+			expect(apiCalls[1]).toEqual([
+				"/query_raw_paginate",
+				{
+					method: "DELETE",
+					body: { pit_id: "next-pit" },
+					query: { operation_id: source.operation_id },
+					raw: true,
+					showErrorToast: false,
+					signal: undefined,
+				},
+			]);
+		} finally {
+			globalThis.api = previousApi;
+		}
+	});
+
+	it("raises a named error for paginated-query JSend failures", async () => {
+		const source = createSource();
+		const { info, getApp } = createInfoHarness(source);
+		getApp().target.operations = [
+			{
+				id: source.operation_id,
+				name: "Pagination operation",
+				selected: true,
+			} as Operation.Type,
+		];
+		const previousApi = globalThis.api;
+		globalThis.api = (async () => ({
+			status: "error",
+			data: {
+				__error: {
+					name: "PaginationSnapshotExpired",
+					msg: "snapshot expired",
+					trace: "",
+				},
+			},
+		})) as unknown as typeof globalThis.api;
+
+		try {
+			let paginationError: unknown;
+			try {
+				await info.query_paginate(source.appliedQuery!, {
+					paginationMode: "pit",
+					pitId: "expired-pit",
+				});
+			} catch (error) {
+				paginationError = error;
+			}
+
+			expect(paginationError).toBeInstanceOf(Error);
+			const namedError = paginationError as Error & { backendName: string };
+			expect(namedError.name).toBe("PaginationSnapshotExpired");
+			expect(namedError.backendName).toBe("PaginationSnapshotExpired");
+			expect(namedError.message).toBe("snapshot expired");
+		} finally {
+			globalThis.api = previousApi;
+		}
 	});
 });

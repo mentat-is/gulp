@@ -769,6 +769,7 @@
     "tableView.detached": "Staccato",
     "tableView.detachedTooltip": "Indipendente: utilizza la ricerca locale e filtri per intervalli di tempo indipendenti.",
     "tableView.fetchFailed": "Impossibile recuperare i dati della tabella",
+    "tableView.paginationSnapshotExpired": "Lo snapshot dei risultati è scaduto. La tabella è ripartita dalla prima pagina.",
     "tableView.isoPlaceholder": "Inserisci la data in formato ISO",
     "tableView.isoString": "Stringa ISO",
     "tableView.loadingData": "Caricamento dati...",

@@ -133,6 +133,7 @@ export function TablePagination({
 
 			<div className={s.pageSizeControl}>
 				<Select.Root
+					disabled={disabled}
 					value={normalizedPageSize.toString()}
 					onValueChange={(value) => onPageSizeChange(Number(value))}
 				>
@@ -158,6 +159,7 @@ export function TablePagination({
 				<div className={s.pageInputContainer}>
 					<Input
 						className={s.pageInput}
+						disabled={disabled}
 						type="number"
 						inputMode="numeric"
 						min={1}

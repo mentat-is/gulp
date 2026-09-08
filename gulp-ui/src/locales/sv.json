@@ -769,6 +769,7 @@
     "tableView.detached": "Fristående",
     "tableView.detachedTooltip": "Fristående: Använd lokal sökning och oberoende tidsintervallsfilter.",
     "tableView.fetchFailed": "Det gick inte att hämta tabelldata",
+    "tableView.paginationSnapshotExpired": "Resultatögonblicksbilden har gått ut. Tabellen startades om från första sidan.",
     "tableView.isoPlaceholder": "Ange datum i ISO-format",
     "tableView.isoString": "ISO-sträng",
     "tableView.loadingData": "Laddar data...",

@@ -177,4 +177,23 @@ describe("TablePagination", () => {
 			)?.disabled,
 		).toBe(true);
 	});
+
+	it("disables direct and adjacent navigation while loading", () => {
+		renderPagination({ disabled: true });
+
+		expect(
+			container.querySelector<HTMLInputElement>('input[type="number"]')
+				?.disabled,
+		).toBe(true);
+		expect(
+			container.querySelector<HTMLButtonElement>(
+				'button[title="Previous Page"]',
+			)?.disabled,
+		).toBe(true);
+		expect(
+			container.querySelector<HTMLButtonElement>(
+				'button[title="Next Page"]',
+			)?.disabled,
+		).toBe(true);
+	});
 });

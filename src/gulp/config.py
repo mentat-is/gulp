@@ -291,6 +291,10 @@ class GulpConfig:
         """
         return self._get_int_config("query_circuit_breaker_min_limit", 100, minimum=1)
 
+    def query_pagination_pit_keep_alive(self) -> str:
+        """Return the keep-alive renewed by every PIT pagination request."""
+        return str(self._config.get("query_pagination_pit_keep_alive", "5m"))
+
     def token_expiration_time(self, is_admin: bool) -> int:
         """
         Returns the expiration time for the token, for admin or not

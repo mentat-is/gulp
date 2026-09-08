@@ -769,6 +769,7 @@
     "tableView.detached": "Détaché",
     "tableView.detachedTooltip": "Détaché : utilisez la recherche locale et des filtres de plage horaire indépendants.",
     "tableView.fetchFailed": "Échec de la récupération des données de la table",
+    "tableView.paginationSnapshotExpired": "L’instantané des résultats a expiré. La table a redémarré à la première page.",
     "tableView.isoPlaceholder": "Saisir la date au format ISO",
     "tableView.isoString": "Chaîne ISO",
     "tableView.loadingData": "Chargement des données...",

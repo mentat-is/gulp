@@ -74,7 +74,7 @@ from gulp.api.opensearch.structs import (
     GulpQueryParameters,
 )
 from gulp.api.mapping.mapping_utils import mapping_parameters_to_mapping
-from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.opensearch_api import GulpOpenSearch, GulpPaginatedSearchResult
 from gulp.api.redis_api import GulpRedis, TaskQueueFullError
 from gulp.api.server.ingest import GulpIngestionStats
 from gulp.api.server.server_utils import ServerUtils
@@ -1005,6 +1005,31 @@ async def _query_raw_sync(
     return total_hits, docs
 
 
+async def _query_raw_paginated(
+    sess: AsyncSession,
+    q: dict,
+    q_options: GulpQueryParameters,
+    index: str,
+    *,
+    keep_pit: bool,
+) -> GulpPaginatedSearchResult:
+    """Run one internal PIT-backed page without holding the ACL transaction."""
+    await sess.commit()
+    q_options.loop = False
+    q_options.fields = "*"
+    if q_options.preview_mode:
+        q_options.limit = q_options.preview_mode_max_records
+    result = await GulpOpenSearch.get_instance().search_dsl_paginated(
+        index,
+        q,
+        q_options,
+        keep_pit=keep_pit,
+    )
+    for doc in result.docs:
+        doc.pop("_highlight", None)
+    return result
+
+
 @router.post(
     "/query_aggregation",
     response_model=JSendResponse,
@@ -1272,13 +1297,31 @@ one query according to the [OpenSearch DSL specifications](https://opensearch.or
                     }
                 }
             }
-        }
+        },
+        410: {
+            "description": "The requested PIT no longer exists.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "error",
+                        "data": {
+                            "__error": {
+                                "name": "PaginationSnapshotExpired",
+                                "msg": "the pagination snapshot expired",
+                            }
+                        },
+                    }
+                }
+            },
+        },
     },
-    summary="Issues a synchronous raw query with simple pagination support.",
+    summary="Issues a synchronous raw query with offset or PIT pagination.",
     description="""
-query Gulp with a raw OpenSearch DSL query, with simple pagination support (no `search_after`) and direct response (no websocket, no background task).
+query Gulp with a raw OpenSearch DSL query and a direct response (no websocket, no background task).
 - `q` must be one query with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
-- `q_options` must include `limit` (how many documents to return per call) and `offset` (return documents from the nth document) parameters for pagination.
+- `q_options` must include `limit` (how many documents to return per call) and `offset` (the logical result position).
+- legacy `offset` mode retains its response contract and transparently uses a temporary PIT beyond the OpenSearch result window.
+- `pit` mode creates or reuses a stable snapshot and returns its `pit_id` plus a `search_after` cursor for the next page.
 """,
 )
 async def query_raw_paginate_handler(
@@ -1303,30 +1346,107 @@ one query according to the [OpenSearch DSL specifications](https://opensearch.or
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
     try:
-        if not q_options.limit or q_options.offset is None or q_options.search_after:
-            # those are mandatory here
+        if not q_options.limit or q_options.offset is None:
             raise ValueError(
-                "q_options must include 'limit' and 'offset' for pagination, and must not include 'search_after'"
+                "q_options must include 'limit' and 'offset' for pagination"
             )
+        if q_options.pagination_mode == "offset" and (
+            q_options.pit_id is not None or q_options.search_after is not None
+        ):
+            raise ValueError(
+                "'pit_id' and 'search_after' require pagination_mode='pit'"
+            )
+        if q_options.search_after is not None and not q_options.pit_id:
+            raise ValueError("'search_after' requires a 'pit_id'")
 
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             _ = await GulpUserSession.check_token(sess, token, obj=op)
 
-            total_hits, docs = await _query_raw_sync(
-                sess,
-                q,
-                q_options,
-                index=op.index,
-            )
+            if q_options.pagination_mode == "pit":
+                page = await _query_raw_paginated(
+                    sess,
+                    q,
+                    q_options,
+                    op.index,
+                    keep_pit=True,
+                )
+                response_data = {
+                    "total_hits": page.total_hits,
+                    "docs": page.docs,
+                    "pit_id": page.pit_id,
+                    "search_after": page.search_after,
+                }
+            elif (
+                q_options.offset + q_options.limit
+                > GulpOpenSearch.MAX_PAGINATION_SEEK_SIZE
+            ):
+                page = await _query_raw_paginated(
+                    sess,
+                    q,
+                    q_options,
+                    op.index,
+                    keep_pit=False,
+                )
+                response_data = {
+                    "total_hits": page.total_hits,
+                    "docs": page.docs,
+                }
+            else:
+                total_hits, docs = await _query_raw_sync(
+                    sess,
+                    q,
+                    q_options,
+                    index=op.index,
+                )
+                response_data = {
+                    "total_hits": total_hits,
+                    "docs": docs,
+                }
             return JSONResponse(
                 JSendResponse.success(
                     req_id=req_id,
-                    data={
-                        "total_hits": total_hits,
-                        "docs": docs,
-                    },
+                    data=response_data,
+                )
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.delete(
+    "/query_raw_paginate",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    summary="Close a query pagination point-in-time snapshot.",
+)
+async def query_raw_paginate_close_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    pit_id: Annotated[
+        str,
+        Body(
+            embed=True,
+            min_length=1,
+            description="The PIT identifier returned by `query_raw_paginate`.",
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    """Close a PIT after applying the same operation ACL as the query endpoint."""
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            _ = await GulpUserSession.check_token(sess, token, obj=op)
+            await sess.commit()
+            closed = await GulpOpenSearch.get_instance().delete_pit(pit_id)
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={"closed": closed},
                 )
             )
     except Exception as ex:

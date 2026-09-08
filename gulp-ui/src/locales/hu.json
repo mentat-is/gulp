@@ -769,6 +769,7 @@
     "tableView.detached": "Különálló",
     "tableView.detachedTooltip": "Leválasztott: Használjon helyi keresést és független időtartomány-szűrőket.",
     "tableView.fetchFailed": "Nem sikerült lekérni a táblázat adatait",
+    "tableView.paginationSnapshotExpired": "Az eredménypillanatkép lejárt. A táblázat újraindult az első oldalról.",
     "tableView.isoPlaceholder": "Adja meg a dátumot ISO formátumban",
     "tableView.isoString": "ISO karakterlánc",
     "tableView.loadingData": "Adatok betöltése...",

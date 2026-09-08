@@ -769,6 +769,7 @@
     "tableView.detached": "独立的",
     "tableView.detachedTooltip": "分离：使用本地搜索和独立的时间范围过滤器。",
     "tableView.fetchFailed": "获取表数据失败",
+    "tableView.paginationSnapshotExpired": "结果快照已过期。表格已从第一页重新开始。",
     "tableView.isoPlaceholder": "输入 ISO 格式的日期",
     "tableView.isoString": "ISO 字符串",
     "tableView.loadingData": "正在加载数据...",

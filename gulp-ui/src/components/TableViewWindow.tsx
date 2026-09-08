@@ -15,7 +15,9 @@ import { Button } from "@/ui/Button";
 import { Label } from "@/ui/Label";
 import { Table } from "@/components/Table";
 import { Source } from "@/entities/Source";
+import type { Operation } from "@/entities/Operation";
 import { Query } from "@/entities/Query";
+import type { GulpDataset } from "@/class/Info";
 import s from "./styles/TableViewWindow.module.css";
 import { toast } from "sonner";
 import { Toggle } from "@/ui/Toggle";
@@ -51,6 +53,13 @@ export namespace TableViewWindow {
 }
 
 type TableEventRow = Doc.Type & Record<string, unknown>;
+
+interface TablePaginationSession {
+	signature: string;
+	operationId: Operation.Id;
+	pitId: string | null;
+	cursors: Map<number, GulpDataset.QueryRawPaginate.Cursor>;
+}
 
 type OpenSearchBoolQuery = Record<string, unknown> & {
 	bool?: {
@@ -324,6 +333,8 @@ export function TableViewWindow({
 	const { t } = Locale.use();
 	const [container, setContainer] = useState<HTMLDivElement | null>(null);
 	const tableRequestControllerRef = useRef<AbortController | null>(null);
+	const paginationSessionRef = useRef<TablePaginationSession | null>(null);
+	const paginationRecoveryAttemptedRef = useRef<string | null>(null);
 	const [, setFlagsRevision] = useState(0);
 
 	// --- Selection & Sync State ---
@@ -443,6 +454,8 @@ export function TableViewWindow({
 	const [currentPage, setCurrentPage] = useState<number>(1);
 	const [sortField, setSortField] = useState<string>("timestamp");
 	const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+	const [paginationRecoveryRevision, setPaginationRecoveryRevision] =
+		useState(0);
 
 	/**
 	 * Memoized list of fields that are allowed for sorting in OpenSearch.
@@ -660,6 +673,23 @@ export function TableViewWindow({
 		),
 	});
 	const tableQuery = useSemanticValue(tableQueryDraft, tableQuerySignature);
+	const paginationQuerySignature = serializeSemanticValue({
+		operationId: tableQueryDraft.operationId,
+		sourceIds: [...querySourceIds].sort((left, right) =>
+			left.localeCompare(right),
+		),
+		isSyncActive: tableQueryDraft.isSyncActive,
+		syncedQuery: tableQueryDraft.syncedQuery,
+		localFilters: tableQueryDraft.localFilters,
+		textFilter: tableQueryDraft.textFilter,
+		min: tableQueryDraft.min,
+		max: tableQueryDraft.max,
+		flaggedOnly: tableQueryDraft.flaggedOnly,
+		flaggedDocIds: tableQueryDraft.flaggedDocIds,
+		pageSize: tableQueryDraft.pageSize,
+		sortField: tableQueryDraft.sortField,
+		sortDirection: tableQueryDraft.sortDirection,
+	});
 	const renderableColumns = useMemo(
 		() =>
 			columns?.filter(
@@ -668,12 +698,63 @@ export function TableViewWindow({
 		[columns],
 	);
 	const fetchFailedTextRef = useRef(t("tableView.fetchFailed"));
+	const paginationSnapshotExpiredTextRef = useRef(
+		t("tableView.paginationSnapshotExpired"),
+	);
 
 	useEffect(() => {
 		fetchFailedTextRef.current = t("tableView.fetchFailed");
+		paginationSnapshotExpiredTextRef.current = t(
+			"tableView.paginationSnapshotExpired",
+		);
 	}, [t]);
 
 	// --- Data Fetching ---
+
+	/**
+	 * Closes a PIT without allowing cleanup failures to disrupt table navigation.
+	 * @param session Pagination session whose active snapshot should be released.
+	 * @returns Nothing.
+	 */
+	const closePaginationSession = useCallback(
+		(session: TablePaginationSession) => {
+			const pitId = session.pitId;
+			if (!pitId) return;
+
+			session.pitId = null;
+			void Info.query_raw_paginate_close(pitId, session.operationId).catch(
+				() => undefined,
+			);
+		},
+		[Info],
+	);
+
+	/**
+	 * Creates one snapshot per semantic table query and releases it on reset or unmount.
+	 */
+	useEffect(() => {
+		if (!activeOperationId) {
+			paginationSessionRef.current = null;
+			return;
+		}
+
+		const session: TablePaginationSession = {
+			signature: paginationQuerySignature,
+			operationId: activeOperationId,
+			pitId: null,
+			cursors: new Map(),
+		};
+		paginationSessionRef.current = session;
+		paginationRecoveryAttemptedRef.current = null;
+
+		return () => {
+			tableRequestControllerRef.current?.abort();
+			if (paginationSessionRef.current === session) {
+				paginationSessionRef.current = null;
+			}
+			closePaginationSession(session);
+		};
+	}, [activeOperationId, closePaginationSession, paginationQuerySignature]);
 
 	/**
 	 * Main function to fetch events from the backend.
@@ -687,7 +768,25 @@ export function TableViewWindow({
 		) {
 			return;
 		}
-		tableRequestControllerRef.current?.abort();
+		const paginationSession = paginationSessionRef.current;
+		if (
+			!paginationSession ||
+			paginationSession.signature !== paginationQuerySignature
+		) {
+			return;
+		}
+		const previousRequestController = tableRequestControllerRef.current;
+		if (
+			previousRequestController &&
+			!previousRequestController.signal.aborted
+		) {
+			previousRequestController.abort();
+			// A cancelled PIT search may rotate its identifier after the browser has
+			// discarded the response. Start a fresh snapshot instead of issuing a
+			// concurrent search with an identifier that may already be stale.
+			closePaginationSession(paginationSession);
+			paginationSession.cursors.clear();
+		}
 		const requestController = new AbortController();
 		tableRequestControllerRef.current = requestController;
 		setLoading(true);
@@ -765,26 +864,75 @@ export function TableViewWindow({
 					? "@timestamp"
 					: tableQuery.sortField]: tableQuery.sortDirection,
 			};
+			const knownCursor = paginationSession.cursors.get(
+				tableQuery.currentPage,
+			);
 
 			const res = await Info.query_paginate(queryObj, {
 				limit,
 				offset,
 				sort: sortOpt,
+				paginationMode: "pit",
+				pitId: paginationSession.pitId ?? undefined,
+				searchAfter: knownCursor,
 				signal: requestController.signal,
 			});
 
 			if (
 				requestController.signal.aborted ||
-				tableRequestControllerRef.current !== requestController
+				tableRequestControllerRef.current !== requestController ||
+				paginationSessionRef.current !== paginationSession
 			) {
+				if (
+					res?.pit_id &&
+					res.pit_id !== paginationSessionRef.current?.pitId
+				) {
+					void Info.query_raw_paginate_close(
+						res.pit_id,
+						paginationSession.operationId,
+					).catch(() => undefined);
+				}
 				return;
 			}
+			if (!res) return;
+
+			if (res.pit_id) {
+				paginationSession.pitId = res.pit_id;
+			}
+			const nextPage = tableQuery.currentPage + 1;
+			if (res.search_after) {
+				paginationSession.cursors.set(nextPage, res.search_after);
+			} else {
+				paginationSession.cursors.delete(nextPage);
+			}
+			paginationRecoveryAttemptedRef.current = null;
 
 			setData((res?.docs || []) as TableEventRow[]);
 			setTotalHits(res?.total_hits || 0);
 			setSelectedRows(new Set());
-		} catch (e) {
-			if (requestController.signal.aborted) {
+		} catch (error) {
+			if (
+				requestController.signal.aborted ||
+				tableRequestControllerRef.current !== requestController ||
+				paginationSessionRef.current !== paginationSession
+			) {
+				return;
+			}
+
+			if (
+				error instanceof Error &&
+				error.name === "PaginationSnapshotExpired" &&
+				paginationRecoveryAttemptedRef.current !== paginationQuerySignature
+			) {
+				paginationRecoveryAttemptedRef.current = paginationQuerySignature;
+				paginationSession.pitId = null;
+				paginationSession.cursors.clear();
+				toast.error(paginationSnapshotExpiredTextRef.current);
+				if (tableQuery.currentPage === 1) {
+					setPaginationRecoveryRevision((revision) => revision + 1);
+				} else {
+					setCurrentPage(1);
+				}
 				return;
 			}
 			toast.error(fetchFailedTextRef.current);
@@ -794,7 +942,13 @@ export function TableViewWindow({
 				setLoading(false);
 			}
 		}
-	}, [Info, localFieldTypeMap, tableQuery]);
+	}, [
+		Info,
+		closePaginationSession,
+		localFieldTypeMap,
+		paginationQuerySignature,
+		tableQuery,
+	]);
 
 	useEffect(() => {
 		return () => tableRequestControllerRef.current?.abort();
@@ -804,7 +958,15 @@ export function TableViewWindow({
 	 * Effect to trigger fetch whenever logical query parameters change.
 	 */
 	useEffect(() => {
-		tableRequestControllerRef.current?.abort();
+		const activeRequestController = tableRequestControllerRef.current;
+		if (activeRequestController && !activeRequestController.signal.aborted) {
+			activeRequestController.abort();
+			const activeSession = paginationSessionRef.current;
+			if (activeSession) {
+				closePaginationSession(activeSession);
+				activeSession.cursors.clear();
+			}
+		}
 		if (!tableQuery.isSyncActive) {
 			void fetchTableData();
 			return;
@@ -816,7 +978,13 @@ export function TableViewWindow({
 		}, SYNCED_QUERY_DEBOUNCE_MSEC);
 
 		return () => timerWindow.clearTimeout(timeoutId);
-	}, [currentDocument, fetchTableData, tableQuery.isSyncActive]);
+	}, [
+		currentDocument,
+		closePaginationSession,
+		fetchTableData,
+		paginationRecoveryRevision,
+		tableQuery.isSyncActive,
+	]);
 
 	// --- Event Handlers ---
 
@@ -1239,6 +1407,7 @@ export function TableViewWindow({
 					currentPage,
 					totalItems: totalHits,
 					pageSize,
+					pageSizeOptions: [20, 50, 100, 500, 1000],
 					disabled: loading,
 					onPageChange: setCurrentPage,
 					onPageSizeChange: (value) => {

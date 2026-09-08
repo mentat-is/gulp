@@ -769,6 +769,7 @@
     "tableView.detached": "अलग",
     "tableView.detachedTooltip": "अलग: स्थानीय खोज और स्वतंत्र समय सीमा फ़िल्टर का उपयोग करें।",
     "tableView.fetchFailed": "तालिका डेटा लाने में विफल",
+    "tableView.paginationSnapshotExpired": "परिणाम स्नैपशॉट की समय-सीमा समाप्त हो गई। तालिका पहले पृष्ठ से फिर शुरू की गई।",
     "tableView.isoPlaceholder": "दिनांक आईएसओ प्रारूप में दर्ज करें",
     "tableView.isoString": "आईएसओ स्ट्रिंग",
     "tableView.loadingData": "डेटा लोड हो रहा है...",

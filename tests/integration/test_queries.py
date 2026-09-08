@@ -1,9 +1,10 @@
 """
 Integration tests for queries API.
 
-These tests use preview_mode / small limits to avoid needing large ingested
-datasets.  They validate that the query endpoints are reachable and return
-properly structured JSend responses.
+Most tests use ``preview_mode`` or small limits. The deep-pagination scenario
+ingests 10,025 sortable events to cross OpenSearch's normal result window. The
+suite validates that query endpoints are reachable and return properly
+structured JSend responses.
 
 Requires a live Gulp server (default: http://localhost:8080).
 Set GULP_BASE_URL, GULP_TEST_USER, GULP_TEST_PASSWORD env vars to override.
@@ -251,6 +252,164 @@ async def test_query_raw_empty_result(gulp_base_url, gulp_test_user, gulp_test_p
             assert isinstance(result, dict)
             assert str(result.get("status", "")).lower() in {"done", "failed", "canceled"}
         finally:
+            await _teardown_operation(client, op_id)
+
+
+@pytest.mark.integration
+async def test_query_raw_paginate_supports_deep_offset_and_stable_pit_jumps(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """Paginate beyond the result window and reuse a stable PIT snapshot."""
+    document_count = 10_025
+    marker = _unique("query_deep_pagination")
+    payload = [
+        {
+            "@timestamp": "2026-01-01T00:00:00.000Z",
+            "gulp.context_id": f"ctx_{marker}",
+            "gulp.source_id": f"src_{marker}",
+            "event.original": f"{marker}-{sequence}",
+            "event.sequence": sequence,
+        }
+        for sequence in range(document_count)
+    ]
+    query = {"query": {"match_all": {}}}
+    sort = {"event.sequence": "asc"}
+    pit_id: str | None = None
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op_id = await _setup_operation(client)
+        try:
+            ingest = await client.ingest.raw(
+                operation_id=op_id,
+                plugin_name="raw",
+                data=payload,
+                params={"last": True, "req_id": _unique("req_deep_pagination")},
+                wait=True,
+                timeout=300,
+            )
+            assert ingest.req_id
+            assert len(await _wait_query_docs(client, op_id, timeout=60.0)) > 0
+
+            legacy = await client.queries.query_raw_paginate(
+                operation_id=op_id,
+                q=query,
+                q_options={
+                    "limit": 25,
+                    "offset": 10_000,
+                    "sort": sort,
+                },
+            )
+            assert legacy["total_hits"] == document_count
+            assert [doc["event.sequence"] for doc in legacy["docs"]] == list(
+                range(10_000, document_count)
+            )
+            assert "pit_id" not in legacy
+            assert "search_after" not in legacy
+
+            first = await client.queries.query_raw_paginate(
+                operation_id=op_id,
+                q=query,
+                q_options={
+                    "pagination_mode": "pit",
+                    "limit": 37,
+                    "offset": 0,
+                    "sort": sort,
+                },
+            )
+            pit_id = first["pit_id"]
+            assert pit_id
+            assert first["total_hits"] == document_count
+            assert [doc["event.sequence"] for doc in first["docs"]] == list(range(37))
+            assert first["search_after"]
+
+            # Prove a direct first-to-last jump on the same stable snapshot.
+            last_offset = document_count - 17
+            last = await client.queries.query_raw_paginate(
+                operation_id=op_id,
+                q=query,
+                q_options={
+                    "pagination_mode": "pit",
+                    "pit_id": pit_id,
+                    "limit": 50,
+                    "offset": last_offset,
+                    "sort": sort,
+                },
+            )
+            pit_id = last["pit_id"]
+            assert pit_id
+            assert last["total_hits"] == document_count
+            assert [doc["event.sequence"] for doc in last["docs"]] == list(
+                range(last_offset, document_count)
+            )
+            assert last["search_after"] is None
+
+            second = await client.queries.query_raw_paginate(
+                operation_id=op_id,
+                q=query,
+                q_options={
+                    "pagination_mode": "pit",
+                    "pit_id": pit_id,
+                    "search_after": first["search_after"],
+                    "limit": 37,
+                    "offset": 37,
+                    "sort": sort,
+                },
+            )
+            pit_id = second["pit_id"]
+            assert pit_id
+            assert [doc["event.sequence"] for doc in second["docs"]] == list(
+                range(37, 74)
+            )
+            assert not {doc["event.sequence"] for doc in first["docs"]} & {
+                doc["event.sequence"] for doc in second["docs"]
+            }
+
+            middle_offset = 5_017
+            middle = await client.queries.query_raw_paginate(
+                operation_id=op_id,
+                q=query,
+                q_options={
+                    "pagination_mode": "pit",
+                    "pit_id": pit_id,
+                    "limit": 29,
+                    "offset": middle_offset,
+                    "sort": sort,
+                },
+            )
+            pit_id = middle["pit_id"]
+            assert pit_id
+            assert middle["total_hits"] == document_count
+            assert [doc["event.sequence"] for doc in middle["docs"]] == list(
+                range(middle_offset, middle_offset + 29)
+            )
+
+            beyond = await client.queries.query_raw_paginate(
+                operation_id=op_id,
+                q=query,
+                q_options={
+                    "pagination_mode": "pit",
+                    "pit_id": pit_id,
+                    "limit": 50,
+                    "offset": document_count + 1_000,
+                    "sort": sort,
+                },
+            )
+            pit_id = beyond["pit_id"]
+            assert pit_id
+            assert beyond["total_hits"] == document_count
+            assert beyond["docs"] == []
+            assert beyond["search_after"] is None
+
+            closed = await client.queries.query_raw_paginate_close(op_id, pit_id)
+            assert closed == {"closed": True}
+            pit_id = None
+        finally:
+            if pit_id:
+                try:
+                    await client.queries.query_raw_paginate_close(op_id, pit_id)
+                except Exception:
+                    pass
             await _teardown_operation(client, op_id)
 
 

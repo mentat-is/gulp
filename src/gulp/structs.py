@@ -29,6 +29,14 @@ class ObjectNotFound(Exception):
     pass
 
 
+class PaginationSnapshotExpired(Exception):
+    """Raised when an OpenSearch pagination point-in-time no longer exists."""
+
+    def __init__(self, message: str, pit_id: str | None = None) -> None:
+        super().__init__(message)
+        self.pit_id = pit_id
+
+
 class GulpAPIParameter(BaseModel):
     """
     describes a parameter for a Gulp API method.

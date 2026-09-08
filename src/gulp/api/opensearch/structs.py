@@ -595,12 +595,13 @@ class GulpQueryParameters(BaseModel):
                 {
                     "sort": {
                         "@timestamp": GulpSortOrder.ASC,
-                        "_doc": GulpSortOrder.ASC,
                         "event.sequence": GulpSortOrder.ASC,
                     },
                     "fields": ["@timestamp", "event.id"],
                     "limit": 1000,
                     "total_limit": 0,
+                    "pagination_mode": "offset",
+                    "pit_id": None,
                     "preview_mode": False,
                     "search_after": None,
                     "highlight_results": True,
@@ -659,7 +660,20 @@ for pagination, the maximum number of documents to return **per chunk**, default
     offset: Annotated[
         int,
         Field(
-            description="""used only for "query_raw_paginate" endpoint, ignored elsewhere: This is the offset to start pagination from, returning up to `limit` documents. Ingored if `search_after` is set """
+            ge=0,
+            description="""used only for "query_raw_paginate" endpoint, ignored elsewhere: this is the logical result position to return, starting at zero. Ignored when `search_after` is set.""",
+        ),
+    ] = None
+    pagination_mode: Annotated[
+        Literal["offset", "pit"],
+        Field(
+            description="""pagination strategy for `query_raw_paginate`. `offset` preserves the legacy contract; `pit` keeps a stable point-in-time snapshot and returns a reusable cursor."""
+        ),
+    ] = "offset"
+    pit_id: Annotated[
+        Optional[str],
+        Field(
+            description="""point-in-time identifier returned by a previous `query_raw_paginate` call in `pit` mode. Omit it to create a snapshot."""
         ),
     ] = None
     total_limit: Annotated[
@@ -673,14 +687,15 @@ NOTE: as documents are returned in chunk of `limit` size, total is intended as a
         ),
     ] = 0
     search_after: Annotated[
-        list[dict],
+        list[Any] | None,
         Field(
             description="""
 for pagination, this should be set to the `search_after` returned by the previous call.
 - check [OpenSearch documentation](https://opensearch.org/docs/latest/search-plugins/searching-data/paginate/#the-search_after-parameter).
 - for `external` queries, this may not be supported (loop handling is responsibility of the plugin).
 
-Ignored if `offset` is set.
+When present, it takes precedence over `offset` and opens the page immediately
+after the referenced sort values.
 """,
         ),
     ] = None
@@ -770,8 +785,6 @@ if set, highlights are included in the results (default=False).
             # default sort
             sort = {
                 "@timestamp": GulpSortOrder.ASC.value,
-                # read the NOTE below...
-                "_doc": GulpSortOrder.ASC.value,
                 "event.sequence": GulpSortOrder.ASC.value,
             }
 
@@ -781,9 +794,11 @@ if set, highlights are included in the results (default=False).
 
         for k, v in sort.items():
             n["sort"].append({k: {"order": v}})
-            if "_doc" not in sort:
-                # make sure document order is always sorted, use _doc instead of _id for less overhead (CircuitBreakingException error from opensearch)
-                n["sort"].append({"_doc": {"order": v}})
+        if "_doc" not in sort and "_shard_doc" not in sort:
+            # Keep a deterministic low-overhead document-order tie-breaker.
+            # PIT pagination replaces this with the snapshot-aware `_shard_doc`.
+            direction = next(reversed(sort.values()))
+            n["sort"].append({"_doc": {"order": direction}})
             # TODO: execute testwinevtx
             # if "event.sequence" not in sort:
             #     # make sure event.sequence is always sorted

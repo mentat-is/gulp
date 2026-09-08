@@ -769,6 +769,7 @@
     "tableView.detached": "Отдельностоящий",
     "tableView.detachedTooltip": "Отдельный: используйте локальный поиск и независимые фильтры временного диапазона.",
     "tableView.fetchFailed": "Не удалось получить данные таблицы.",
+    "tableView.paginationSnapshotExpired": "Снимок результатов устарел. Таблица перезапущена с первой страницы.",
     "tableView.isoPlaceholder": "Введите дату в формате ISO",
     "tableView.isoString": "ISO-строка",
     "tableView.loadingData": "Загрузка данных...",

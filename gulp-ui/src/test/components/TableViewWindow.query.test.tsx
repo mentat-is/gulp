@@ -6,8 +6,12 @@ import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import type { Query } from "@/entities/Query";
+import type { GulpDataset } from "@/class/Info";
+import type { Doc } from "@/entities/Doc";
 import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import { TableViewWindow } from "@/components/TableViewWindow";
+import type { QueryRawDocument } from "@/workers/DataWorker.types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
 	.IS_REACT_ACT_ENVIRONMENT = true;
@@ -41,6 +45,21 @@ function createSource(overrides: Partial<Source.Type> = {}): Source.Type {
 }
 
 /**
+ * Creates a minimal raw event returned by a paginated table request.
+ * @param id Stable document identifier used by stale-response assertions.
+ * @returns Table-compatible document fixture.
+ */
+function createDocument(id: string): Doc.Type & QueryRawDocument {
+	return {
+		_id: id as Doc.Id,
+		gulp_timestamp: 1,
+		"gulp.source_id": SOURCE_ID,
+		"gulp.event_code": 1,
+		number_hash: 1,
+	} as Doc.Type & QueryRawDocument;
+}
+
+/**
  * Creates the minimal application snapshot required by TableViewWindow.
  * @param source Source included in the snapshot.
  * @returns Application fixture.
@@ -62,16 +81,47 @@ function createApp(source: Source.Type): App.Type {
 let mockApp = createApp(createSource());
 let mockEventKeysCalls = 0;
 let mockQueryPaginateCalls = 0;
+let mockQueryPaginateRequests: Array<{
+	query: Query.Type;
+	options: GulpDataset.QueryRawPaginate.Options;
+}> = [];
+let mockQueryPaginateImplementation: (
+	query: Query.Type,
+	options: GulpDataset.QueryRawPaginate.Options,
+) => Promise<GulpDataset.QueryRawPaginate.Response | undefined>;
+let mockQueryPaginateCloseRequests: Array<{
+	pitId: string;
+	operationId: Operation.Id;
+}> = [];
 let mockSyncChange: ((checked: boolean) => void) | null = null;
 let mockTableFilterOptions: Record<string, string> | undefined;
+let mockTablePagination:
+	| {
+			onPageChange: (page: number) => void;
+			onPageSizeChange: (pageSize: number) => void;
+	  }
+	| undefined;
+let mockToastErrorCalls: unknown[][] = [];
+let mockRenderedTableValues: Doc.Type[] | undefined;
 const mockInfo = {
 	event_keys: async (): Promise<Record<string, string>> => {
 		mockEventKeysCalls += 1;
 		return { timestamp: "date" };
 	},
-	query_paginate: async (): Promise<{ docs: unknown[]; total_hits: number }> => {
+	query_paginate: async (
+		query: Query.Type,
+		options: GulpDataset.QueryRawPaginate.Options,
+	): Promise<GulpDataset.QueryRawPaginate.Response | undefined> => {
 		mockQueryPaginateCalls += 1;
-		return { docs: [], total_hits: 0 };
+		mockQueryPaginateRequests.push({ query, options });
+		return mockQueryPaginateImplementation(query, options);
+	},
+	query_raw_paginate_close: async (
+		pitId: string,
+		operationId: Operation.Id,
+	): Promise<GulpDataset.QueryRawPaginate.CloseResponse> => {
+		mockQueryPaginateCloseRequests.push({ pitId, operationId });
+		return { closed: true };
 	},
 };
 const mockApplicationContext = {
@@ -166,7 +216,24 @@ jest.mock("@/components/QueryBuilder", () => ({
 }));
 
 jest.mock("@/components/Table", () => ({
-	Table: (): null => null,
+	Table: ({ values }: { values: Doc.Type[] }): null => {
+		mockRenderedTableValues = values;
+		return null;
+	},
+}));
+
+jest.mock("@/ui/TableHeader", () => ({
+	TableHeader: ({
+		pagination,
+	}: {
+		pagination: {
+			onPageChange: (page: number) => void;
+			onPageSizeChange: (pageSize: number) => void;
+		};
+	}): null => {
+		mockTablePagination = pagination;
+		return null;
+	},
 }));
 
 jest.mock("@/ui/Input", () => ({ Input: (): null => null }));
@@ -233,7 +300,11 @@ jest.mock("@/ui/utils", () => ({
 	cn: (...classNames: unknown[]): string => classNames.filter(Boolean).join(" "),
 }));
 jest.mock("sonner", () => ({
-	toast: { error: (): void => undefined },
+	toast: {
+		error: (...arguments_: unknown[]): void => {
+			mockToastErrorCalls.push(arguments_);
+		},
+	},
 }));
 
 /**
@@ -255,8 +326,17 @@ describe("TableViewWindow query stability", () => {
 		mockApp = createApp(createSource());
 		mockEventKeysCalls = 0;
 		mockQueryPaginateCalls = 0;
+		mockQueryPaginateRequests = [];
+		mockQueryPaginateCloseRequests = [];
+		mockQueryPaginateImplementation = async () => ({
+			docs: [],
+			total_hits: 0,
+		});
 		mockSyncChange = null;
 		mockTableFilterOptions = undefined;
+		mockTablePagination = undefined;
+		mockToastErrorCalls = [];
+		mockRenderedTableValues = undefined;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -364,5 +444,183 @@ describe("TableViewWindow query stability", () => {
 		act(() => filterButton?.click());
 
 		expect(mockTableFilterOptions).toEqual({ timestamp: "date" });
+	});
+
+	it("opens a PIT session and reuses the cached cursor for the next page", async () => {
+		mockQueryPaginateImplementation = async () => ({
+			docs: [],
+			total_hits: 200,
+			pit_id: "table-pit",
+			search_after: ["page-2", 49],
+		});
+		act(() => root.render(<TableViewWindow initialSourceId={SOURCE_ID} />));
+		await flushRequests();
+
+		expect(mockQueryPaginateRequests[0].options).toMatchObject({
+			limit: 50,
+			offset: 0,
+			paginationMode: "pit",
+		});
+		expect(mockQueryPaginateRequests[0].options.pitId).toBeUndefined();
+		expect(mockQueryPaginateRequests[0].options.searchAfter).toBeUndefined();
+
+		act(() => mockTablePagination?.onPageChange(2));
+		await flushRequests();
+
+		expect(mockQueryPaginateRequests[1].options).toMatchObject({
+			limit: 50,
+			offset: 50,
+			paginationMode: "pit",
+			pitId: "table-pit",
+			searchAfter: ["page-2", 49],
+		});
+	});
+
+	it("uses the logical offset for an unvisited first-to-last jump beyond 100,000 events", async () => {
+		mockQueryPaginateImplementation = async () => ({
+			docs: [],
+			total_hits: 250_000,
+			pit_id: "large-table-pit",
+			search_after: ["next-page"],
+		});
+		act(() => root.render(<TableViewWindow initialSourceId={SOURCE_ID} />));
+		await flushRequests();
+
+		act(() => mockTablePagination?.onPageChange(5_000));
+		await flushRequests();
+
+		expect(mockQueryPaginateRequests[1].options).toMatchObject({
+			offset: 249_950,
+			pitId: "large-table-pit",
+			paginationMode: "pit",
+		});
+		expect(mockQueryPaginateRequests[1].options.searchAfter).toBeUndefined();
+	});
+
+	it("closes and resets the PIT when page size changes", async () => {
+		let requestCount = 0;
+		mockQueryPaginateImplementation = async () => {
+			requestCount += 1;
+			return {
+				docs: [],
+				total_hits: 500,
+				pit_id: `table-pit-${requestCount}`,
+				search_after: [requestCount],
+			};
+		};
+		act(() => root.render(<TableViewWindow initialSourceId={SOURCE_ID} />));
+		await flushRequests();
+
+		act(() => mockTablePagination?.onPageSizeChange(100));
+		await flushRequests();
+
+		expect(
+			mockQueryPaginateCloseRequests.some(
+				(request) =>
+					request.pitId === "table-pit-1" &&
+					request.operationId === OPERATION_ID,
+			),
+		).toBe(true);
+		expect(mockQueryPaginateRequests[1].options).toMatchObject({
+			limit: 100,
+			offset: 0,
+			paginationMode: "pit",
+		});
+		expect(mockQueryPaginateRequests[1].options.pitId).toBeUndefined();
+		expect(mockQueryPaginateRequests[1].options.searchAfter).toBeUndefined();
+	});
+
+	it("recovers once from an expired snapshot by returning to page 1", async () => {
+		let requestCount = 0;
+		mockQueryPaginateImplementation = async () => {
+			requestCount += 1;
+			if (requestCount === 2) {
+				const error = new Error("snapshot expired");
+				error.name = "PaginationSnapshotExpired";
+				throw error;
+			}
+			return {
+				docs: [],
+				total_hits: 200,
+				pit_id: requestCount === 1 ? "expired-pit" : "replacement-pit",
+				search_after: [requestCount],
+			};
+		};
+		act(() => root.render(<TableViewWindow initialSourceId={SOURCE_ID} />));
+		await flushRequests();
+
+		act(() => mockTablePagination?.onPageChange(2));
+		await flushRequests();
+		await flushRequests();
+
+		expect(mockQueryPaginateRequests).toHaveLength(3);
+		expect(mockQueryPaginateRequests[2].options).toMatchObject({
+			offset: 0,
+			paginationMode: "pit",
+		});
+		expect(mockQueryPaginateRequests[2].options.pitId).toBeUndefined();
+		expect(mockQueryPaginateRequests[2].options.searchAfter).toBeUndefined();
+		expect(
+			mockToastErrorCalls.some(
+				(arguments_) =>
+					arguments_[0] === "tableView.paginationSnapshotExpired",
+			),
+		).toBe(true);
+	});
+
+	it("ignores an aborted stale page response after a newer direct jump", async () => {
+		let requestCount = 0;
+		let resolveStaleRequest:
+			| ((response: GulpDataset.QueryRawPaginate.Response) => void)
+			| undefined;
+		mockQueryPaginateImplementation = async () => {
+			requestCount += 1;
+			if (requestCount === 2) {
+				return new Promise((resolve) => {
+					resolveStaleRequest = resolve;
+				});
+			}
+
+			const page = requestCount === 1 ? 1 : 3;
+			return {
+				docs: [createDocument(`page-${page}`)],
+				total_hits: 150,
+				pit_id: "stable-pit",
+				search_after: page === 1 ? ["page-2"] : null,
+			};
+		};
+		act(() => root.render(<TableViewWindow initialSourceId={SOURCE_ID} />));
+		await flushRequests();
+
+		act(() => mockTablePagination?.onPageChange(2));
+		await flushRequests();
+		act(() => mockTablePagination?.onPageChange(3));
+		await flushRequests();
+
+		expect(mockQueryPaginateRequests[1].options.signal?.aborted).toBe(true);
+		expect(mockQueryPaginateRequests[2].options.pitId).toBeUndefined();
+		expect(mockQueryPaginateRequests[2].options.searchAfter).toBeUndefined();
+		expect(
+			mockQueryPaginateCloseRequests.some(
+				(request) => request.pitId === "stable-pit",
+			),
+		).toBe(true);
+		expect(mockRenderedTableValues?.map((document) => document._id)).toEqual([
+			"page-3",
+		]);
+
+		await act(async () => {
+			resolveStaleRequest?.({
+				docs: [createDocument("stale-page-2")],
+				total_hits: 150,
+				pit_id: "stable-pit",
+				search_after: ["page-3"],
+			});
+			await Promise.resolve();
+		});
+
+		expect(mockRenderedTableValues?.map((document) => document._id)).toEqual([
+			"page-3",
+		]);
 	});
 });

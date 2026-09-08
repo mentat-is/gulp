@@ -769,6 +769,7 @@
     "tableView.detached": "Separado",
     "tableView.detachedTooltip": "Separado: utilice búsqueda local y filtros de rango de tiempo independientes.",
     "tableView.fetchFailed": "No se pudieron recuperar los datos de la tabla",
+    "tableView.paginationSnapshotExpired": "La instantánea de resultados caducó. La tabla se reinició desde la primera página.",
     "tableView.isoPlaceholder": "Ingrese la fecha en formato ISO",
     "tableView.isoString": "Cadena ISO",
     "tableView.loadingData": "Cargando datos...",

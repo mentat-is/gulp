@@ -48,7 +48,11 @@ from gulp.api.ws_api import GulpConnectedSockets, GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
-from gulp.structs import ObjectAlreadyExists, ObjectNotFound
+from gulp.structs import (
+    ObjectAlreadyExists,
+    ObjectNotFound,
+    PaginationSnapshotExpired,
+)
 from gulp.api.prometheus_api import GulpMetrics, cleanup_prometheus
 from gulp import __version__, commit_id
 
@@ -225,6 +229,8 @@ class GulpServer:
             except:
                 # fallback to string
                 ex = str(ex)
+        elif isinstance(ex, PaginationSnapshotExpired):
+            status_code = 410
         elif isinstance(ex, ObjectNotFound) or isinstance(ex, FileNotFoundError):
             status_code = 404
         elif isinstance(ex, ObjectAlreadyExists):

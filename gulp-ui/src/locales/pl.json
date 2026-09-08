@@ -769,6 +769,7 @@
     "tableView.detached": "Wolnostojący",
     "tableView.detachedTooltip": "Wolnostojący: użyj wyszukiwania lokalnego i niezależnych filtrów zakresu czasu.",
     "tableView.fetchFailed": "Nie udało się pobrać danych tabeli",
+    "tableView.paginationSnapshotExpired": "Migawka wyników wygasła. Tabela została uruchomiona ponownie od pierwszej strony.",
     "tableView.isoPlaceholder": "Wprowadź datę w formacie ISO",
     "tableView.isoString": "Ciąg ISO",
     "tableView.loadingData": "Ładowanie danych...",

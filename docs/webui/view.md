@@ -90,6 +90,18 @@ Table View supports:
 - creating notes from selected events;
 - opening target events in the main tab.
 
+Table View keeps one point-in-time snapshot for the current operation, source,
+filters, search text, time range, flags, sort, and page size. This makes page
+contents stable while navigating and allows the page-number input to jump
+directly beyond 10,000 or 100,000 events. Adjacent pages reuse an opaque cursor;
+an unvisited page is located from its logical offset. Changing any of those
+query settings closes the old snapshot and starts a new one, so newly ingested
+events become visible in the new session.
+
+If the snapshot expires before it is used, Table View shows a localized notice,
+returns to page 1 once, and creates a fresh snapshot. A superseded or canceled
+request does not replace the last successfully displayed page.
+
 When horizontal scrolling is required, the optional row-selection column stays
 fixed to the left edge and the optional row-actions column stays fixed to the
 right edge. The column-visibility context menu is limited to the table viewport

@@ -150,6 +150,32 @@ export namespace GulpDataset {
 			signal?: AbortSignal;
 		}
 	}
+	export namespace QueryRawPaginate {
+		export type PaginationMode = "offset" | "pit";
+		export type Cursor = unknown[];
+
+		export interface Options {
+			limit?: number;
+			offset?: number;
+			sort?: Record<string, "desc" | "asc">;
+			fields?: string[] | "*";
+			paginationMode?: PaginationMode;
+			pitId?: string;
+			searchAfter?: Cursor;
+			signal?: AbortSignal;
+		}
+
+		export interface Response {
+			total_hits: number;
+			docs: QueryRawDocument[];
+			pit_id?: string | null;
+			search_after?: Cursor | null;
+		}
+
+		export interface CloseResponse {
+			closed: boolean;
+		}
+	}
 	export namespace QueryOperations {
 		interface Operation {
 			name: string;
@@ -476,6 +502,62 @@ export interface UserDeleteResult {
 	success: boolean;
 	/** Backend error details returned for a declined delete request. */
 	errorDescription?: string;
+}
+
+/**
+ * Explicit failure returned by the paginated-query API.
+ * The Error name preserves the backend discriminator so callers can handle
+ * snapshot expiry without parsing a localized message.
+ */
+export class QueryPaginationRequestError extends Error {
+	/** Backend error discriminator from the JSend response. */
+	readonly backendName: string;
+
+	/**
+	 * Creates a typed pagination failure from backend error details.
+	 * @param backendName Stable backend exception name.
+	 * @param message Human-readable backend failure reason.
+	 */
+	constructor(backendName: string, message: string) {
+		super(message);
+		this.name = backendName;
+		this.backendName = backendName;
+	}
+}
+
+/**
+ * Unwraps a raw JSend pagination response and raises explicit failures.
+ * @param response Raw API response, or undefined when a request was aborted.
+ * @param signal Optional request signal used to recognize an aborted response.
+ * @returns Successful pagination response, or undefined for an aborted request.
+ */
+function unwrapQueryPaginationResponse<T>(
+	response: ResponseHandler<ResponseBase<T | ResponseErrorBody>> | undefined,
+	signal?: AbortSignal,
+): T | undefined {
+	if (!response) {
+		if (signal?.aborted) return undefined;
+		throw new QueryPaginationRequestError(
+			"PaginationRequestFailed",
+			"The pagination request did not return a response.",
+		);
+	}
+
+	const responseData = response.data;
+	if (
+		response.status === "error" ||
+		(typeof responseData === "object" &&
+			responseData !== null &&
+			"__error" in responseData)
+	) {
+		const error = (responseData as Partial<ResponseErrorBody>).__error;
+		throw new QueryPaginationRequestError(
+			error?.name || "PaginationRequestFailed",
+			error?.msg || "The pagination request failed.",
+		);
+	}
+
+	return responseData as T;
 }
 
 /**
@@ -3772,42 +3854,78 @@ export class Info implements InfoProps {
 			offset = 0,
 			sort = { "@timestamp": "asc" },
 			fields,
+			paginationMode = "offset",
+			pitId,
+			searchAfter,
 			signal,
-		}: GulpDataset.QueryGulp.Options,
-	) => {
+		}: GulpDataset.QueryRawPaginate.Options,
+	): Promise<GulpDataset.QueryRawPaginate.Response | undefined> => {
 		const operation = Operation.Entity.selected(this.app);
 		if (!operation) {
 			return;
 		}
-		const body: Record<string, any> = {
-			q: { query: Filter.Entity.query(query) },
-			q_options: {
-				limit: limit,
-				offset: offset,
-				sort,
-			},
+		const queryOptions: Record<string, unknown> = {
+			limit,
+			offset,
+			sort,
+			pagination_mode: paginationMode,
 		};
-		if (fields) body.q_options.fields = fields;
+		if (fields) queryOptions.fields = fields;
+		if (pitId) queryOptions.pit_id = pitId;
+		if (searchAfter) queryOptions.search_after = searchAfter;
+
+		const body: Record<string, unknown> = {
+			q: { query: Filter.Entity.query(query) },
+			q_options: queryOptions,
+		};
 
 		const request_query: Record<string, string> = {
 			operation_id: operation.id,
 			req_id: generateUUID(Request.Prefix.QUERY),
 		};
 
-		const resp = await api<any>("/query_raw_paginate", {
+		const response = await api<
+			GulpDataset.QueryRawPaginate.Response | ResponseErrorBody
+		>("/query_raw_paginate", {
 			method: "POST",
 			body,
 			query: request_query,
 			raw: true,
+			showErrorToast: false,
 			signal,
 		});
 
-		return resp
-			? resp.data
-			: {
-					docs: [],
-					total_hits: 0,
-				};
+		return unwrapQueryPaginationResponse<
+			GulpDataset.QueryRawPaginate.Response
+		>(response, signal);
+	};
+
+	/**
+	 * Closes a server-side pagination snapshot created by query_paginate.
+	 * @param pitId Point-in-time identifier returned by the paginated-query API.
+	 * @param operationId Operation that owns the OpenSearch index and ACL scope.
+	 * @param signal Optional cancellation signal.
+	 * @returns Backend close confirmation, or undefined for an aborted request.
+	 */
+	query_raw_paginate_close = async (
+		pitId: string,
+		operationId: Operation.Id,
+		signal?: AbortSignal,
+	): Promise<GulpDataset.QueryRawPaginate.CloseResponse | undefined> => {
+		const response = await api<
+			GulpDataset.QueryRawPaginate.CloseResponse | ResponseErrorBody
+		>("/query_raw_paginate", {
+			method: "DELETE",
+			body: { pit_id: pitId },
+			query: { operation_id: operationId },
+			raw: true,
+			showErrorToast: false,
+			signal,
+		});
+
+		return unwrapQueryPaginationResponse<
+			GulpDataset.QueryRawPaginate.CloseResponse
+		>(response, signal);
 	};
 
 	/**
@@ -7162,7 +7280,7 @@ export class Info implements InfoProps {
 		const missingNotes = uniqueNotes.filter(
 			(note) => !existingIds.has(note.doc._id),
 		);
-		const fetchedDocuments: Doc.Type[] = [];
+		const fetchedDocuments: QueryRawDocument[] = [];
 		const retrievalFailedIds = new Set<Doc.Id>();
 		if (uniqueNotes.length === 1) {
 			const [note] = missingNotes;
@@ -7172,8 +7290,11 @@ export class Info implements InfoProps {
 						note.doc._id,
 						note.operation_id,
 					);
-					if (fetched) fetchedDocuments.push(fetched);
-					else retrievalFailedIds.add(note.doc._id);
+					if (fetched) {
+						fetchedDocuments.push(fetched as unknown as QueryRawDocument);
+					} else {
+						retrievalFailedIds.add(note.doc._id);
+					}
 				} catch {
 					retrievalFailedIds.add(note.doc._id);
 				}
@@ -7219,20 +7340,27 @@ export class Info implements InfoProps {
 		const expectedIds = new Set(missingNotes.map((note) => note.doc._id));
 		const resolvedFetchedIds = new Set<Doc.Id>();
 		fetchedDocuments.forEach((fetched) => {
-			if (!expectedIds.has(fetched._id) || resolvedFetchedIds.has(fetched._id)) {
+			const fetchedId = fetched._id;
+			if (
+				!fetchedId ||
+				!expectedIds.has(fetchedId) ||
+				resolvedFetchedIds.has(fetchedId)
+			) {
 				return;
 			}
-			const source = Source.Entity.id(this.app, fetched["gulp.source_id"]);
+			const sourceId = fetched["gulp.source_id"];
+			if (!sourceId) return;
+			const source = Source.Entity.id(this.app, sourceId);
 			if (!source) return;
 			const settings = source.settings ?? Internal.Settings.default;
 			const [normalized] = Doc.Entity.normalize(
-				[fetched],
+				[fetched as unknown as Doc.Type],
 				settings.field,
 				settings.hash_function,
 			);
 			if (!normalized) return;
 			fetchedEvents.push(normalized);
-			resolvedFetchedIds.add(fetched._id);
+			resolvedFetchedIds.add(fetchedId);
 		});
 		const failedIds = missingNotes
 			.map((note) => note.doc._id)

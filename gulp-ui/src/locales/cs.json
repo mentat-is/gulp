@@ -769,6 +769,7 @@
     "tableView.detached": "Samostatný",
     "tableView.detachedTooltip": "Detached: Použijte místní vyhledávání a nezávislé filtry časového rozsahu.",
     "tableView.fetchFailed": "Data tabulky se nepodařilo načíst",
+    "tableView.paginationSnapshotExpired": "Platnost snímku výsledků vypršela. Tabulka byla znovu načtena od první stránky.",
     "tableView.isoPlaceholder": "Zadejte datum ve formátu ISO",
     "tableView.isoString": "Řetězec ISO",
     "tableView.loadingData": "Načítání dat...",
