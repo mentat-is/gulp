@@ -21,6 +21,7 @@ import type {
 } from "./EventStore.backend";
 import type {
 	EventNeighborWindow,
+	EventSourceEdge,
 	EventStoreReader,
 	EventTimestampNeighborWindow,
 	EventTimestampRange,
@@ -111,7 +112,9 @@ function queryCacheCoversDesiredLookup(
 	record: EventSourceQueryCacheRecord,
 	desired: DesiredQueryCacheLookup,
 ): boolean {
-	const cachedRange = record.provenance.query.source_config?.range;
+	const cachedRange =
+		record.provenance.materializedRange ??
+		record.provenance.query.source_config?.range;
 	return (
 		cachedRange !== undefined &&
 		getQueryCacheShapeFingerprint(record.provenance) ===
@@ -211,6 +214,8 @@ export interface ActivateEventSourceQueryCacheInput {
 export interface ReconcileEventSourceQueryCacheInput {
 	sourceId: Source.Id;
 	desired: DesiredQueryCacheLookup;
+	/** Startup discards old history; reuse preserves this session's history. */
+	mode?: "initial" | "reuse";
 }
 
 export interface AppendEventStorePagesInput {
@@ -1397,6 +1402,74 @@ export class EventStoreRepository
 	}
 
 	/**
+	 * Reads the first or last canonical event by selecting its page from the manifest.
+	 * Timestamp ties use event sequence before stable page and offset tie breakers.
+	 * @param sourceId Source whose edge is requested.
+	 * @param newest Whether to select the newest rather than the oldest event.
+	 * @returns Exact edge and the source revision used to select it.
+	 */
+	public async getSourceEdge(
+		sourceId: Source.Id,
+		newest: boolean,
+	): Promise<EventSourceEdge> {
+		const manifest = await this.getStoredManifest(sourceId);
+		if (!manifest) return { event: null, sourceRevision: 0 };
+
+		let selectedLocation: EventLocation | null = null;
+		for (const catalogEntry of manifest.pages) {
+			if (catalogEntry.activeCount === 0) continue;
+			const candidate: EventLocation = {
+				sourceId,
+				generation: manifest.generation,
+				pageId: catalogEntry.pageId,
+				offset: newest ? 0 : Math.max(0, catalogEntry.count - 1),
+				handle: catalogEntry.representativeHandle,
+				timestamp: newest
+					? catalogEntry.maxTimestamp
+					: catalogEntry.minTimestamp,
+				sequence: newest
+					? catalogEntry.firstSequence
+					: catalogEntry.lastSequence,
+				revision: catalogEntry.revision,
+			};
+			if (!selectedLocation) {
+				selectedLocation = candidate;
+				continue;
+			}
+			const comparison = this.compareLocations(candidate, selectedLocation);
+			if (newest ? comparison < 0 : comparison > 0) {
+				selectedLocation = candidate;
+			}
+		}
+		if (!selectedLocation) {
+			return { event: null, sourceRevision: manifest.revision };
+		}
+
+		const page = await this.loadPage(
+			sourceId,
+			manifest.generation,
+			selectedLocation.pageId,
+		);
+		let offset = newest ? 0 : page.count - 1;
+		while (
+			offset >= 0 &&
+			offset < page.count &&
+			page.tombstones[offset] !== 0
+		) {
+			offset += newest ? 1 : -1;
+		}
+		const event = offset >= 0 && offset < page.count
+			? decodeEventAt(page, offset)
+			: null;
+		if (!event) {
+			throw new EventStoreCorruptionError(
+				`Active source edge page ${sourceId}/${selectedLocation.pageId} has no event.`,
+			);
+		}
+		return { event, sourceRevision: manifest.revision };
+	}
+
+	/**
 	 * Lists compact query-cache metadata without loading any exact event page.
 	 * @param sourceId Source whose retained query results are requested.
 	 * @returns Cache entries ordered from oldest to newest creation.
@@ -1476,12 +1549,13 @@ export class EventStoreRepository
 	}
 
 	/**
-	 * Selects the safest reusable startup cache before falling back to recency.
-	 * Fresh exact matches outrank fresh range-covered matches, which outrank stale
-	 * exact matches and the most recently activated remaining cache.
-	 * The chosen cache becomes the sole history entry before all alternatives are pruned.
+	 * Selects a complete compatible cache with a fresh source snapshot. Startup may
+	 * retain a stale exact or latest complete cache as a warning baseline rather than
+	 * immediately querying data that is already available. Runtime reuse remains
+	 * strict and preserves the current Undo/Redo history on a miss.
 	 * @param input Source and desired query identity, range, and server snapshot.
-	 * @returns Activated exact, covered, or latest cache, or null when none is reusable.
+	 * @returns A compatible or initial warning activation, or null when the backend
+	 * must be queried.
 	 */
 	public async reconcileQueryCache(
 		input: ReconcileEventSourceQueryCacheInput,
@@ -1533,7 +1607,7 @@ export class EventStoreRepository
 					right.generation - left.generation,
 			);
 		if (reusableByRecency.length === 0) {
-			await this.resetQueryCachePool(input.sourceId);
+			if (input.mode !== "reuse") await this.resetQueryCachePool(input.sourceId);
 			return null;
 		}
 		const exactCandidates = reusableByRecency.filter(
@@ -1547,14 +1621,29 @@ export class EventStoreRepository
 		);
 		const staleExact = exactCandidates[0];
 		const chosen =
-			freshExact ?? freshCovered ?? staleExact ?? reusableByRecency[0];
-		const match: EventSourceQueryCacheReconciliation["match"] = freshExact
+			freshExact ??
+			freshCovered ??
+			(input.mode === "reuse"
+				? undefined
+				: staleExact ?? reusableByRecency[0]);
+		if (!chosen) {
+			if (input.mode !== "reuse") await this.resetQueryCachePool(input.sourceId);
+			return null;
+		}
+		const match = freshExact
 			? "exact"
 			: freshCovered
 				? "covered"
-				: staleExact
+				: staleExact === chosen
 					? "exact"
 					: "latest";
+		if (input.mode === "reuse" && current) {
+			if (current.activeCacheGeneration === chosen.generation) {
+				return { summary: this.toSummary(current), cache: this.toQueryCacheMetadata(chosen), match };
+			}
+			if (!current.cacheHistory.includes(chosen.generation)) return null;
+			return { ...await this.activateQueryCache({ sourceId: input.sourceId, generation: chosen.generation }), match };
+		}
 		const reconstructed = this.createSourceHeadFromCache(chosen);
 		const base = current ?? {
 			...reconstructed,

@@ -27,6 +27,9 @@ export interface RendererQueryReplayStartOptions {
 	operationEpoch: number;
 	sourceId: Source.Id;
 	targetEvents: number;
+	sourceCount?: number;
+	distribution?: "uniform" | "skewed";
+	cacheWarnings?: boolean;
 	chunkEvents: number;
 	documentMinTimestamp: number;
 	frameSpanMs: number;
@@ -36,6 +39,11 @@ export interface RendererQueryReplayStartOptions {
 
 /** Terminal dedicated-worker result with no exact document payloads. */
 export interface RendererQueryReplayResult {
+	targetEvents?: number;
+	sourceSummaries?: QuerySourceSummaryEvent[];
+	expectedPages?: number;
+	cacheHits?: number;
+	sampledDocuments?: number;
 	status: RendererQueryReplayStatus;
 	processedEvents: number;
 	queryDoneReceived: boolean;
@@ -56,6 +64,7 @@ export interface RendererQueryReplayProgress {
 export interface RendererQueryReplayRenderDiagnostics {
 	buildingFrames: number;
 	maximumBuildingFrameIntervalMs: number;
+	maximumVisibleProgressLatencyMs: number;
 	completeSummaryToProjectionMs: number;
 	terminalProjectionEventCount: number;
 	terminalAckToFrameMs: number;
@@ -82,7 +91,7 @@ export interface RendererQueryReplayGate {
 }
 
 /**
- * Evaluates the deterministic 14M steady gate or controlled burst-overload gate.
+ * Evaluates the configured steady replay gate or controlled burst-overload gate.
  * @param profile Active replay profile.
  * @param result Terminal QuerySocketSession result.
  * @param render Render-side frame and convergence diagnostics.
@@ -97,8 +106,8 @@ export function evaluateRendererQueryReplayGate(
 	rawGlobalByteLimit: number,
 	rawStreamByteLimit: number,
 ): RendererQueryReplayGate {
-	const expectedPages = Math.ceil(
-		RENDERER_QUERY_REPLAY_TARGET_EVENTS / 16_384,
+	const expectedPages = result.expectedPages ?? Math.ceil(
+		(result.targetEvents ?? RENDERER_QUERY_REPLAY_TARGET_EVENTS) / 16_384,
 	);
 	const eventCount =
 		profile === "burst"
@@ -106,19 +115,19 @@ export function evaluateRendererQueryReplayGate(
 			: result.status === "complete" &&
 				result.streamCompleted &&
 				result.queryDoneReceived &&
-				result.latestSummary?.summary.status === "complete" &&
-				result.latestSummary.summary.eventCount === result.processedEvents &&
+				(result.sourceSummaries ?? (result.latestSummary ? [result.latestSummary] : [])).every((event) => event.summary.status === "complete") &&
+				(result.sourceSummaries ?? (result.latestSummary ? [result.latestSummary] : [])).reduce((sum, event) => sum + event.summary.eventCount, 0) === result.processedEvents &&
 				render.terminalProjectionEventCount === result.processedEvents;
 	const pageCount =
 		profile === "burst"
 			? true
-			: result.processedEvents === RENDERER_QUERY_REPLAY_TARGET_EVENTS &&
-				result.diagnostics.pages.created === expectedPages;
+			: result.processedEvents === (result.targetEvents ?? RENDERER_QUERY_REPLAY_TARGET_EVENTS) &&
+				(result.sourceSummaries ? result.diagnostics.pages.created >= expectedPages && result.diagnostics.pages.created <= Math.ceil(result.processedEvents / 10000) + result.sourceSummaries.length : result.diagnostics.pages.created === expectedPages);
 	const buildingCadence =
 		profile === "burst"
 			? true
 			: render.buildingFrames > 0 &&
-				render.maximumBuildingFrameIntervalMs <= 2_000;
+				render.maximumVisibleProgressLatencyMs <= 2_000;
 	const terminalProjection =
 		profile === "burst" ||
 		(render.completeSummaryToProjectionMs >= 0 &&
@@ -157,6 +166,7 @@ export function evaluateRendererQueryReplayGate(
 /** Main-to-worker commands used only by `/renderer-test`. */
 export type RendererQueryReplayWorkerCommand =
 	| { type: "START"; options: RendererQueryReplayStartOptions }
+	| { type: "VERIFY_RESULTS" }
 	| {
 			type: "REQUEST_PROJECTION";
 			projectionRequestId: string;
@@ -197,6 +207,50 @@ interface PendingReplayProjection {
 	reject: (error: Error) => void;
 }
 
+/** Reads a bounded replay workload; defaults retain the established 14M profile. */
+export function getRendererQueryReplayConfiguration(search: string): {
+	targetEvents: number;
+	sourceCount: number;
+	distribution: "uniform" | "skewed";
+	cacheWarnings: boolean;
+} {
+	const params = new URLSearchParams(search);
+	const value = (params.get("docs") ?? "14000000").toLowerCase();
+	const count = value.endsWith("m")
+		? Number(value.slice(0, -1)) * 1_000_000
+		: Number(value);
+	const sources = Number(params.get("sources") ?? "1");
+	return {
+		targetEvents:
+			Number.isSafeInteger(count) && count > 0 && count <= 30_000_000
+				? count
+				: RENDERER_QUERY_REPLAY_TARGET_EVENTS,
+		sourceCount:
+			Number.isInteger(sources) && sources > 0 && sources <= 1_000
+				? sources
+				: 1,
+		distribution:
+			params.get("distribution") === "skewed" ? "skewed" : "uniform",
+		cacheWarnings: params.get("cacheWarnings") === "all",
+	};
+}
+
+/** Allocates an exact global count across sources without retaining event objects. */
+export function getRendererQueryReplaySources(options: Pick<RendererQueryReplayStartOptions, "sourceId" | "sourceCount" | "targetEvents" | "distribution">): Array<{ sourceId: Source.Id; count: number; offset: number; requestId: string }> {
+	const count = options.sourceCount ?? 1;
+	const first = options.distribution === "skewed" && count > 1 ? options.targetEvents - Math.floor(options.targetEvents / 10) : 0;
+	const remaining = options.targetEvents - first;
+	const divisor = first ? count - 1 : count;
+	let offset = 0;
+	return Array.from({ length: count }, (_, index) => {
+		const position = first ? index - 1 : index;
+		const events = first && index === 0 ? first : Math.floor(remaining / divisor) + (position < remaining % divisor ? 1 : 0);
+		const source = { sourceId: (index === 0 ? options.sourceId : `${options.sourceId}-${index}`) as Source.Id, count: events, offset, requestId: `renderer-query-replay-${index}` };
+		offset += events;
+		return source;
+	});
+}
+
 /**
  * Reads an explicit replay profile from the renderer-test query string.
  * @param search URL query string.
@@ -220,6 +274,7 @@ export class RendererQueryReplayClient {
 	private completionReject: ((error: Error) => void) | null = null;
 	private projectionCounter = 0;
 	private disposed = false;
+	private verificationRequested = false;
 
 	/**
 	 * Attaches a dedicated worker and compact replay callbacks.
@@ -287,6 +342,13 @@ export class RendererQueryReplayClient {
 				reject(error instanceof Error ? error : new Error(String(error)));
 			}
 		});
+	}
+
+	/** Starts sample and cache verification after the terminal render measurement. */
+	public verifyResults(): void {
+		if (this.disposed || this.verificationRequested) return;
+		this.verificationRequested = true;
+		this.worker.postMessage({ type: "VERIFY_RESULTS" });
 	}
 
 	/** Permanently cancels the replay and rejects unresolved projections. */

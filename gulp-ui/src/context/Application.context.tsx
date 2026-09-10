@@ -434,6 +434,7 @@ function _({ children }: { children: ReactNode }) {
 			(m) => m.payload.obj?.type === "request_stats",
 			requestStatsCallback,
 		);
+		const unsubscribeTimelineQueries = ws.subscribeTimelineQueries((update) => instanceRef.current.handleTimelineQueryUpdate(update));
 		const unsubscribeSourceSummaries =
 			ws.subscribeSourceSummaries((event) => {
 				if (
@@ -458,6 +459,7 @@ function _({ children }: { children: ReactNode }) {
 			});
 
 		return () => {
+			unsubscribeTimelineQueries();
 			unsubscribeSourceSummaries();
 			unsubscribeIngestionProgress();
 			subscribeStreamFailures();

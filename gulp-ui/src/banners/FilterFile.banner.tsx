@@ -386,8 +386,8 @@ export function FilterFileBanner({
 	 *
 	 * Steps:
 	 * 1. Build the final query (with display label)
-	 * 2. Trigger a new cache-producing refetch for all selected files
-	 * 3. Re-render and close the banner
+	 * 2. Queue cache-aware source queries through the shared refetch entrypoint
+	 * 3. Close the banner after the worker accepts the batch
 	 */
 	const submit = useCallback(async () => {
 		const finalQuery = getFinalQuery();
@@ -405,7 +405,6 @@ export function FilterFileBanner({
 				notes_glyph_id,
 				name,
 			});
-			Info.render();
 			props.back ? props.back() : destroyBanner();
 		} finally {
 			setLoading(false);

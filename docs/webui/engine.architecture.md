@@ -20,7 +20,7 @@ The documentation follows the main `gulp-ui/src` boundaries.
 | Area | Main code | Owns |
 | --- | --- | --- |
 | Application and Canvas | `class/Info.tsx`, `app/body/Canvas*.ts(x)` | React state, operation/source selection, query registration, applied-query and freshness UI, viewport scheduling, exact interaction requests |
-| Query worker | `event-store-worker/` | Authenticated query socket, stream routing, normalization, persistence coordination, cache commands, viewport projection requests |
+| Query worker | `event-store-worker/` | Source query batches, cache decisions, bounded HTTP scheduling, authenticated query socket, stream routing, normalization, persistence coordination, cache commands, viewport projection requests |
 | EventStore | `event-store/` | IndexedDB/Memory backends, exact pages, LOD and height summaries, document indexes, query-cache manifests, bounded readers, viewport projector |
 | Render worker | `render-worker/` | Protocol validation, atomic render repository, `OffscreenCanvas`, drawing algorithms, hit regions, frame scheduling |
 | Main-thread overlays | `store/DataStore.ts`, note/link/flag flows | Small collaboration and supplemental-event projections independent from query generations |
@@ -41,8 +41,8 @@ flowchart LR
     RR[RenderWorker repository]
     CORE[WorkerRenderCore<br/>OffscreenCanvas]
 
-    UI -->|register request ID| QW
-    UI -->|POST query_raw| API
+    UI -->|source query batch| QW
+    QW -->|register stream, then POST query_raw on cache miss| API
     API -->|docs_chunk| QW
     QW -->|accepted / durable ACK| API
     QW -->|pages, summaries, cache manifests| ES
@@ -63,21 +63,24 @@ immediately transferred again to RenderWorker.
 
 ## Query and cache lifecycle
 
-Before `/query_raw` is dispatched, the main thread registers its request ID and
-source descriptors with QueryWorker. Incoming chunks are accounted, normalized,
+The main thread sends query bodies and source descriptors to QueryWorker, which
+checks cache authority and registers each stream before dispatching `/query_raw`.
+Incoming chunks are accounted, normalized,
 and persisted in order. An `accepted` acknowledgement means raw JSON has been
 released into bounded normalized credit; the terminal `durable` acknowledgement
 means the authoritative EventStore commit completed. `query_done` remains a
 backend lifecycle packet and is not a storage or frame fence.
 
 On initial source load, QueryWorker reconciles each source independently. It
-prefers a fresh exact cache, then a fresh range-covering cache; a stale exact
-cache still precedes an unrelated latest-cache fallback. Freshness warnings are
-derived afterward from comparable server metadata, so a server change takes
-precedence over a query mismatch. A source with no reusable cache calls the
-backend, and cached and uncached sources can initialize together.
+retains a fresh exact cache or a fresh range-covering cache as the sole baseline,
+and deletes alternative generations. A source with no compatible fresh result
+clears old history and calls the backend. This runs once per source and operation
+epoch, including sources first selected later. Cached and uncached sources can
+initialize together without a batch-wide cache barrier.
 
-Explicit queries always execute against the backend and append a new cache.
+Session queries reuse complete compatible results without adding server history;
+cache misses append a new generation. Forced queries and note creation execute
+against the backend. Runtime queries and reselection preserve session history.
 Source-local Undo/Redo activates another retained manifest without copying event
 pages or issuing a query. The query worker owns replacement rollback, cache
 pruning, and bounded cleanup. See [query-worker.md](query-worker.md#initial-cache-reconciliation)
@@ -138,12 +141,15 @@ RenderWorker owns:
 - the transferred `OffscreenCanvas` and drawing context;
 - compact source, projection, theme, and overlay state;
 - Default, HeightMap, and Graph drawing;
-- notes, links, flags, targets, supplemental-event markers, and hit regions;
+- notes, links, flags, targets, cache-warning glyphs, supplemental-event markers,
+  and hit regions;
 - ordered patch application, frame scheduling, and protocol responses.
 
-It receives neither query documents nor cache-freshness state. Freshness
-warnings are a main-thread DOM overlay shared by scalable and compatibility
-renderers.
+It receives neither query documents nor cache-freshness state. Source metadata
+contains only the derived `cacheWarning` boolean. RenderWorker and the legacy
+renderer paint the same warning glyph for visible rows after notes and links.
+The main thread owns one normally hidden, pointer-only tooltip rather than one
+DOM trigger per source.
 
 ## Exact documents and interaction
 

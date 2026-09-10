@@ -1,5 +1,5 @@
 /** Current wire-protocol version shared by the main thread and render worker. */
-export const RENDER_PROTOCOL_VERSION = 10 as const;
+export const RENDER_PROTOCOL_VERSION = 11 as const;
 /** Horizontal graph density interval preserved by both QueryWorker and RenderCore. */
 export const RENDER_GRAPH_BUCKET_PIXEL_WIDTH = 10;
 
@@ -119,6 +119,7 @@ export interface RenderSource {
 	timestamp: RenderTimeRange;
 	total: number;
 	loadingKind: RenderLoadingKind;
+	cacheWarning: boolean;
 	offset: number;
 	engine: RenderEngineKind;
 	frequency: number;
@@ -466,6 +467,7 @@ export type RenderDataMessage = RenderProtocolEnvelope<
 export type RenderHitTestResult =
 	| { kind: "note"; id: string; noteIds: string[] }
 	| { kind: "link"; id: string }
+	| { kind: "cache-warning"; id: string }
 	| { kind: "supplemental-event"; id: string };
 
 /** Per-frame counters reported for profiling and release gates. */

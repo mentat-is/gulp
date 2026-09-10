@@ -1,6 +1,6 @@
 import type { Source } from "@/entities/Source";
 import type { EventSourceSummary } from "@/event-store/EventStore.types";
-import type { QueryRenderWindowDescriptor } from "@/event-stream";
+import type { EventStoreViewportDescriptor } from "@/event-store/EventStore.viewport-projector";
 import type {
 	RenderTimeRange,
 	RenderWindowProjection,
@@ -9,7 +9,7 @@ import type {
 interface CanvasCoveredSource {
 	sourceId: Source.Id;
 	offset: number;
-	engine: QueryRenderWindowDescriptor["sources"][number]["engine"];
+	engine: EventStoreViewportDescriptor["sources"][number]["engine"];
 	frequency: number;
 	settingsRevision: number;
 	overrideRevision: number;
@@ -39,7 +39,7 @@ export interface CanvasRenderWindowCoverage {
  * @returns Coverage snapshot, or null when request and response source sets differ.
  */
 export function createCanvasRenderWindowCoverage(
-	descriptor: QueryRenderWindowDescriptor,
+	descriptor: EventStoreViewportDescriptor,
 	projection: RenderWindowProjection,
 ): CanvasRenderWindowCoverage | null {
 	if (
@@ -88,8 +88,8 @@ export function createCanvasRenderWindowCoverage(
  * accepted horizontal overscan.
  */
 function isVisibleRangeCovered(
-	descriptor: QueryRenderWindowDescriptor,
-	source: QueryRenderWindowDescriptor["sources"][number],
+	descriptor: EventStoreViewportDescriptor,
+	source: EventStoreViewportDescriptor["sources"][number],
 	coveredRange: RenderTimeRange,
 ): boolean {
 	const frameRange = descriptor.frame.max - descriptor.frame.min;
@@ -126,12 +126,14 @@ function isVisibleRangeCovered(
  * @param coverage Last accepted scalar projection coverage.
  * @param descriptor Candidate request for the current viewport.
  * @param getSourceSummary Resolver for current durable source authority.
- * @returns True only for an unchanged complete source set inside horizontal overscan.
+ * @returns True for coherent coverage; optionally permits drawing an advancing build.
+ * @param allowBuildingProgress Whether a separate progress trigger refreshes data.
  */
 export function canReuseCanvasRenderWindow(
 	coverage: CanvasRenderWindowCoverage | null,
-	descriptor: QueryRenderWindowDescriptor,
+	descriptor: EventStoreViewportDescriptor,
 	getSourceSummary: (sourceId: Source.Id) => EventSourceSummary | undefined,
+	allowBuildingProgress = false,
 ): boolean {
 	if (
 		!coverage ||
@@ -149,21 +151,76 @@ export function canReuseCanvasRenderWindow(
 	for (const source of descriptor.sources) {
 		const covered = coverage.sources.get(source.sourceId);
 		const summary = getSourceSummary(source.sourceId);
+		const advancingBuild = allowBuildingProgress && covered?.sourceStatus === "building" && summary?.status !== "incomplete" &&
+			summary !== undefined && covered.sourceGeneration === summary.generation &&
+			covered.sourceAuthorityRevision <= summary.authorityRevision && covered.sourceRevision <= summary.revision && covered.loadedCount <= summary.eventCount;
 		if (
 			!covered ||
 			!summary ||
-			covered.sourceStatus !== "complete" ||
-			summary.status !== "complete" ||
+			(!advancingBuild && (covered.sourceStatus !== "complete" || summary.status !== "complete")) ||
 			covered.offset !== source.offset ||
 			covered.engine !== source.engine ||
 			covered.frequency !== source.frequency ||
 			covered.settingsRevision !== source.settingsRevision ||
 			covered.overrideRevision !== source.overrideRevision ||
-			covered.sourceAuthorityRevision !== summary.authorityRevision ||
+			(!advancingBuild && covered.sourceAuthorityRevision !== summary.authorityRevision) ||
 			covered.sourceGeneration !== summary.generation ||
-			covered.sourceRevision !== summary.revision ||
-			covered.loadedCount !== summary.eventCount ||
+			(!advancingBuild && covered.sourceRevision !== summary.revision) ||
+			(!advancingBuild && covered.loadedCount !== summary.eventCount) ||
 			!isVisibleRangeCovered(descriptor, source, covered.coveredRange)
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * Accepts completed projection work after input moved inside its overscan.
+ * Source authority is checked separately by Canvas. A changed zoom may temporarily
+ * use the received LOD resolution while the next request refines the current view.
+ * @param requested Original projector transform and source settings.
+ * @param projection Completed work, including its actual covered timestamp ranges.
+ * @param current Latest viewport and visible source settings.
+ * @param acceptedSourceIds Source rows that passed current authority validation.
+ * @returns True when applying the buffers cannot introduce uncovered or mismatched rows.
+ */
+export function canAdoptCanvasRenderWindow(
+	requested: EventStoreViewportDescriptor,
+	projection: RenderWindowProjection,
+	current: EventStoreViewportDescriptor,
+	acceptedSourceIds: ReadonlySet<string> = new Set(
+		projection.sources.map((source) => source.sourceId),
+	),
+): boolean {
+	const coverage = createCanvasRenderWindowCoverage(requested, projection);
+	if (
+		!coverage ||
+		coverage.operationEpoch !== current.operationEpoch ||
+		coverage.frame.min !== current.frame.min ||
+		coverage.frame.max !== current.frame.max ||
+		coverage.width !== current.width
+	) {
+		return false;
+	}
+	const requestedSources = new Map(
+		requested.sources.map((source) => [source.sourceId, source]),
+	);
+	for (const source of current.sources) {
+		const previous = requestedSources.get(source.sourceId);
+		const covered = coverage.sources.get(source.sourceId);
+		if (
+			!acceptedSourceIds.has(source.sourceId) ||
+			!previous ||
+			!covered ||
+			previous.offset !== source.offset ||
+			previous.engine !== source.engine ||
+			previous.frequency !== source.frequency ||
+			previous.overrideHashes.length !== source.overrideHashes.length ||
+			!Array.from(previous.overrideHashes).every(
+				(hash, index) => hash === source.overrideHashes[index],
+			) ||
+			!isVisibleRangeCovered(current, source, covered.coveredRange)
 		) {
 			return false;
 		}

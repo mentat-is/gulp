@@ -3,6 +3,7 @@ import {
 	createEmptyQueryCacheState,
 	fingerprintSourceQuery,
 	fingerprintSourceQueryShape,
+	hasSourceQueryCacheWarning,
 	coversRequestedSourceRange,
 	sourceSnapshotsMatch,
 	type QueryCacheNormalization,
@@ -30,6 +31,54 @@ function createQuery(overrides: Partial<Query.Type> = {}): Query.Type {
 }
 
 describe("source query cache identity", () => {
+	it("recognizes warnings only for settled stale caches owned by the exact source", () => {
+		const createWarningSource = (
+			overrides: Partial<ReturnType<typeof createEmptyQueryCacheState>> = {},
+			sourceIds: string[] = ["source-1"],
+		) => ({
+			id: "source-1",
+			appliedQuery: createQuery({
+				source_config: {
+					operation_id: "operation-1",
+					source_ids: sourceIds,
+					range: { min: "1000000", max: "2000000" },
+				},
+			}),
+			queryCache: {
+				...createEmptyQueryCacheState(),
+				activeGeneration: 3,
+				freshness: "source-changed" as const,
+				warningReason: "source-changed" as const,
+				...overrides,
+			},
+		});
+
+		expect(hasSourceQueryCacheWarning(createWarningSource())).toBe(true);
+		expect(
+			hasSourceQueryCacheWarning(
+				createWarningSource({ activeGeneration: null }),
+			),
+		).toBe(false);
+		expect(
+			hasSourceQueryCacheWarning(createWarningSource({ isActivating: true })),
+		).toBe(false);
+		expect(
+			hasSourceQueryCacheWarning(
+				createWarningSource({ freshness: "fresh", warningReason: null }),
+			),
+		).toBe(false);
+		expect(
+			hasSourceQueryCacheWarning(
+				createWarningSource({}, ["source-other"]),
+			),
+		).toBe(false);
+		expect(
+			hasSourceQueryCacheWarning(
+				createWarningSource({}, ["source-1", "source-other"]),
+			),
+		).toBe(false);
+	});
+
 	it("does not warn when a source has no active query cache", () => {
 		expect(createEmptyQueryCacheState()).toMatchObject({
 			activeGeneration: null,

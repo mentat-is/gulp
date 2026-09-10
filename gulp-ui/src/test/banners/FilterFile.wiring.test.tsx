@@ -55,6 +55,8 @@ let mockEventKeys = async (): Promise<Record<string, string>> => ({
 	message: "text",
 });
 const mockInfo = {
+	refetch: jest.fn((_options: { ids: Source.Id[]; addToHistory: boolean }): void => undefined),
+	render: jest.fn(),
 	getQuery: (): Query.Type | null => mockPersistedQuery,
 	event_keys: (): Promise<Record<string, string>> => mockEventKeys(),
 	getLastQueries: async (): Promise<unknown[]> => [],
@@ -145,7 +147,7 @@ jest.mock("@/banners/Preview.banner", () => ({
 	Preview: { Banner: (): null => null },
 }));
 jest.mock("@/ui/Banner", () => ({
-	Banner: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+	Banner: ({ children, done }: { children?: ReactNode; done?: ReactNode }) => <div>{done}{children}</div>,
 }));
 jest.mock("@/ui/Button", () => ({
 	Button: ({
@@ -231,6 +233,16 @@ describe("FilterFileBanner field catalog wiring", () => {
 			"event.sequence": "long",
 			message: "text",
 		});
+	});
+
+	it("submits through the common batch entry without a redundant global render", async () => {
+		await act(async () => { root.render(<FilterFileBanner sources={[mockSource]} />); });
+		await flushRequests();
+		const submit = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Check")!;
+		await act(async () => { submit.click(); });
+		expect(mockInfo.refetch).toHaveBeenCalledTimes(1);
+		expect(mockInfo.refetch.mock.calls[0][0]).toMatchObject({ ids: [SOURCE_ID], addToHistory: true });
+		expect(mockInfo.render).not.toHaveBeenCalled();
 	});
 
 	it("restores persisted field types together with Navigator filters", async () => {

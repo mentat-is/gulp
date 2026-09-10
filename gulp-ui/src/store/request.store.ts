@@ -123,6 +123,7 @@ class RequestStore {
 	 * @returns Nothing.
 	 */
 	setLoading = (requestId: Request.Id, sourceId: Source.Id): void => {
+		if (this.snapshot.loadings.byFileId.get(sourceId) === requestId) return;
 		const loadings = this.cloneLoadings();
 		loadings.byRequestId.set(requestId, sourceId);
 		loadings.byFileId.set(sourceId, requestId);
@@ -136,6 +137,7 @@ class RequestStore {
 	 */
 	deleteLoadingByFile = (sourceId: Source.Id): Request.Id | undefined => {
 		const requestId = this.snapshot.loadings.byFileId.get(sourceId);
+		if (!requestId) return undefined;
 		const loadings = this.cloneLoadings();
 		loadings.byFileId.delete(sourceId);
 		if (requestId) {
@@ -152,9 +154,10 @@ class RequestStore {
 	 */
 	deleteLoadingByRequest = (requestId: Request.Id): Source.Id | undefined => {
 		const sourceId = this.snapshot.loadings.byRequestId.get(requestId);
+		if (!sourceId) return undefined;
 		const loadings = this.cloneLoadings();
 		loadings.byRequestId.delete(requestId);
-		if (sourceId) {
+		if (loadings.byFileId.get(sourceId) === requestId) {
 			loadings.byFileId.delete(sourceId);
 		}
 		this.commit({ loadings });
@@ -323,21 +326,11 @@ class RequestStore {
 	});
 
 	/**
-	 * Clones managed query metadata before mutation.
-	 * @returns Mutable copy of managed query map.
+	 * Clones the managed-query index while sharing immutable, unchanged records.
+	 * @returns Mutable map whose updated record can be replaced without deep burst copies.
 	 */
 	private cloneManagedQueries = (): Map<Request.Id, ManagedQueryRequest> =>
-		new Map(
-			Array.from(this.snapshot.managedQueries.entries()).map(
-				([requestId, request]) => [
-					requestId,
-					{
-						...request,
-						sourceIds: [...request.sourceIds],
-					},
-				],
-			),
-		);
+		new Map(this.snapshot.managedQueries);
 
 	/**
 	 * Updates the status for one managed query.

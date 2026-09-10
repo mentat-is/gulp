@@ -153,6 +153,7 @@ function createRenderSource(id: string, rowOrder: number): RenderSource {
 		timestamp: { min: 0, max: 1_000 },
 		total: 0,
 		loadingKind: "none",
+		cacheWarning: false,
 		offset: 0,
 		engine: "default",
 		frequency: 100,
@@ -323,28 +324,41 @@ describe("WorkerRenderCore", () => {
 		expect(recordedText.includes(source.name)).toBe(true);
 	});
 
-	it("leaves cache warning icons to the shared accessible DOM overlay", async () => {
-		const source = {
-			...createRenderSource("cache", 0),
-		};
+	it("draws and hit-tests cache warnings only for visible rows", async () => {
+		const sources = Array.from({ length: 202 }, (_, index) => ({
+			...createRenderSource(`cache-${index}`, index),
+			name: index === 0 ? "cache" : `cache-${index}`,
+			loadingKind: index === 0 ? ("loading" as const) : ("none" as const),
+			cacheWarning: true,
+		}));
 		await repository.applyDataPatch({
 			globalRevision: 1,
-			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			sources: { revision: 1, records: sources, removedSourceIds: [] },
 		});
-		repository.setFrameState(createFrameState([source.id]));
+		repository.setFrameState(createFrameState(sources.map((source) => source.id)));
 		const warningContext = createRecordingContext(1_000, 96);
-		const warningFillColors: string[] = [];
-		warningContext.fill = jest.fn(() => {
-			warningFillColors.push(String(warningContext.fillStyle));
-		});
+		const bitmap = { close: jest.fn() } as unknown as ImageBitmap;
+		repository.setAsset("icon:AlertTriangle", "#facc15", bitmap);
 		const warningCore = new WorkerRenderCore(warningContext, repository, {
 			requestAsset: jest.fn(),
 		});
 
-		warningCore.render(100, DirtyCanvas.Sources);
+		const statistics = warningCore.render(100, DirtyCanvas.Sources);
 
-		expect(warningContext.moveTo).not.toHaveBeenCalledWith(45, 28);
-		expect(warningFillColors.includes("#facc15")).toBe(false);
+		expect(warningContext.drawImage).toHaveBeenCalledWith(
+			bitmap,
+			93,
+			14,
+			14,
+			14,
+		);
+		expect(warningContext.drawImage).toHaveBeenCalledTimes(2);
+		expect(statistics?.interactiveRegions).toBe(2);
+		expect(repository.hitTest(100, 20)).toEqual({
+			kind: "cache-warning",
+			id: "cache-0",
+		});
+		expect(repository.hitTest(100, 116)).toBeNull();
 	});
 
 	it("labels the exact frame count instead of loaded or representative counts", async () => {

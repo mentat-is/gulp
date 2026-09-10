@@ -1,4 +1,4 @@
-export type CanvasRenderWindowPriority = "normal" | "terminal";
+export type CanvasRenderWindowPriority = "normal" | "progress" | "terminal";
 
 type CanvasRenderWindowTask = (
 	priority: CanvasRenderWindowPriority,
@@ -8,6 +8,23 @@ interface ScheduledRenderWindowTask {
 	viewportKey: string;
 	priority: CanvasRenderWindowPriority;
 	task: CanvasRenderWindowTask;
+}
+
+/**
+ * Builds the scheduler identity for the vertically retained LOD source window.
+ * Horizontal pan and zoom remain coalesced while a row-membership change can
+ * immediately supersede obsolete QueryWorker projection work.
+ * @param operationId Operation owning the render window.
+ * @param operationEpoch Current operation render epoch.
+ * @param sourceIds Ordered source IDs retained by vertical viewport overscan.
+ * @returns Collision-safe scheduler key for the current vertical source window.
+ */
+export function createCanvasRenderWindowViewportKey(
+	operationId: string,
+	operationEpoch: number,
+	sourceIds: readonly string[],
+): string {
+	return JSON.stringify([operationId, operationEpoch, sourceIds]);
 }
 
 /**
@@ -49,7 +66,9 @@ export class CanvasRenderWindowScheduler {
 			priority:
 				priority === "terminal" || this.trailing?.priority === "terminal"
 					? "terminal"
-					: "normal",
+					: priority === "progress" || this.trailing?.priority === "progress"
+						? "progress"
+						: "normal",
 		};
 	}
 

@@ -1,5 +1,6 @@
 import {
 	canReuseCanvasRenderWindow,
+	canAdoptCanvasRenderWindow,
 	createCanvasRenderWindowCoverage,
 } from "@/app/body/CanvasRenderWindowCoverage";
 import type { Source } from "@/entities/Source";
@@ -8,6 +9,7 @@ import type { QueryRenderWindowDescriptor } from "@/event-stream";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 
 const SOURCE_ID = "coverage-source" as Source.Id;
+const SECOND_SOURCE_ID = "coverage-source-2" as Source.Id;
 
 /** Creates a request whose one-canvas-width overscan covers the next normal pan. */
 function createDescriptor(scrollX = 100): QueryRenderWindowDescriptor {
@@ -94,6 +96,50 @@ function createSummary(
 }
 
 describe("CanvasRenderWindowCoverage", () => {
+	it("adopts advancing data after pan or zoom inside coverage without requiring an idle viewport", () => {
+		const requested = createDescriptor();
+		const projection = createProjection();
+		projection.sources[0].sourceStatus = "building";
+		const current = { ...createDescriptor(150), viewportRevision: 100 };
+		expect(canAdoptCanvasRenderWindow(requested, projection, current)).toBe(true);
+		expect(canAdoptCanvasRenderWindow(requested, projection, { ...current, scale: 5 })).toBe(true);
+		expect(canAdoptCanvasRenderWindow(requested, projection, { ...current, scrollX: 350 })).toBe(false);
+		expect(canAdoptCanvasRenderWindow(requested, projection, { ...current, frame: { min: 1, max: 4000 } })).toBe(false);
+		expect(canAdoptCanvasRenderWindow(requested, projection, { ...current, operationEpoch: 4 })).toBe(false);
+		expect(canAdoptCanvasRenderWindow(requested, projection, { ...current, sources: [{ ...current.sources[0], offset: 1 }] })).toBe(false);
+		expect(canAdoptCanvasRenderWindow(requested, projection, { ...current, sources: [{ ...current.sources[0], overrideHashes: [1] }] })).toBe(false);
+	});
+
+	it("rejects an old projection when a newly visible vertical row is absent", () => {
+		const requested = createDescriptor();
+		const current = createDescriptor(150);
+		current.sources = [
+			...current.sources,
+			{
+				...current.sources[0],
+				sourceId: SECOND_SOURCE_ID,
+			},
+		];
+
+		expect(
+			canAdoptCanvasRenderWindow(requested, createProjection(), current),
+		).toBe(false);
+	});
+
+	it("rejects a visible row that failed current source-authority validation", () => {
+		const requested = createDescriptor();
+		const projection = createProjection();
+
+		expect(
+			canAdoptCanvasRenderWindow(
+				requested,
+				projection,
+				requested,
+				new Set<string>(),
+			),
+		).toBe(false);
+	});
+
 	it("reuses an accepted window while consecutive pans stay inside overscan", () => {
 		const descriptor = createDescriptor();
 		const coverage = createCanvasRenderWindowCoverage(
@@ -163,4 +209,16 @@ describe("CanvasRenderWindowCoverage", () => {
 			),
 		).toBe(false);
 	});
+	it("draws an advancing build during pan while progress requests still require fresh data", () => {
+		const projection = createProjection();
+		projection.sources[0].sourceStatus = "building";
+		const coverage = createCanvasRenderWindowCoverage(createDescriptor(), projection);
+		const advanced = createSummary({ status: "building", revision: 10, eventCount: 150000 });
+		expect(canReuseCanvasRenderWindow(coverage, createDescriptor(150), () => advanced, true)).toBe(true);
+		expect(canReuseCanvasRenderWindow(coverage, createDescriptor(150), () => advanced)).toBe(false);
+		expect(canReuseCanvasRenderWindow(coverage, createDescriptor(201), () => advanced, true)).toBe(false);
+		expect(canReuseCanvasRenderWindow(coverage, createDescriptor(150), () => ({ ...advanced, generation: 9 }), true)).toBe(false);
+		expect(canReuseCanvasRenderWindow(coverage, createDescriptor(150), () => ({ ...advanced, status: "incomplete" }), true)).toBe(false);
+	});
+
 });

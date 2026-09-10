@@ -1,5 +1,6 @@
 import {
 	CanvasRenderWindowScheduler,
+	createCanvasRenderWindowViewportKey,
 	type CanvasRenderWindowPriority,
 } from "@/app/body/CanvasRenderWindowScheduler";
 
@@ -21,6 +22,36 @@ function createDeferredTask(
 }
 
 describe("CanvasRenderWindowScheduler", () => {
+	it("changes identity only when operation or vertical source membership changes", () => {
+		const original = createCanvasRenderWindowViewportKey(
+			"operation:with:separator",
+			1,
+			["source-a", "source-b"],
+		);
+
+		expect(
+			createCanvasRenderWindowViewportKey(
+				"operation:with:separator",
+				1,
+				["source-a", "source-b"],
+			),
+		).toBe(original);
+		expect(
+			createCanvasRenderWindowViewportKey(
+				"operation:with:separator",
+				1,
+				["source-b", "source-c"],
+			),
+		).not.toBe(original);
+		expect(
+			createCanvasRenderWindowViewportKey(
+				"operation:with:separator",
+				2,
+				["source-a", "source-b"],
+			),
+		).not.toBe(original);
+	});
+
 	it("coalesces twenty building summaries into one active and one trailing request", async () => {
 		const scheduler = new CanvasRenderWindowScheduler();
 		const starts: CanvasRenderWindowPriority[] = [];
@@ -61,15 +92,25 @@ describe("CanvasRenderWindowScheduler", () => {
 	it("starts a changed viewport immediately and ignores settlement of obsolete work", async () => {
 		const scheduler = new CanvasRenderWindowScheduler();
 		const starts: string[] = [];
+		const oldViewportKey = createCanvasRenderWindowViewportKey(
+			"operation",
+			1,
+			["source-a", "source-b"],
+		);
+		const newViewportKey = createCanvasRenderWindowViewportKey(
+			"operation",
+			1,
+			["source-b", "source-c"],
+		);
 		let resolveOld = (): void => undefined;
 		const oldPromise = new Promise<void>((resolve) => {
 			resolveOld = resolve;
 		});
-		scheduler.schedule("operation:1:viewport:1", "normal", async () => {
+		scheduler.schedule(oldViewportKey, "normal", async () => {
 			starts.push("old");
 			await oldPromise;
 		});
-		scheduler.schedule("operation:1:viewport:2", "normal", async () => {
+		scheduler.schedule(newViewportKey, "normal", async () => {
 			starts.push("new");
 		});
 

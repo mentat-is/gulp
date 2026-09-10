@@ -14,6 +14,12 @@ import {
 	WorkerRenderRepository,
 } from "./WorkerRenderRepository";
 import { formatTimestampInTimeZone } from "@/timeZone";
+import {
+	getRenderCacheWarningRect,
+	RENDER_CACHE_WARNING_COLOR,
+	RENDER_CACHE_WARNING_ICON_KEY,
+	RENDER_CACHE_WARNING_ICON_SIZE,
+} from "./RenderCacheWarning";
 
 const ROW_HEIGHT = 48;
 const ROW_CENTER_OFFSET = 24;
@@ -272,6 +278,7 @@ export class WorkerRenderCore {
 		if (!state.hidden.links) {
 			this.drawLinks(sourceIndexes, state, hitRegions, statistics);
 		}
+		this.drawCacheWarnings(visibleSources, sourceIndexes, state, hitRegions);
 		this.repository.setHitRegions(hitRegions);
 		statistics.interactiveRegions = hitRegions.length;
 		this.drawFrameEdges(state);
@@ -1747,6 +1754,60 @@ export class WorkerRenderCore {
 		for (const line of lines) {
 			this.context.fillStyle = line.color;
 			this.context.fillText(line.text, 10, line.y);
+		}
+	}
+
+	/**
+	 * Draws visible source cache warnings above every other interactive overlay.
+	 * @param sources Source rows already culled to the current vertical viewport.
+	 * @param sourceIndexes Ordered source-row lookup used for vertical positioning.
+	 * @param state Current localized loading labels and Canvas dimensions.
+	 * @param hitRegions Mutable hit index in paint order.
+	 * @returns Nothing.
+	 */
+	private drawCacheWarnings(
+		sources: readonly RenderSource[],
+		sourceIndexes: ReadonlyMap<string, number>,
+		state: RenderFrameState,
+		hitRegions: WorkerHitRegion[],
+	): void {
+		this.context.font = '12px "Geist", sans-serif';
+		for (const source of sources) {
+			if (!source.cacheWarning) continue;
+			const suffix =
+				source.loadingKind === "ingestion"
+					? state.localized.ingestingSuffix
+					: source.loadingKind === "loading"
+						? state.localized.loadingSuffix
+						: "";
+			const labelWidth = this.context.measureText(
+				`${source.name}${suffix}`,
+			).width;
+			const rowIndex = sourceIndexes.get(source.id);
+			if (rowIndex === undefined) continue;
+			const rect = getRenderCacheWarningRect(
+				labelWidth,
+				this.getSourceCenterY(rowIndex, state),
+			);
+			if (
+				rect.x > state.width ||
+				rect.x + rect.width < 0 ||
+				rect.y > state.height ||
+				rect.y + rect.height < 0
+			)
+				continue;
+			this.drawIcon(
+				RENDER_CACHE_WARNING_ICON_KEY,
+				RENDER_CACHE_WARNING_COLOR,
+				rect.x,
+				rect.y,
+				RENDER_CACHE_WARNING_ICON_SIZE,
+			);
+			hitRegions.push({
+				kind: "cache-warning",
+				id: source.id,
+				...rect,
+			});
 		}
 	}
 

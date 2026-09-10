@@ -56,6 +56,7 @@ function createRenderSource(id: string, name: string): RenderSource {
 		timestamp: { min: 0, max: 1_000 },
 		total: 0,
 		loadingKind: "none",
+		cacheWarning: false,
 		offset: 0,
 		engine: "default",
 		frequency: 100,

@@ -3,6 +3,8 @@ import type { QueryWorkerDiagnostics } from "@/event-stream";
 import {
 	evaluateRendererQueryReplayGate,
 	getRendererQueryReplayProfile,
+	getRendererQueryReplayConfiguration,
+	getRendererQueryReplaySources,
 	RENDERER_QUERY_REPLAY_TARGET_EVENTS,
 	type RendererQueryReplayRenderDiagnostics,
 	type RendererQueryReplayResult,
@@ -82,6 +84,7 @@ function createRenderDiagnostics(): RendererQueryReplayRenderDiagnostics {
 	return {
 		buildingFrames: 10,
 		maximumBuildingFrameIntervalMs: 1_999,
+		maximumVisibleProgressLatencyMs: 1_999,
 		completeSummaryToProjectionMs: 4_999,
 		terminalProjectionEventCount: RENDERER_QUERY_REPLAY_TARGET_EVENTS,
 		terminalAckToFrameMs: 249,
@@ -130,6 +133,15 @@ describe("RendererTest query replay", () => {
 		expect(gate.passed).toBe(false);
 	});
 
+	it("measures visible committed progress independently of gaps between offscreen updates", () => {
+		const render = createRenderDiagnostics();
+		render.maximumBuildingFrameIntervalMs = 30_000;
+		const evaluate = () => evaluateRendererQueryReplayGate("steady", createSteadyResult(), render, 128 * 1024 ** 2, 64 * 1024 ** 2);
+		expect(evaluate().buildingCadence).toBe(true);
+		render.maximumVisibleProgressLatencyMs = 2_001;
+		expect(evaluate().buildingCadence).toBe(false);
+	});
+
 	it("accepts only a controlled backlog result for the burst profile", () => {
 		const result = createSteadyResult();
 		result.status = "backlog";
@@ -159,5 +171,47 @@ describe("RendererTest query replay", () => {
 				64 * 1024 ** 2,
 			).rawBacklog,
 		).toBe(false);
+	});
+});
+
+
+describe("multi-source replay configuration", () => {
+	it("allocates exactly twenty million events over 140 uniform or skewed sources", () => {
+		for (const distribution of ["uniform", "skewed"] as const) {
+			const config = getRendererQueryReplayConfiguration(
+				`?docs=20m&sources=140&distribution=${distribution}`,
+			);
+			const sources = getRendererQueryReplaySources({
+				...config,
+				sourceId: SOURCE_ID,
+			});
+			expect(config).toEqual({
+				targetEvents: 20_000_000,
+				sourceCount: 140,
+				distribution,
+				cacheWarnings: false,
+			});
+			expect(sources).toHaveLength(140);
+			expect(sources.reduce((sum, source) => sum + source.count, 0)).toBe(
+				20_000_000,
+			);
+			expect(sources[139].offset + sources[139].count).toBe(20_000_000);
+			if (distribution === "skewed") {
+				expect(sources[0].count).toBe(18_000_000);
+			}
+		}
+	});
+
+	it("enables cache warnings for the 500k/202-source interaction profile", () => {
+		expect(
+			getRendererQueryReplayConfiguration(
+				"?docs=500000&sources=202&cacheWarnings=all",
+			),
+		).toEqual({
+			targetEvents: 500_000,
+			sourceCount: 202,
+			distribution: "uniform",
+			cacheWarnings: true,
+		});
 	});
 });

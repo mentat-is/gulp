@@ -1,5 +1,6 @@
 import {
 	cleanupTimelineAutosave,
+	runTimelineAutosaveWhenIdle,
 	scheduleTimelineAutosave,
 	type TimelineAutosaveTask,
 } from "@/app/body/TimelineAutosave";
@@ -71,5 +72,57 @@ describe("Timeline autosave control", () => {
 
 		expect(harness.getFlushCount()).toBe(0);
 		expect(harness.getCancelCount()).toBe(1);
+	});
+
+	it("defers idle preparation while timeline interaction remains active", () => {
+		jest.useFakeTimers();
+		const originalRequestIdleCallback = window.requestIdleCallback;
+		const originalCancelIdleCallback = window.cancelIdleCallback;
+		Object.defineProperty(window, "requestIdleCallback", {
+			configurable: true,
+			value: (callback: IdleRequestCallback): number => {
+				callback({
+					didTimeout: false,
+					timeRemaining: () => 10,
+				});
+				return 1;
+			},
+		});
+		Object.defineProperty(window, "cancelIdleCallback", {
+			configurable: true,
+			value: jest.fn(),
+		});
+		const task = jest.fn();
+		let interacting = true;
+
+		try {
+			runTimelineAutosaveWhenIdle(task, () => interacting);
+			expect(task).not.toHaveBeenCalled();
+
+			interacting = false;
+			jest.advanceTimersByTime(250);
+			expect(task).toHaveBeenCalledTimes(1);
+
+			interacting = true;
+			const canceledTask = jest.fn();
+			const cancel = runTimelineAutosaveWhenIdle(
+				canceledTask,
+				() => interacting,
+			);
+			cancel();
+			interacting = false;
+			jest.advanceTimersByTime(250);
+			expect(canceledTask).not.toHaveBeenCalled();
+		} finally {
+			jest.useRealTimers();
+			Object.defineProperty(window, "requestIdleCallback", {
+				configurable: true,
+				value: originalRequestIdleCallback,
+			});
+			Object.defineProperty(window, "cancelIdleCallback", {
+				configurable: true,
+				value: originalCancelIdleCallback,
+			});
+		}
 	});
 });

@@ -254,6 +254,36 @@ describe("Timeline workspace-session persistence", () => {
 		expect(mockInfo.session_autosave.mock.calls[0][0].timeline.scale).toBe(7);
 	});
 
+	it("keeps maximum-wait serialization outside active zoom input", async () => {
+		await act(async () => {
+			root.render(<Timeline />);
+		});
+
+		for (let marker = 2; marker <= 7; marker++) {
+			await act(async () => {
+				jest.advanceTimersByTime(9_000);
+			});
+			await publishTimelineChange(marker);
+		}
+		await act(async () => {
+			jest.advanceTimersByTime(5_500);
+		});
+		await publishTimelineChange(8);
+		await act(async () => {
+			jest.advanceTimersByTime(500);
+		});
+
+		expect(mockInfo.session_autosave).not.toHaveBeenCalled();
+
+		await act(async () => {
+			jest.advanceTimersByTime(500);
+		});
+		await flushAutosavePromises();
+
+		expect(mockInfo.session_autosave).toHaveBeenCalledTimes(1);
+		expect(mockInfo.session_autosave.mock.calls[0][0].timeline.scale).toBe(8);
+	});
+
 	it("coalesces changes made during a write without overlapping requests", async () => {
 		let resolveFirst: ((success: boolean) => void) | undefined;
 		let firstSettled = false;

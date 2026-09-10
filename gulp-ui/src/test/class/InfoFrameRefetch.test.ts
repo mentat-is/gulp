@@ -1,3 +1,5 @@
+let mockRequestSequence = 0;
+import type { TimelineQueryRequest } from "@/event-stream";
 import { Info } from "@/class/Info";
 import type { App } from "@/entities/App";
 import type { Doc } from "@/entities/Doc";
@@ -39,7 +41,7 @@ jest.mock("@/dto/Logger.class", () => ({
 }));
 
 jest.mock("@/ui/utils", () => ({
-	generateUUID: jest.fn(() => "frame-refetch-request-id"),
+	generateUUID: () => `frame-refetch-${++mockRequestSequence}`,
 	NodeFile: class MockNodeFile {},
 	Refractor: {
 		array: (...values: unknown[]): unknown[] => values,
@@ -289,6 +291,8 @@ function createCacheActivation(
 function setSmartSocket(
 	socket:
 		| {
+				startTimelineQueries?: (requests: TimelineQueryRequest[]) => Promise<void>;
+				setTimelineQueryPriority?: (sourceIds: Source.Id[]) => void;
 				reconcileSourceQueryCache?: (
 					input: unknown,
 				) => Promise<EventSourceQueryCacheReconciliation | null>;
@@ -418,8 +422,20 @@ function createApp(source: Source.Type): App.Type {
 	} as App.Type;
 }
 
+/** Installs the worker command boundary; lifecycle events are driven explicitly by each test. */
+function createWorkerHarness(source = createSource()) {
+	const harness = createInfoHarness(source);
+	const startTimelineQueries = jest.fn(async (_requests: TimelineQueryRequest[]) => undefined);
+	setSmartSocket({ startTimelineQueries, setTimelineQueryPriority: jest.fn(), cancelDocumentStream: async () => undefined });
+	return { ...harness, source, startTimelineQueries };
+}
+
+/** Waits for the bounded source metadata publication. */
+async function flushSourceMetadata(): Promise<void> { await new Promise((resolve) => setTimeout(resolve, 20)); }
+
 describe("Info timeline-frame refetch", () => {
 	beforeEach(() => {
+		mockRequestSequence = 0;
 		requestStore.reset();
 		localStorage.removeItem("gulp:event-store-lod-enabled");
 		DataStore.resetRenderOperation(
@@ -431,6 +447,228 @@ describe("Info timeline-frame refetch", () => {
 		setSmartSocket(undefined);
 		DataStore.resetRenderOperation();
 		requestStore.reset();
+	});
+
+	it("sends scoped frame queries to the worker and preserves frame scope on subsequent filters", async () => {
+		const { info, source, getApp, queryFile, startTimelineQueries } = createWorkerHarness();
+		const frame = { min: 1_742_169_600_000, max: 1_743_033_600_000 };
+		await info.refetch({ ids: source.id, frame });
+		const first = startTimelineQueries.mock.calls[0][0][0];
+		expect(queryFile).not.toHaveBeenCalled();
+		expect(first.descriptor.kind).toBe("replace");
+		expect(first.descriptor.durableProjectionOnly).toBe(true);
+		expect(first.desired.range).toEqual({ min: String(BigInt(frame.min - source.settings.offset) * 1_000_000n), max: String(BigInt(frame.max - source.settings.offset) * 1_000_000n) });
+		expect(first.descriptor.queryCache?.query.text_filter).toBe("*authentication*");
+		expect(first.descriptor.queryCache?.query.filters).toHaveLength(1);
+		expect(getApp().timeline.frame).toEqual(frame);
+		info.handleTimelineQueryUpdate({ ...first.descriptor, sourceId: source.id, state: "started" });
+		await flushSourceMetadata();
+		expect(getApp().target.files[0].appliedQuery?.source_config?.range).toEqual(first.desired.range);
+		await info.refetch({ ids: source.id, query: { ...info.getQuery(source), text_filter: "*subsequent filter*" } });
+		const second = startTimelineQueries.mock.calls[1][0][0];
+		expect(second.desired.range).toEqual(first.desired.range);
+		expect(second.descriptor.queryCache?.query.text_filter).toBe("*subsequent filter*");
+	});
+
+	it("uses the same cache policy at startup and on subsequent source selection", async () => {
+		const { info, source, startTimelineQueries } = createWorkerHarness();
+		await info.refetch({ ids: source.id, cachePolicy: "initial" });
+		await info.refetch({ ids: source.id });
+		expect(startTimelineQueries.mock.calls.map(([requests]) => requests[0].cachePolicy)).toEqual(["reuse", "reuse"]);
+	});
+
+	it("leaves LOD source clearing to the durable worker generation", async () => {
+		const { info, source, startTimelineQueries } = createWorkerHarness();
+		await info.refetch({ ids: source.id });
+		const request = startTimelineQueries.mock.calls[0][0][0];
+
+		info.handleTimelineQueryUpdate({
+			...request.descriptor,
+			sourceId: source.id,
+			state: "started",
+		});
+		await flushSourceMetadata();
+
+		expect(info.events_reset_in_file).not.toHaveBeenCalled();
+	});
+
+	it("publishes query source metadata as bounded idle work", async () => {
+		const originalRequestIdleCallback = window.requestIdleCallback;
+		const originalCancelIdleCallback = window.cancelIdleCallback;
+		const requestIdleCallback = jest.fn(
+			(
+				_callback: IdleRequestCallback,
+				_options?: IdleRequestOptions,
+			): number => 17,
+		);
+		const cancelIdleCallback = jest.fn();
+		window.requestIdleCallback = requestIdleCallback;
+		window.cancelIdleCallback = cancelIdleCallback;
+
+		try {
+			const { info, source, startTimelineQueries } = createWorkerHarness();
+			const publish = jest.fn(info.setInfo);
+			info.setInfo = publish;
+			await info.refetch({ ids: source.id });
+			const request = startTimelineQueries.mock.calls[0][0][0];
+
+			info.handleTimelineQueryUpdate({
+				...request.descriptor,
+				sourceId: source.id,
+				state: "started",
+			});
+
+			expect(publish).not.toHaveBeenCalled();
+			expect(requestIdleCallback).toHaveBeenCalledTimes(1);
+			expect(requestIdleCallback.mock.calls[0][1]).toEqual({ timeout: 250 });
+			requestIdleCallback.mock.calls[0][0]({
+				didTimeout: false,
+				timeRemaining: () => 10,
+			});
+			expect(publish).toHaveBeenCalledTimes(1);
+		} finally {
+			window.requestIdleCallback = originalRequestIdleCallback;
+			window.cancelIdleCallback = originalCancelIdleCallback;
+		}
+	});
+
+	it("retains the explicit main-thread clear for the legacy renderer", async () => {
+		localStorage.setItem("gulp:event-store-lod-enabled", "false");
+		const { info, source } = createWorkerHarness();
+
+		await info.refetch({ ids: source.id });
+
+		expect(info.events_reset_in_file).toHaveBeenCalledTimes(1);
+	});
+
+	it("updates loading state without invalidating canonical document data", () => {
+		const source = createSource();
+		const { info } = createInfoHarness(source);
+		const originalMarkDirty = DataStore.markDirty;
+		const markDirty = jest.fn();
+		DataStore.markDirty = markDirty;
+		const requestId = "query-loading-state" as Request.Id;
+
+		try {
+			info.setLoading(requestId, source.id);
+			info.delLoadingByFile(source.id);
+
+			expect(markDirty).not.toHaveBeenCalled();
+		} finally {
+			DataStore.markDirty = originalMarkDirty;
+		}
+	});
+
+	it("forces a backend query when resetting one source's filters", async () => {
+		const { info, source, startTimelineQueries } = createWorkerHarness();
+
+		await info.filters_remove(source);
+
+		const request = startTimelineQueries.mock.calls[0][0][0];
+		expect(request.sourceId).toBe(source.id);
+		expect(request.cachePolicy).toBe("force");
+		expect(request.descriptor.queryCache?.query.source_config?.source_ids).toEqual([
+			source.id,
+		]);
+	});
+
+	it("reloads note normalization when settings change without reloading overlays for each filter", async () => {
+		const { info, source } = createWorkerHarness();
+		await info.refetch({ ids: source.id });
+		await info.refetch({ ids: source.id, query: createCacheQuery(source, "another filter") });
+		expect(info.notes_reload).toHaveBeenCalledTimes(1);
+		info.app.target.files[0].settings.field = "gulp.event_code";
+		await info.refetch({ ids: source.id });
+		expect(info.notes_reload).toHaveBeenCalledTimes(2);
+	});
+
+	it("restores the committed query when consecutive replacements are canceled", async () => {
+		const { info, source, getApp, startTimelineQueries } = createWorkerHarness();
+		const baseline = source.appliedQuery;
+		for (const label of ["first unfinished query", "second unfinished query"]) {
+			await info.refetch({ ids: source.id, query: createCacheQuery(source, label, label) });
+			const job = startTimelineQueries.mock.calls[startTimelineQueries.mock.calls.length - 1][0][0];
+			info.handleTimelineQueryUpdate({ ...job.descriptor, sourceId: source.id, state: "started" });
+			await flushSourceMetadata();
+			expect(getApp().target.files[0].appliedQuery?.string).toBe(label);
+		}
+		const latest = startTimelineQueries.mock.calls[1][0][0];
+		info.handleTimelineQueryUpdate({ ...latest.descriptor, sourceId: source.id, state: "canceled" });
+		await flushSourceMetadata();
+		expect(getApp().target.files[0].appliedQuery).toEqual(baseline);
+		expect(getApp().target.files[0].queryCache.isActivating).toBe(false);
+	});
+
+	it("applies a cache hit without resetting source data or issuing main-thread HTTP", async () => {
+		const { info, source, getApp, queryFile, startTimelineQueries } = createWorkerHarness();
+		await info.refetch({ ids: source.id });
+		const request = startTimelineQueries.mock.calls[0][0][0];
+		const activation = createCacheActivation(source, { query: request.descriptor.queryCache!.query });
+		info.handleTimelineQueryUpdate({ ...request.descriptor, sourceId: source.id, state: "cache-hit", activation: { ...activation, match: "exact" } });
+		await flushSourceMetadata();
+		expect(info.events_reset_in_file).not.toHaveBeenCalled();
+		expect(queryFile).not.toHaveBeenCalled();
+		expect(getApp().target.files[0].queryCache).toMatchObject({ activeGeneration: activation.summary.generation, canUndo: false, canRedo: false, isActivating: false });
+	});
+
+	it("keeps a latest cache hit in warning state without issuing HTTP", async () => {
+		const { info, source, getApp, queryFile, startTimelineQueries } =
+			createWorkerHarness();
+		await info.refetch({ ids: source.id });
+		const request = startTimelineQueries.mock.calls[0][0][0];
+		const activation = createCacheActivation(source, {
+			query: request.descriptor.queryCache!.query,
+		});
+		info.handleTimelineQueryUpdate({
+			...request.descriptor,
+			sourceId: source.id,
+			state: "cache-hit",
+			activation: { ...activation, match: "latest" },
+		});
+		await flushSourceMetadata();
+		expect(queryFile).not.toHaveBeenCalled();
+		expect(getApp().target.files[0].queryCache).toMatchObject({
+			activeGeneration: activation.summary.generation,
+			freshness: "query-mismatch",
+			warningReason: "query-mismatch",
+			isActivating: false,
+		});
+	});
+
+	it("batches 140 source cache activations and leaves unselected sources untouched", async () => {
+		const { info, source, startTimelineQueries } = createWorkerHarness();
+		const sources = Array.from({ length: 140 }, (_, index) => createSource(`${source.id}-${index}` as Source.Id));
+		info.app.target.files = [...sources, source];
+		const publish = jest.fn(info.setInfo); info.setInfo = publish;
+		await info.refetch({ ids: sources.map((entry) => entry.id) });
+		const requests = startTimelineQueries.mock.calls[0][0];
+		expect(requests).toHaveLength(140);
+		expect(new Set(requests.map((request) => request.descriptor.requestId)).size).toBe(140);
+		publish.mock.calls.length = 0;
+		for (const [index, request] of requests.entries()) info.handleTimelineQueryUpdate({ ...request.descriptor, sourceId: request.sourceId, state: "cache-hit", activation: { ...createCacheActivation(sources[index]), match: "exact" } });
+		await flushSourceMetadata();
+		expect(publish).toHaveBeenCalledTimes(1);
+		expect(info.app.target.files.slice(0, 140).every((file) => file.queryCache.activeGeneration !== null && !file.queryCache.isActivating)).toBe(true);
+		expect(info.app.target.files[140]).toBe(source);
+	});
+
+	it("sends distinct Navigator queries without mutating their source snapshots", async () => {
+		const { info, source, startTimelineQueries } = createWorkerHarness();
+		const second = createSource("second-source" as Source.Id);
+		info.app.target.files.push(second);
+		const previous = source.appliedQuery;
+		await info.refetch({ ids: [source.id, second.id], queriesBySourceId: { [source.id]: { ...info.getQuery(source), text_filter: "one" }, [second.id]: { ...info.getQuery(second), text_filter: "two" } } });
+		expect(startTimelineQueries.mock.calls[0][0].map((request) => request.descriptor.queryCache?.query.text_filter)).toEqual(["one", "two"]);
+		expect(source.appliedQuery).toBe(previous);
+	});
+
+	it("forces HTTP for note creation while preserving source-specific note options", async () => {
+		const { info, source, startTimelineQueries } = createWorkerHarness();
+		setSmartSocket({ startTimelineQueries, setTimelineQueryPriority: jest.fn(), con: () => "notes-listener", coff: () => undefined });
+		await info.refetch({ ids: source.id, create_notes: true, notes_color: "#123456", notes_tags: ["investigation"], addToHistory: true });
+		const request = startTimelineQueries.mock.calls[0][0][0];
+		expect(request.cachePolicy).toBe("force");
+		expect(request.body.q_options).toMatchObject({ create_notes: true, notes_color: "#123456", notes_tags: ["investigation"], add_to_history: true });
 	});
 
 	it("selects supplemental events beyond both active-query source edges", async () => {
@@ -480,6 +718,23 @@ describe("Info timeline-frame refetch", () => {
 		);
 	});
 
+	it("selects sequence zero as the first event for equal timestamps", async () => {
+		const source = createSource();
+		const { info } = createInfoHarness(source);
+		const second = {
+			...createTimelineDocument("sequence-one", 100),
+			"event.sequence": 1,
+		};
+		const first = {
+			...createTimelineDocument("sequence-zero", 100),
+			"event.sequence": 0,
+		};
+		DataStore.replaceSourceEvents(source.id, [second, first]);
+
+		expect(await info.getTimelineSourceEdge(source.id, false)).toBe(first);
+		expect(await info.getTimelineSourceEdge(source.id, true)).toBe(second);
+	});
+
 	it("selects a supplemental edge when the active query is empty", async () => {
 		const source = createSource();
 		const { info } = createInfoHarness(source);
@@ -515,125 +770,6 @@ describe("Info timeline-frame refetch", () => {
 
 		info.setTimelineScale(Number.POSITIVE_INFINITY);
 		expect(currentApp.timeline.scale).toBe(maximumScale);
-	});
-
-	it("persists the frame range and reapplies it to subsequent filtered refetches", async () => {
-		const source = createSource();
-		let currentApp = createApp(source);
-		const info = new Info({
-			app: currentApp,
-			setInfo: (action) => {
-				currentApp =
-					typeof action === "function" ? action(currentApp) : action;
-			},
-			timeline: { current: document.createElement("div") },
-		});
-		const queryFile = jest.fn<Promise<undefined>, [Query.Type, object]>(
-			async () => undefined,
-		);
-		info.query_file = queryFile as typeof info.query_file;
-		info.notes_reload = jest.fn(async () => undefined);
-		info.links_reload = jest.fn(async () => undefined);
-		info.events_reset_in_file = jest.fn();
-		(
-			info as unknown as { highlights_reload: () => void }
-		).highlights_reload = jest.fn();
-
-		const frame = {
-			min: 1_742_169_600_000,
-			max: 1_743_033_600_000,
-		};
-		await info.refetch({ ids: source.id, frame });
-
-		expect(queryFile).toHaveBeenCalled();
-		const dispatched = queryFile.mock.calls[0][0];
-		expect(dispatched.source_config).toEqual({
-			operation_id: source.operation_id,
-			source_ids: [source.id],
-			range: {
-				min: (
-					BigInt(frame.min - source.settings.offset) * 1_000_000n
-				).toString(),
-				max: (
-					BigInt(frame.max - source.settings.offset) * 1_000_000n
-				).toString(),
-			},
-		});
-		expect(dispatched.text_filter).toBe("*authentication*");
-		expect(dispatched.filters).toHaveLength(1);
-		expect(currentApp.timeline.frame).toEqual(frame);
-		expect(currentApp.target.files[0].appliedQuery?.source_config).toEqual(
-			dispatched.source_config,
-		);
-		expect(currentApp.target.files[0].appliedQuery?.filters).toEqual(
-			dispatched.filters,
-		);
-
-		const appliedQuery = currentApp.target.files[0].appliedQuery;
-		expect(appliedQuery).not.toBeNull();
-		info.setQuery(source, {
-			...appliedQuery!,
-			text_filter: "*subsequent filter*",
-			source_config: {
-				operation_id: source.operation_id,
-				source_ids: [source.id],
-				range: {
-					min: source.nanotimestamp.min.toString(),
-					max: source.nanotimestamp.max.toString(),
-				},
-			},
-		});
-		await info.refetch({ ids: source.id });
-
-		const filteredRefetch = queryFile.mock.calls[1][0];
-		expect(filteredRefetch.source_config?.range).toEqual(
-			dispatched.source_config?.range,
-		);
-		expect(filteredRefetch.text_filter).toBe("*subsequent filter*");
-	});
-
-	it("activates an exact startup cache without dispatching a backend query", async () => {
-		const source = createSource();
-		const { info, getApp, queryFile } = createInfoHarness(source);
-		const cachedQuery = createCacheQuery(
-			source,
-			"cached label restored from IndexedDB",
-			"*authentication*",
-		);
-		const activation = createCacheActivation(source, { query: cachedQuery });
-		const reconciliation: EventSourceQueryCacheReconciliation = {
-			...activation,
-			match: "exact",
-		};
-		const reconcileSourceQueryCache = jest.fn(
-			async (_input: unknown) => reconciliation,
-		);
-		setSmartSocket({ reconcileSourceQueryCache });
-
-		await info.refetch({ ids: source.id, cachePolicy: "initial" });
-
-		expect(reconcileSourceQueryCache).toHaveBeenCalledTimes(1);
-		const reconcileInput = reconcileSourceQueryCache.mock.calls[0][0] as {
-			operationId: string;
-			sourceId: Source.Id;
-			desired: { fingerprint: string; shapeFingerprint: string };
-		};
-		expect(reconcileInput.operationId).toBe(source.operation_id);
-		expect(reconcileInput.sourceId).toBe(source.id);
-		expect(reconcileInput.desired.fingerprint.startsWith("source-query-v1:")).toBe(
-			true,
-		);
-		expect(reconcileInput.desired.shapeFingerprint.startsWith("source-query-shape-v1:")).toBe(true);
-		expect(queryFile).not.toHaveBeenCalled();
-		expect(info.events_reset_in_file).not.toHaveBeenCalled();
-		expect(getApp().target.files[0].appliedQuery).toEqual(cachedQuery);
-		expect(getApp().target.files[0].queryCache).toMatchObject({
-			activeGeneration: 4,
-			canUndo: false,
-			canRedo: false,
-			freshness: "fresh",
-			warningReason: null,
-		});
 	});
 
 	it("neutralizes only generated source scope in the shape backend filter", () => {
@@ -679,48 +815,6 @@ describe("Info timeline-frame refetch", () => {
 		expect(differentlyCoercedFilter).not.toBe(baseShape);
 	});
 
-	it("keeps an exact startup cache fresh when query_operations omits time_updated", async () => {
-		const source = createSource();
-		source.time_updated = null;
-		const { info, getApp } = createInfoHarness(source);
-		const activation = createCacheActivation(source);
-		setSmartSocket({
-			reconcileSourceQueryCache: jest.fn(async () => ({
-				...activation,
-				match: "exact" as const,
-			})),
-		});
-
-		await info.refetch({ ids: source.id, cachePolicy: "initial" });
-
-		expect(getApp().target.files[0].queryCache).toMatchObject({
-			freshness: "fresh",
-			warningReason: null,
-		});
-	});
-
-	it("still detects changed source totals when time_updated is unavailable", async () => {
-		const source = createSource();
-		source.time_updated = null;
-		const { info, getApp } = createInfoHarness(source);
-		const activation = createCacheActivation(source, {
-			serverSnapshot: { total: source.total + 1 },
-		});
-		setSmartSocket({
-			reconcileSourceQueryCache: jest.fn(async () => ({
-				...activation,
-				match: "exact" as const,
-			})),
-		});
-
-		await info.refetch({ ids: source.id, cachePolicy: "initial" });
-
-		expect(getApp().target.files[0].queryCache).toMatchObject({
-			freshness: "source-changed",
-			warningReason: "source-changed",
-		});
-	});
-
 	it("marks a newly completed backend replace fresh by definition", async () => {
 		const source = createSource();
 		source.time_updated = null;
@@ -747,235 +841,9 @@ describe("Info timeline-frame refetch", () => {
 			summary: activation.summary,
 		});
 
+		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(getApp().target.files[0].queryCache).toMatchObject({
 			activeGeneration: activation.summary.generation,
-			freshness: "fresh",
-			warningReason: null,
-		});
-	});
-
-	it("keeps the chosen frame while restoring the latest mismatched cache query", async () => {
-		const source = createSource();
-		const { info, getApp, queryFile } = createInfoHarness(source);
-		const cachedQuery = createCacheQuery(
-			source,
-			"older failed-login query",
-			"*failed login*",
-		);
-		const activation = createCacheActivation(source, { query: cachedQuery });
-		const reconciliation: EventSourceQueryCacheReconciliation = {
-			...activation,
-			match: "latest",
-		};
-		setSmartSocket({
-			reconcileSourceQueryCache: jest.fn(async () => reconciliation),
-		});
-		const selectedFrame = {
-			min: 1_725_000_000_000,
-			max: 1_726_000_000_000,
-		};
-
-		await info.refetch({
-			ids: source.id,
-			frame: selectedFrame,
-			cachePolicy: "initial",
-		});
-
-		expect(queryFile).not.toHaveBeenCalled();
-		expect(getApp().timeline.frame).toEqual(selectedFrame);
-		expect(getApp().target.files[0].appliedQuery).toEqual(cachedQuery);
-		expect(getApp().target.files[0].queryCache).toMatchObject({
-			freshness: "query-mismatch",
-			warningReason: "query-mismatch",
-		});
-	});
-
-	it("treats a covered startup cache with unchanged source metadata as fresh", async () => {
-		const source = createSource();
-		const { info, getApp, queryFile } = createInfoHarness(source);
-		const activation = createCacheActivation(source);
-		setSmartSocket({
-			reconcileSourceQueryCache: jest.fn(async () => ({
-				...activation,
-				match: "covered" as const,
-			})),
-		});
-
-		await info.refetch({ ids: source.id, cachePolicy: "initial" });
-
-		expect(queryFile).not.toHaveBeenCalled();
-		expect(getApp().target.files[0].queryCache).toMatchObject({
-			freshness: "fresh",
-			warningReason: null,
-		});
-	});
-
-	it("reports a changed source before a latest-query mismatch", async () => {
-		const source = createSource();
-		const { info, getApp } = createInfoHarness(source);
-		const activation = createCacheActivation(source, {
-			serverSnapshot: { total: source.total + 1 },
-		});
-		setSmartSocket({
-			reconcileSourceQueryCache: jest.fn(async () => ({
-				...activation,
-				match: "latest" as const,
-			})),
-		});
-
-		await info.refetch({ ids: source.id, cachePolicy: "initial" });
-
-		expect(getApp().target.files[0].queryCache).toMatchObject({
-			freshness: "source-changed",
-			warningReason: "source-changed",
-		});
-	});
-
-	it("falls back to the backend when startup reconciliation has no usable cache", async () => {
-		const source = createSource();
-		const { info, getApp, queryFile } = createInfoHarness(source);
-		const reconcileSourceQueryCache = jest.fn(async (_input: unknown) => null);
-		setSmartSocket({ reconcileSourceQueryCache });
-
-		await info.refetch({ ids: source.id, cachePolicy: "initial" });
-
-		expect(reconcileSourceQueryCache).toHaveBeenCalledTimes(1);
-		expect(queryFile).toHaveBeenCalledTimes(1);
-		expect(info.events_reset_in_file).toHaveBeenCalledWith(source);
-		expect(getApp().target.files[0].appliedQuery?.text_filter).toBe(
-			"*authentication*",
-		);
-	});
-
-	it("reuses only cached sources during a mixed multi-source startup", async () => {
-		const cachedSource = createSource();
-		const missingSource = createSource(
-			"frame-refetch-missing-source" as Source.Id,
-		);
-		missingSource.appliedQuery = createCacheQuery(
-			missingSource,
-			"missing source desired query",
-			"*missing source*",
-		);
-		const { info, getApp, queryFile } = createInfoHarness(cachedSource);
-		getApp().target.files.push(missingSource);
-		const cachedQuery = createCacheQuery(
-			cachedSource,
-			"cached source restored query",
-			"*cached source*",
-		);
-		const cachedActivation = createCacheActivation(cachedSource, {
-			query: cachedQuery,
-		});
-		const reconciliation: EventSourceQueryCacheReconciliation = {
-			...cachedActivation,
-			match: "exact",
-		};
-		const reconcileSourceQueryCache = jest.fn(async (input: unknown) =>
-			(input as { sourceId: Source.Id }).sourceId === cachedSource.id
-				? reconciliation
-				: null,
-		);
-		setSmartSocket({ reconcileSourceQueryCache });
-
-		await info.refetch({
-			ids: [cachedSource.id, missingSource.id],
-			cachePolicy: "initial",
-		});
-
-		expect(reconcileSourceQueryCache).toHaveBeenCalledTimes(2);
-		expect(
-			reconcileSourceQueryCache.mock.calls.map(
-				([input]) => (input as { sourceId: Source.Id }).sourceId,
-			),
-		).toEqual([cachedSource.id, missingSource.id]);
-		expect(queryFile).toHaveBeenCalledTimes(1);
-		expect(queryFile.mock.calls[0][0].source_config?.source_ids).toEqual([
-			missingSource.id,
-		]);
-		expect(queryFile.mock.calls[0][1]).toMatchObject({ id: missingSource.id });
-		expect(info.events_reset_in_file).toHaveBeenCalledTimes(1);
-		expect(info.events_reset_in_file).toHaveBeenCalledWith(missingSource);
-		expect(
-			getApp().target.files.find((source) => source.id === cachedSource.id)
-				?.appliedQuery,
-		).toEqual(cachedQuery);
-		expect(
-			getApp().target.files.find((source) => source.id === missingSource.id)
-				?.appliedQuery?.text_filter,
-		).toBe("*missing source*");
-	});
-
-	it("keeps same-name cache freshness source-local when only one server total changes", async () => {
-		const changedSource = createSource(
-			"frame-refetch-rebased-source" as Source.Id,
-		);
-		const freshSource = createSource(
-			"frame-refetch-unchanged-source" as Source.Id,
-		);
-		changedSource.name = "duplicated-evidence.csv";
-		freshSource.name = "duplicated-evidence.csv";
-		const { info, getApp, queryFile } = createInfoHarness(changedSource);
-		const changedQuery = changedSource.appliedQuery!;
-		const freshQuery: Query.Type = {
-			...changedQuery,
-			source_config: {
-				...changedQuery.source_config!,
-				source_ids: [freshSource.id],
-				range: {
-					min: freshSource.nanotimestamp.min.toString(),
-					max: freshSource.nanotimestamp.max.toString(),
-				},
-			},
-		};
-		freshSource.appliedQuery = freshQuery;
-		getApp().target.files.push(freshSource);
-
-		const changedActivation = createCacheActivation(changedSource, {
-			query: changedQuery,
-			serverSnapshot: { total: changedSource.total - 1 },
-		});
-		const freshActivation = createCacheActivation(freshSource, {
-			query: freshQuery,
-			generation: 7,
-		});
-		setSmartSocket({
-			reconcileSourceQueryCache: jest.fn(async (input: unknown) => {
-				const { sourceId: requestedSourceId } = input as {
-					sourceId: Source.Id;
-				};
-				const activation =
-					requestedSourceId === changedSource.id
-						? changedActivation
-						: freshActivation;
-				return { ...activation, match: "exact" as const };
-			}),
-		});
-
-		await info.refetch({
-			ids: [changedSource.id, freshSource.id],
-			cachePolicy: "initial",
-		});
-
-		const restartedChangedSource = getApp().target.files.find(
-			(source) => source.id === changedSource.id,
-		)!;
-		const restartedFreshSource = getApp().target.files.find(
-			(source) => source.id === freshSource.id,
-		)!;
-		expect(queryFile).not.toHaveBeenCalled();
-		expect(restartedChangedSource.name).toBe(restartedFreshSource.name);
-		expect(restartedChangedSource.appliedQuery?.source_config?.source_ids).toEqual([
-			changedSource.id,
-		]);
-		expect(restartedChangedSource.queryCache).toMatchObject({
-			freshness: "source-changed",
-			warningReason: "source-changed",
-		});
-		expect(restartedFreshSource.appliedQuery?.source_config?.source_ids).toEqual([
-			freshSource.id,
-		]);
-		expect(restartedFreshSource.queryCache).toMatchObject({
 			freshness: "fresh",
 			warningReason: null,
 		});
@@ -1049,24 +917,6 @@ describe("Info timeline-frame refetch", () => {
 		} finally {
 			globalThis.api = previousApi;
 		}
-	});
-
-	it("forces the same source query through the backend on every session action", async () => {
-		const source = createSource();
-		const { info, queryFile } = createInfoHarness(source);
-		const reconcileSourceQueryCache = jest.fn(async (_input: unknown) => null);
-		setSmartSocket({ reconcileSourceQueryCache });
-
-		await info.refetch({ ids: source.id, cachePolicy: "force" });
-		await info.refetch({ ids: source.id, cachePolicy: "force" });
-
-		expect(reconcileSourceQueryCache).not.toHaveBeenCalled();
-		expect(queryFile).toHaveBeenCalledTimes(2);
-		expect(queryFile.mock.calls[0][0]).toMatchObject({
-			text_filter: queryFile.mock.calls[1][0].text_filter,
-			filters: queryFile.mock.calls[1][0].filters,
-			source_config: queryFile.mock.calls[1][0].source_config,
-		});
 	});
 
 	it("includes note targets incrementally and retries only unresolved documents", async () => {
@@ -1320,61 +1170,14 @@ describe("Info timeline-frame refetch", () => {
 		expect(DataStore.getSupplementalEvents(source.id)).toEqual([supplemental]);
 	});
 
-	it("does not compare a filtered cache count with the complete source total", async () => {
+	it("classifies cache freshness using the server snapshot rather than filtered counts", () => {
 		const source = createSource();
-		const { info, getApp } = createInfoHarness(source);
-		const activation = createCacheActivation(source, { eventCount: 1 });
-		setSmartSocket({
-			reconcileSourceQueryCache: jest.fn(async () => ({
-				...activation,
-				match: "exact" as const,
-			})),
-		});
-
-		await info.refetch({ ids: source.id, cachePolicy: "initial" });
-
-		expect(source.total).toBe(120);
-		expect(activation.summary.eventCount).toBe(1);
-		expect(getApp().target.files[0].queryCache.freshness).toBe("fresh");
-	});
-
-	const staleSnapshots: Array<{
-		field: string;
-		serverSnapshot: CacheActivationOptions["serverSnapshot"];
-	}> = [
-		{ field: "total", serverSnapshot: { total: 121 } },
-		{
-			field: "range",
-			serverSnapshot: {
-				minNanoseconds: (
-					BigInt(sourceTimestamp.min) * 1_000_000n - 1n
-				).toString(),
-			},
-		},
-		{
-			field: "time_updated",
-			serverSnapshot: { timeUpdated: 1_800_000_000_124 },
-		},
-	];
-	staleSnapshots.forEach(({ field, serverSnapshot }) => {
-		it(`marks an exact cache source-changed when server ${field} differs`, async () => {
-			const source = createSource();
-			const { info, getApp } = createInfoHarness(source);
-			const activation = createCacheActivation(source, { serverSnapshot });
-			setSmartSocket({
-				reconcileSourceQueryCache: jest.fn(async () => ({
-					...activation,
-					match: "exact" as const,
-				})),
-			});
-
-			await info.refetch({ ids: source.id, cachePolicy: "initial" });
-
-				expect(getApp().target.files[0].queryCache).toMatchObject({
-				freshness: "source-changed",
-				warningReason: "source-changed",
-			});
-		});
+		const { info } = createInfoHarness(source);
+		const classify = (activation: EventSourceQueryCacheActivation) => (info as unknown as { getQueryCacheFreshness: (source: Source.Type, cache: EventSourceQueryCacheActivation["cache"], match: string) => string }).getQueryCacheFreshness(source, activation.cache, "exact");
+		expect(classify(createCacheActivation(source, { eventCount: 1 }))).toBe("fresh");
+		for (const serverSnapshot of [{ total: source.total + 1 }, { minNanoseconds: "1" }, { timeUpdated: 123 }]) {
+			expect(classify(createCacheActivation(source, { serverSnapshot }))).toBe("source-changed");
+		}
 	});
 
 	it("serializes PIT pagination fields and closes the snapshot", async () => {

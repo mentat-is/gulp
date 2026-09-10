@@ -31,6 +31,8 @@ export interface QueryCacheProvenance {
 	fingerprint: string;
 	/** Range-independent semantic identity. Absent on caches written before coverage reuse. */
 	shapeFingerprint?: string;
+	/** Exact range known to be materialized when it differs from the originating query. */
+	materializedRange?: QueryCacheNanosecondRange;
 	normalization: QueryCacheNormalization;
 	serverSnapshot: QueryCacheServerSnapshot;
 }
@@ -43,6 +45,32 @@ export interface QueryCacheState {
 	freshness: QueryCacheFreshness;
 	warningReason: QueryCacheFreshness | null;
 	isActivating: boolean;
+}
+
+/** Minimal source identity and provenance required by the Canvas cache warning. */
+export interface SourceQueryCacheWarningInput {
+	id: string;
+	appliedQuery?: Query.Type | null;
+	queryCache: QueryCacheState;
+}
+
+/**
+ * Determines whether a settled stale cache belongs to exactly one rendered source.
+ * @param source Runtime source identity, applied query, and cache authority state.
+ * @returns True only when the warning is active and its query targets this source alone.
+ */
+export function hasSourceQueryCacheWarning(
+	source: SourceQueryCacheWarningInput,
+): boolean {
+	const sourceIds = source.appliedQuery?.source_config?.source_ids;
+	return (
+		source.queryCache.activeGeneration !== null &&
+		!source.queryCache.isActivating &&
+		source.queryCache.warningReason !== null &&
+		source.queryCache.freshness !== "fresh" &&
+		sourceIds?.length === 1 &&
+		sourceIds[0] === source.id
+	);
 }
 
 /** Input whose semantic values uniquely identify one source query result. */

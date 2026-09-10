@@ -78,8 +78,10 @@ Deleting or replacing a session affects only the selected operation.
 
 Autosave treats the loaded workspace as its initial state and does not save it
 again until relevant data changes. It saves after ten seconds without further
-changes. During continuous activity, it saves at least once every sixty
-seconds. Unchanged workspace state is not saved.
+changes. A sixty-second maximum wait prepares a save during continuous state
+updates, but snapshot cloning and stable serialization remain deferred until pan
+or zoom input has been quiet for at least one second. Unchanged workspace state
+is not saved.
 
 Only one autosave request is active at a time. Changes made while a request is
 active are included in a later save. A failed autosave remains pending until
@@ -131,7 +133,9 @@ Source queries are registered with the query worker before the backend request
 starts. Incoming event chunks are stored incrementally in the operation
 EventStore, and committed source revisions refresh the visible render window.
 Loading several sources can proceed concurrently while the timeline remains
-interactive.
+interactive. The worker's initial durable `building` generation replaces prior
+LOD data; query loading and source-label metadata are coalesced as bounded idle
+work, leaving pointer and pan updates at urgent browser priority.
 
 ![Timeline and event detail](images/timeline.png)
 
@@ -144,7 +148,8 @@ Source rows support:
 - filter management;
 - table view opening;
 - hide, pin, move up, and move down;
-- first/last event navigation.
+- first/last event navigation using canonical timestamp and `event.sequence`
+  ordering, including sequence zero.
 
 ## Timeline Navigation
 

@@ -12,6 +12,12 @@ export interface EventTimestampRange {
 	max: number;
 }
 
+/** One canonical source edge qualified by the source revision that selected it. */
+export interface EventSourceEdge {
+	event: Doc.Type | null;
+	sourceRevision: number;
+}
+
 /** Bounded canonical neighbor window in descending timestamp order. */
 export interface EventNeighborWindow {
 	events: Doc.Type[];
@@ -29,6 +35,10 @@ export interface EventTimestampNeighborWindow {
 /** Read-only contract shared by QueryWorker, main, and detached realms. */
 export interface EventStoreReader {
 	getSourceSummary(sourceId: Source.Id): Promise<EventSourceSummary | null>;
+	getSourceEdge(
+		sourceId: Source.Id,
+		newest: boolean,
+	): Promise<EventSourceEdge>;
 	getById(documentId: Doc.Id, sourceId?: Source.Id): Promise<Doc.Type | null>;
 	getByIds(documentIds: readonly Doc.Id[]): Promise<Doc.Type[]>;
 	getByHandle(sourceId: Source.Id, handle: number): Promise<Doc.Type | null>;

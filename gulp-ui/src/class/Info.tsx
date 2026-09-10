@@ -1,4 +1,6 @@
+import type { TimelineQueryRequest, TimelineQueryUpdate } from "@/event-stream";
 import { debounce, Dictionary } from "lodash";
+import { startTransition } from "react";
 import { scrollStore } from "@/store/scroll.store";
 import { Default } from "@/dto/Dataset";
 import {
@@ -106,6 +108,7 @@ import {
 	type EventSourceSummary,
 } from "@/event-store";
 import { publishEventStoreFallbackRequest } from "@/event-store/EventStoreFallback.request";
+import { compareEventDocuments } from "@/event-store/EventStore.order";
 
 export namespace GulpDataset {
 	export namespace GetAvailableLoginApi {
@@ -389,7 +392,9 @@ interface RefetchOptions {
 	notes_glyph_id?: Glyph.Id;
 	name?: string;
 	frame?: MinMax;
-	cachePolicy?: "initial" | "force";
+	cachePolicy?: "initial" | "reuse" | "force";
+	/** Distinct source queries prepared without per-source React updates. */
+	queriesBySourceId?: Partial<Record<Source.Id, Query.Type>>;
 	/** Optional query applied atomically with the new source generation. */
 	query?: Query.Type;
 	/** Previous normalization restored if a settings-driven replacement fails. */
@@ -424,6 +429,7 @@ type QueryFileOptions = GulpDataset.QueryGulp.Options & {
 };
 
 interface QueryStreamState {
+	workerOwned?: boolean;
 	requestId: Request.Id;
 	sourceIds: Source.Id[];
 	operationId: Operation.Id;
@@ -591,6 +597,7 @@ const ACTIVE_REQUEST_STATUSES = new Set<Request.Status>([
 const MAX_QUERY_CONCURRENCY = 4;
 const QUERY_DOC_WORKER_THRESHOLD = 1000;
 const MAX_PAGINATED_QUERY_DOCUMENTS = 10000;
+const TIMELINE_SOURCE_UPDATE_IDLE_TIMEOUT_MS = 250;
 const QUERY_CACHE_SHAPE_RANGE = {
 	min: "__gulp_source_range_min__",
 	max: "__gulp_source_range_max__",
@@ -617,6 +624,12 @@ export class Info implements InfoProps {
 	private _ingestStatsDoneListenerId: string | null = null;
 	private _ingestSourceDoneFailureListenerId: string | null = null;
 	private _notifiedIngestFailures = new Set<Request.Id>();
+	private pendingTimelineSourceUpdates = new Map<
+		Source.Id,
+		(source: Source.Type) => Source.Type
+	>();
+	private timelineSourceUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+	private timelineSourceUpdateIdleCallback: number | null = null;
 	private activeQueryStreams = new Map<Request.Id, QueryStreamState>();
 	private activeQuerySourceRequests = new Map<Source.Id, Request.Id>();
 	private refetchQueue: RefetchQueueItem[] = [];
@@ -632,6 +645,7 @@ export class Info implements InfoProps {
 		(scale: number, origin?: object) => void
 	>();
 	private notesReloadSequence = 0;
+	private refetchOverlayScope = "";
 	private linksReloadSequence = 0;
 	private highlightsReloadSequence = 0;
 	private operationScopedSocketCleanups = new Set<() => void>();
@@ -689,7 +703,7 @@ export class Info implements InfoProps {
 	/**
 	 * Stores the source IDs intersecting the current Canvas viewport and overscan.
 	 * Viewport changes update render subscribers and reprioritize only already
-	 * queued raw queries after the settle delay.
+	 * queued worker queries immediately; the legacy queue retains its settle delay.
 	 * @param sourceIds Source ids ordered by their Canvas row position.
 	 * @returns Nothing.
 	 */
@@ -702,6 +716,7 @@ export class Info implements InfoProps {
 		this.viewportSourceOrder = new Map(
 			sourceIds.map((sourceId, index) => [sourceId, index]),
 		);
+		if (isEventStoreLodEnabled()) SmartSocket.Class.instance?.setTimelineQueryPriority(sourceIds);
 		this.viewportQueryGate.markViewportChanged();
 		this.notifyViewportSourceListeners();
 		if (this.refetchQueue.length > 0) {
@@ -1233,6 +1248,8 @@ export class Info implements InfoProps {
 	 * @returns Nothing.
 	 */
 	private invalidateOperationStreams = (): void => {
+		this.cancelTimelineSourceUpdateSchedule();
+		this.pendingTimelineSourceUpdates.clear();
 		this.stop_ingestion_resync_poll();
 		this._clear_ingest_source_done_listeners();
 		this.clearViewportQueryPumpTimer();
@@ -1464,25 +1481,10 @@ export class Info implements InfoProps {
 		if (!options?.queryRollback || options.sourceIds.length !== 1) return;
 		const rollback = options.queryRollback;
 		const sourceId = options.sourceIds[0];
-		let restored = false;
-		const files = this.app.target.files.map((source) => {
-			if (source.id !== sourceId) return source;
-			restored = true;
-			return {
-				...source,
-				appliedQuery: rollback.query
-					? cloneQueryForCache(rollback.query)
-					: null,
-				queryCache: { ...rollback.cacheState },
-				settings: {
-					...source.settings,
-					...rollback.normalization,
-				},
-			};
-		});
-		if (!restored) return;
-		this.app.target.files = files;
-		this.setInfoByKey(files, "target", "files");
+		this.queueTimelineSourceUpdate(sourceId, (source) => ({
+			...source, appliedQuery: rollback.query ? cloneQueryForCache(rollback.query) : null,
+			queryCache: { ...rollback.cacheState }, settings: { ...source.settings, ...rollback.normalization },
+		}));
 		RenderEngine.resetSource(sourceId);
 	};
 
@@ -1514,28 +1516,7 @@ export class Info implements InfoProps {
 		if (change.state === "completed" && !isEventStoreLodEnabled()) {
 			this.completeLegacyQueryCacheState(options);
 		}
-		if (
-			change.state === "completed" &&
-			isEventStoreLodEnabled() &&
-			options?.mode === "replace"
-		) {
-			let changed = false;
-			const sourceIds = new Set(options.sourceIds);
-			const files = this.app.target.files.map((source) => {
-				if (!sourceIds.has(source.id) || !source.queryCache.isActivating) {
-					return source;
-				}
-				changed = true;
-				return {
-					...source,
-					queryCache: { ...source.queryCache, isActivating: false },
-				};
-			});
-			if (changed) {
-				this.app.target.files = files;
-				this.setInfoByKey(files, "target", "files");
-			}
-		}
+
 		if (
 			change.descriptor.kind === "ingestion-build" ||
 			change.descriptor.kind === "realtime-ingest"
@@ -1559,6 +1540,7 @@ export class Info implements InfoProps {
 		}).then(() => {
 			if (
 				completed &&
+				!stream.workerOwned &&
 				this.isOperationContextCurrent(
 					change.descriptor.operationEpoch,
 					change.descriptor.operationId as Operation.Id,
@@ -1601,7 +1583,7 @@ export class Info implements InfoProps {
 					total + (Source.Entity.id(this.app, sourceId)?.total ?? 0),
 				0,
 			);
-		if (backendDispatched) this.request_cancel(requestId);
+		if (backendDispatched && !this.activeQueryStreams.get(requestId)?.workerOwned) this.request_cancel(requestId);
 		this.activeEventDocumentStreams.delete(requestId);
 		this.eventDocumentStreamOptions.delete(requestId);
 		this.releaseEventDocumentStream(requestId);
@@ -1704,6 +1686,163 @@ export class Info implements InfoProps {
 				Math.max(this.ingestionProgress.get(sourceId) ?? 0, eventCount),
 			);
 		}
+	};
+
+	/**
+	 * Cancels the pending idle or timer-backed source metadata publication.
+	 * @returns Nothing.
+	 */
+	private cancelTimelineSourceUpdateSchedule = (): void => {
+		if (this.timelineSourceUpdateTimer !== null) {
+			clearTimeout(this.timelineSourceUpdateTimer);
+			this.timelineSourceUpdateTimer = null;
+		}
+		if (this.timelineSourceUpdateIdleCallback !== null) {
+			if (typeof window.cancelIdleCallback === "function") {
+				window.cancelIdleCallback(this.timelineSourceUpdateIdleCallback);
+			}
+			this.timelineSourceUpdateIdleCallback = null;
+		}
+	};
+
+	/**
+	 * Coalesces query-owned source metadata and publishes it when input work is idle.
+	 * @param sourceId Source receiving a metadata transformation.
+	 * @param update Transformation composed with any pending source-local update.
+	 * @returns Nothing.
+	 */
+	private queueTimelineSourceUpdate = (
+		sourceId: Source.Id,
+		update: (source: Source.Type) => Source.Type,
+	): void => {
+		const previous = this.pendingTimelineSourceUpdates.get(sourceId);
+		this.pendingTimelineSourceUpdates.set(
+			sourceId,
+			previous ? (source) => update(previous(source)) : update,
+		);
+		if (
+			this.timelineSourceUpdateTimer !== null ||
+			this.timelineSourceUpdateIdleCallback !== null
+		) {
+			return;
+		}
+		const epoch = DataStore.getRenderOperationEpoch();
+		const publish = (): void => {
+			this.timelineSourceUpdateTimer = null;
+			this.timelineSourceUpdateIdleCallback = null;
+			if (epoch !== DataStore.getRenderOperationEpoch()) {
+				this.pendingTimelineSourceUpdates.clear();
+				return;
+			}
+			this.flushTimelineSourceUpdates();
+		};
+		if (typeof window.requestIdleCallback === "function") {
+			this.timelineSourceUpdateIdleCallback = window.requestIdleCallback(
+				publish,
+				{ timeout: TIMELINE_SOURCE_UPDATE_IDLE_TIMEOUT_MS },
+			);
+			return;
+		}
+		this.timelineSourceUpdateTimer = setTimeout(() => {
+			publish();
+		}, 16);
+	};
+
+	/**
+	 * Publishes queued source changes before another command captures their metadata.
+	 * React receives the collection as a transition so pointer and pan input can preempt it.
+	 * @returns Nothing.
+	 */
+	private flushTimelineSourceUpdates = (): void => {
+		this.cancelTimelineSourceUpdateSchedule();
+		if (!this.pendingTimelineSourceUpdates.size) return;
+		const updates = this.pendingTimelineSourceUpdates;
+		this.pendingTimelineSourceUpdates = new Map();
+		const files = this.app.target.files.map(
+			(source) => updates.get(source.id)?.(source) ?? source,
+		);
+		this.app.target.files = files;
+		startTransition(() => {
+			this.setInfoByKey(files, "target", "files");
+		});
+	};
+
+	/** Applies worker query decisions without receiving or copying event documents. */
+	handleTimelineQueryUpdate = (update: TimelineQueryUpdate): void => {
+		if (
+			!this.isOperationContextCurrent(
+				update.operationEpoch,
+				update.operationId as Operation.Id,
+			)
+		) {
+			return;
+		}
+		const requestId = update.requestId as Request.Id;
+		const options = this.eventDocumentStreamOptions.get(requestId);
+		if (update.state === "failed") {
+			if (update.httpStatus === 401) {
+				void import("./API").then(({ redirectToLogin }) => redirectToLogin());
+			} else {
+				toast.error(
+					update.error ?? translate("eventStore.streamFailed.storage"),
+				);
+			}
+		}
+		if (
+			!options ||
+			this.activeQuerySourceRequests.get(update.sourceId) !== requestId
+		) {
+			return;
+		}
+		if (update.state === "started") {
+			const source = Source.Entity.id(this.app, update.sourceId);
+			if (update.initialized && source) {
+				const baseline = update.activation
+					? this.sourceWithActivatedQueryCache(
+							source,
+							update.activation,
+							update.activation.match,
+						)
+					: null;
+				options.queryRollback = {
+					query: baseline?.appliedQuery ?? null,
+					cacheState: baseline?.queryCache ?? createEmptyQueryCacheState(),
+					normalization: {
+						field: baseline?.settings.field ?? source.settings.field,
+						hash_function:
+							baseline?.settings.hash_function ?? source.settings.hash_function,
+					},
+				};
+			}
+			this.markEventDocumentStreamDispatched(requestId);
+			this.setLoading(requestId, update.sourceId);
+			// QueryWorker publishes the empty building generation after its durable
+			// registration. Clearing the legacy RAM collection here would emit a false
+			// source mutation and projection for every LOD query.
+			if (source && !isEventStoreLodEnabled()) {
+				this.events_reset_in_file(source);
+			}
+			this.queueTimelineSourceUpdate(update.sourceId, (source) => ({
+				...source,
+				appliedQuery: options.queryCache!.query,
+				queryCache: { ...source.queryCache, isActivating: true },
+			}));
+			return;
+		}
+		if (update.state === "cache-hit" && update.activation) {
+			const activation = update.activation;
+			DataStore.publishEventSourceSummary(activation.summary);
+			this.queueTimelineSourceUpdate(update.sourceId, (source) => ({
+				...this.sourceWithActivatedQueryCache(source, activation, activation.match),
+				appliedQuery: options.queryCache!.query,
+			}));
+		} else {
+			this.restoreSourceQueryRollback(options);
+		}
+		this.activeEventDocumentStreams.delete(requestId);
+		this.eventDocumentStreamOptions.delete(requestId);
+		this.releaseEventDocumentStream(requestId);
+		void this.closeQueryStream(requestId, { managedStatus: update.state === "cache-hit" ? "completed" : "canceled" });
 	};
 
 	/**
@@ -1873,7 +2012,7 @@ export class Info implements InfoProps {
 			documentCancellation = this.cancelEventDocumentStream(requestId);
 		}
 
-		if (options.cancelBackend) {
+		if (options.cancelBackend && !stream.workerOwned) {
 			this.request_cancel(requestId);
 		}
 		await documentCancellation?.catch((error: unknown) => {
@@ -1891,7 +2030,9 @@ export class Info implements InfoProps {
 		});
 
 		if (options.clearLoading !== false) {
-			if (stream.sourceIds.length > 0) {
+			if (stream.workerOwned) {
+				this.delLoading(requestId);
+			} else if (stream.sourceIds.length > 0) {
 				stream.sourceIds.forEach((sourceId) => this.delLoadingByFile(sourceId));
 			} else {
 				this.delLoading(requestId);
@@ -2216,45 +2357,18 @@ export class Info implements InfoProps {
 		options: EventDocumentStreamOptions | undefined,
 	): void => {
 		if (!options || summary.status !== "complete") return;
-		let changed = false;
-		const files = this.app.target.files.map((source) => {
-			if (source.id !== summary.sourceId) return source;
-
-			if (options.mode === "upsert") {
-				if (source.queryCache.activeGeneration === null) return source;
-				changed = true;
-				return {
-					...source,
-					queryCache: {
-						...source.queryCache,
-						freshness: "mutated" as const,
-						warningReason: "mutated" as const,
-					},
-				};
-			}
-
-			const provenance = options.queryCache;
-			if (!provenance || summary.activeCacheGeneration !== summary.generation) {
-				return source;
-			}
-			if (
-				options.queryRollback?.cacheState.activeGeneration === summary.generation
-			) {
-				return source;
-			}
-			changed = true;
-			return {
-				...source,
-				appliedQuery: cloneQueryForCache(provenance.query),
-				queryCache: this.createRuntimeQueryCacheState(
-					summary,
-					"fresh",
-				),
-			};
-		});
-		if (!changed) return;
-		this.app.target.files = files;
-		this.setInfoByKey(files, "target", "files");
+		if (options.mode === "upsert") {
+			this.queueTimelineSourceUpdate(summary.sourceId, (source) => source.queryCache.activeGeneration === null ? source : ({
+				...source, queryCache: { ...source.queryCache, freshness: "mutated", warningReason: "mutated" },
+			}));
+			return;
+		}
+		const provenance = options.queryCache;
+		if (!provenance || summary.activeCacheGeneration !== summary.generation || options.queryRollback?.cacheState.activeGeneration === summary.generation) return;
+		this.queueTimelineSourceUpdate(summary.sourceId, (source) => ({
+			...source, appliedQuery: cloneQueryForCache(provenance.query),
+			queryCache: this.createRuntimeQueryCacheState(summary, "fresh"),
+		}));
 	};
 
 	/**
@@ -2468,8 +2582,9 @@ export class Info implements InfoProps {
 	 * @param options.name - Optional name label for this search action.
 	 * @param options.frame - Optional rendered timeframe to persist before the
 	 * current timeline frame is applied as every source query's base range.
-	 * @param options.cachePolicy - Initial cache reconciliation or forced backend query.
+	 * @param options.cachePolicy - Reuse a valid cache or force HTTP; startup pruning is worker-owned.
 	 * @param options.query - Optional query to apply instead of the current source query.
+	 * @param options.queriesBySourceId - Prepared per-source queries from a bulk action.
 	 * @param options.normalizationRollback - Previous hash settings restored on failure.
 	 * @returns A promise that resolves when all queries are queued.
 	 */
@@ -2483,10 +2598,13 @@ export class Info implements InfoProps {
 		notes_glyph_id,
 		name,
 		frame,
-		cachePolicy = "force",
+		cachePolicy = "reuse",
+		queriesBySourceId,
 		query: requestedQuery,
 		normalizationRollback,
 	}: RefetchOptions = {}) => {
+		this.flushTimelineSourceUpdates();
+		const refetchEpoch = DataStore.getRenderOperationEpoch();
 		const files: Source.Type[] = Parser.array(_ids).map((id) =>
 			Source.Entity.id(this.app, id),
 		).filter(Boolean);
@@ -2508,10 +2626,14 @@ export class Info implements InfoProps {
 		effectiveFrame ??= this.app.timeline.frame;
 
 		const sourceQueries = files.map((file) => {
+			const previousRequest = this.activeQuerySourceRequests.get(file.id);
+			const previousRollback = previousRequest
+				? this.eventDocumentStreamOptions.get(previousRequest)?.queryRollback
+				: undefined;
 			const query = Filter.Entity.scopeToSource(
 				this.app,
 				file,
-				requestedQuery ?? this.getQuery(file),
+				requestedQuery ?? queriesBySourceId?.[file.id] ?? file.appliedQuery ?? Filter.Entity.default(this.app, file.id),
 				effectiveFrame,
 			);
 			return {
@@ -2522,7 +2644,11 @@ export class Info implements InfoProps {
 					query,
 					refetchKeys?.[file.id],
 				),
-				rollback: {
+				rollback: previousRollback ? {
+					query: previousRollback.query ? cloneQueryForCache(previousRollback.query) : null,
+					cacheState: { ...previousRollback.cacheState },
+					normalization: { ...previousRollback.normalization },
+				} : {
 					query: file.appliedQuery
 						? cloneQueryForCache(file.appliedQuery)
 						: null,
@@ -2535,15 +2661,98 @@ export class Info implements InfoProps {
 			};
 		});
 
-		this.notes_reload();
-		this.links_reload();
-		this.highlights_reload();
+		const overlayScope = JSON.stringify([
+			refetchEpoch,
+			Source.Entity.selected(this.app)
+				.map((source) => [source.id, source.settings.field, source.settings.hash_function])
+				.sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
+		]);
+		if (this.refetchOverlayScope !== overlayScope) {
+			this.refetchOverlayScope = overlayScope;
+			void this.notes_reload();
+			void this.links_reload();
+			this.highlights_reload();
+		}
 
 		await this.cancelQueryStreamsForSources(
 			files.map((file) => file.id),
 			true,
 		);
 		this.removeQueuedRefetchesForSources(files.map((file) => file.id));
+		if (!this.isOperationContextCurrent(refetchEpoch, files[0].operation_id)) return;
+
+		if (isEventStoreLodEnabled()) {
+			const socket = SmartSocket.Class.instance;
+			if (!socket) throw new Error("Query transport is unavailable.");
+			const epoch = DataStore.getRenderOperationEpoch();
+			const requests: TimelineQueryRequest[] = sourceQueries.map(({ file, query, provenance, rollback }) => {
+				const requestId = generateUUID(Request.Prefix.QUERY) as Request.Id;
+				const stream = this.registerQueryStream(requestId, [file.id], file.operation_id, epoch);
+				stream.workerOwned = true;
+				this.activeEventDocumentStreams.add(requestId);
+				this.eventDocumentStreamOptions.set(requestId, {
+					requestId, sourceIds: [file.id], operationId: file.operation_id,
+					kind: "query", mode: "replace", queryCache: provenance, queryRollback: rollback,
+				});
+				const body = Filter.Entity.body(query);
+				body.q_options.limit = 10000;
+				body.q_options.fields = refetchKeys?.[file.id] ?? [file.settings.field];
+				if (addToHistory) body.q_options.add_to_history = true;
+				if (create_notes) {
+					Object.assign(body.q_options, { create_notes: true, notes_color: notes_color ?? Default.Color.NOTE, notes_tags, notes_glyph_id, name });
+					stream.collabListenerId = socket.con(SmartSocket.Message.Type.COLLAB_CREATE,
+						(message) => message.req_id === requestId && this.isQueryStreamCurrent(stream),
+						(message) => {
+							if (Array.isArray(message.payload.obj)) {
+								const notes = message.payload.obj.filter((item: { type?: string }) => item.type === "note") as Note.Type[];
+								if (notes.length) this.AddNotesToDataStore(notes);
+							}
+						});
+				}
+				const range = provenance.query.source_config!.range!;
+				return {
+					sourceId: file.id,
+					body,
+					cachePolicy: create_notes || cachePolicy === "force" ? "force" : "reuse",
+					desired: {
+						fingerprint: provenance.fingerprint,
+						shapeFingerprint: provenance.shapeFingerprint!,
+						range: { min: String(range.min), max: String(range.max) },
+						serverSnapshot: provenance.serverSnapshot,
+					},
+					descriptor: {
+						requestId,
+						operationId: file.operation_id,
+						operationEpoch: epoch,
+						owner: "persist",
+						kind: "replace",
+						completionMode: "last",
+						sourceIds: [file.id],
+						sourceSettingsById: {
+							[file.id]: { field: file.settings.field, hash_function: file.settings.hash_function },
+						},
+						expectedEvents: file.total,
+						queryCache: provenance,
+						durableProjectionOnly: true,
+					},
+				};
+			});
+			socket.setTimelineQueryPriority([...this.viewportSourceIds]);
+			try {
+				await socket.startTimelineQueries(requests);
+			} catch (error) {
+				for (const request of requests) {
+					this.handleTimelineQueryUpdate({
+						...request.descriptor,
+						sourceId: request.sourceId,
+						state: "failed",
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				throw error;
+			}
+			return;
+		}
 
 		let backendQueries = sourceQueries;
 		if (cachePolicy === "initial") {
@@ -5925,13 +6134,12 @@ export class Info implements InfoProps {
 	 * @param file_id Source affected by the request.
 	 * @returns Nothing.
 	 */
-	setLoading(req_id: Request.Id, file_id: Source.Id) {
+	setLoading(req_id: Request.Id, file_id: Source.Id): void {
 		const req = requestStore.getRequests().find((r) => r.id === req_id);
 		if (req && !ACTIVE_REQUEST_STATUSES.has(req.status)) return;
 
 		requestStore.setLoading(req_id, file_id);
 		this.app.general.loadings = requestStore.getLoadings();
-		DataStore.markDirty();
 	}
 
 	/**
@@ -5939,10 +6147,9 @@ export class Info implements InfoProps {
 	 * @param file_id Source identifier.
 	 * @returns Nothing.
 	 */
-	delLoadingByFile(file_id: Source.Id) {
+	delLoadingByFile(file_id: Source.Id): void {
 		requestStore.deleteLoadingByFile(file_id);
 		this.app.general.loadings = requestStore.getLoadings();
-		DataStore.markDirty();
 	}
 
 	/**
@@ -5950,10 +6157,9 @@ export class Info implements InfoProps {
 	 * @param req_id Backend request identifier.
 	 * @returns Nothing.
 	 */
-	delLoading(req_id: Request.Id) {
+	delLoading(req_id: Request.Id): void {
 		requestStore.deleteLoadingByRequest(req_id);
 		this.app.general.loadings = requestStore.getLoadings();
-		DataStore.markDirty();
 	}
 
 	/**
@@ -7782,10 +7988,10 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Resolves one query or supplemental source edge without loading or reversing
-	 * its complete persisted event list.
+	 * Resolves one canonical query or supplemental source edge without loading or
+	 * reversing its complete persisted event list.
 	 * @param sourceId Source whose edge is requested.
-	 * @param newest Whether to return the newest rather than oldest timestamp.
+	 * @param newest Whether to return the newest rather than oldest event.
 	 * @returns One exact query or note-linked edge event, or null for an empty source.
 	 */
 	getTimelineSourceEdge = async (
@@ -7796,37 +8002,30 @@ export class Info implements InfoProps {
 		for (let attempt = 0; attempt < 2; attempt++) {
 			let supplementalEdge: Doc.Type | null = null;
 			for (const event of DataStore.getSupplementalEvents(sourceId)) {
-				if (
-					!supplementalEdge ||
-					(newest
-						? event.gulp_timestamp > supplementalEdge.gulp_timestamp
-						: event.gulp_timestamp < supplementalEdge.gulp_timestamp)
-				) {
+				const comparison = supplementalEdge
+					? compareEventDocuments(event, supplementalEdge)
+					: 0;
+				if (!supplementalEdge || (newest ? comparison < 0 : comparison > 0)) {
 					supplementalEdge = event;
 				}
 			}
-			const summary =
-				DataStore.getEventSourceSummary(sourceId) ??
-				(await DataStore.Events.getSourceSummary(sourceId));
-			if (!summary || summary.eventCount === 0) {
-				return DataStore.getRenderOperationEpoch() === operationEpoch
-					? supplementalEdge
-					: null;
-			}
-			const timestamp = newest ? summary.maxTimestamp : summary.minTimestamp;
-			const page = await DataStore.Events.queryPixelBucket(
-				sourceId,
-				{ min: timestamp, max: timestamp },
-				1,
-			);
+			const edge = await DataStore.Events.getSourceEdge(sourceId, newest);
 			if (DataStore.getRenderOperationEpoch() !== operationEpoch) return null;
-			if (attempt === 0 && page.sourceRevision !== summary.revision) continue;
-			const queryEdge = page.events[0] ?? null;
+			const currentRevision = DataStore.getSourceRevision(sourceId);
+			if (
+				attempt === 0 &&
+				currentRevision > 0 &&
+				currentRevision !== edge.sourceRevision
+			) {
+				continue;
+			}
+			const queryEdge = edge.event;
 			if (!queryEdge) return supplementalEdge;
 			if (!supplementalEdge) return queryEdge;
+			const comparison = compareEventDocuments(supplementalEdge, queryEdge);
 			const supplementalIsOuterEdge = newest
-				? supplementalEdge.gulp_timestamp > queryEdge.gulp_timestamp
-				: supplementalEdge.gulp_timestamp < queryEdge.gulp_timestamp;
+				? comparison < 0
+				: comparison > 0;
 			return supplementalIsOuterEdge ? supplementalEdge : queryEdge;
 		}
 		return null;
@@ -8094,7 +8293,6 @@ export class Info implements InfoProps {
 		if (!query) {
 			const q = Filter.Entity.default(this.app, file.id);
 
-			this.setQuery(file, q);
 
 			return q;
 		}
@@ -8103,7 +8301,7 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Resets one source query and creates a new backend-backed cache generation.
+	 * Resets one source query through a forced backend fetch and replaces cache authority.
 	 * @param file Source whose filters should be cleared.
 	 * @returns Promise resolved after the replacement query is queued.
 	 */
@@ -8113,6 +8311,7 @@ export class Info implements InfoProps {
 		return this.refetch({
 			ids: source.id,
 			query: Filter.Entity.default(this.app, source),
+			cachePolicy: "force",
 		});
 	};
 

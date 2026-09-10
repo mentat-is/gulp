@@ -37,6 +37,24 @@ describe("requestStore managed queries", () => {
 		expect(abortController.signal.aborted).toBe(false);
 	});
 
+	it("keeps the newer source loading marker when an older request finishes", () => {
+		requestStore.setLoading(requestId, sourceId);
+		requestStore.setLoading(secondRequestId, sourceId);
+		requestStore.deleteLoadingByRequest(requestId);
+		expect(requestStore.getRequestIdByFile(sourceId)).toBe(secondRequestId);
+		expect(requestStore.getLoadings().byRequestId.has(requestId)).toBe(false);
+	});
+
+	it("keeps the loading snapshot stable for redundant and unrelated updates", () => {
+		requestStore.setLoading(requestId, sourceId);
+		const loadings = requestStore.getLoadings();
+		requestStore.setLoading(requestId, sourceId);
+		requestStore.deleteLoadingByRequest(secondRequestId);
+		requestStore.deleteLoadingByFile(secondSourceId);
+		requestStore.registerManagedQuery({ requestId: secondRequestId, operationId, sourceIds: [secondSourceId] });
+		expect(requestStore.getLoadings()).toBe(loadings);
+	});
+
 	it("attaches abort controllers and cancels managed queries", () => {
 		const abortController = new AbortController();
 
@@ -69,5 +87,26 @@ describe("requestStore managed queries", () => {
 				.getManagedQueriesForOperation(operationId)
 				.map((request) => request.requestId),
 		).toEqual([requestId]);
+	});
+
+	it("preserves unchanged managed-query records across lifecycle updates", () => {
+		requestStore.registerManagedQuery({
+			requestId,
+			operationId,
+			sourceIds: [sourceId],
+		});
+		const unchangedRequest = requestStore.getManagedQuery(requestId);
+		requestStore.registerManagedQuery({
+			requestId: secondRequestId,
+			operationId,
+			sourceIds: [secondSourceId],
+		});
+
+		requestStore.completeManagedQuery(secondRequestId);
+
+		expect(requestStore.getManagedQuery(requestId)).toBe(unchangedRequest);
+		expect(requestStore.getManagedQuery(secondRequestId)?.status).toBe(
+			"completed",
+		);
 	});
 });

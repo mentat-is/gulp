@@ -1,164 +1,164 @@
-import type { QueryCacheState } from "@/entities/QueryCache";
-import type { Source } from "@/entities/Source";
-import { Request } from "@/entities/Request";
 import { Locale } from "@/locales";
-import { useScrollY } from "@/store/scroll.store";
-import { requestStore } from "@/store/request.store";
-import { Icon } from "@/ui/Icon";
-import { getRenderSourceLabel } from "@/render-worker/RenderSourceLabel";
-import { useSyncExternalStore } from "react";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipProvider,
-	TooltipTrigger,
-} from "@/ui/Tooltip";
+	forwardRef,
+	useImperativeHandle,
+	useRef,
+	type ForwardedRef,
+	type ReactElement,
+} from "react";
+import tooltipStyles from "@/ui/styles/Tooltip.module.css";
 import s from "./styles/Canvas.module.css";
 
-const SOURCE_ROW_HEIGHT = 48;
-const CACHE_WARNING_TOP_OFFSET = 14;
-const CACHE_WARNING_ICON_SIZE = 14;
-const CACHE_WARNING_COLOR = "#facc15";
+const TOOLTIP_POINTER_OFFSET = 12;
+const TOOLTIP_VIEWPORT_MARGIN = 8;
 
-interface CanvasCacheWarningOverlayProps {
-	sources: readonly Source.Type[];
+/** Canvas-relative tooltip anchor and clipping bounds. */
+export interface CanvasCacheWarningTooltipAnchor {
+	sourceId: string;
+	x: number;
+	y: number;
+	bounds: { width: number; height: number };
 }
 
-interface SourceLoadingTranslations {
-	ingestingSuffix: string;
-	loadingSuffix: string;
+/** Imperative tooltip API used without scheduling a Canvas React render. */
+export interface CanvasCacheWarningTooltipHandle {
+	show: (anchor: CanvasCacheWarningTooltipAnchor) => void;
+	hide: () => void;
 }
 
-/**
- * Resolves the request decoration appended by the Canvas source renderers.
- * @param requestId Active backend request identifier for the source.
- * @param translations Localized loading and ingestion decorations.
- * @returns Matching localized suffix, or an empty string for no known request.
- */
-export function getCanvasSourceLoadingSuffix(
-	requestId: Request.Id | undefined,
-	translations: SourceLoadingTranslations,
-): string {
-	if (!requestId) return "";
-	const parts = requestId.split("-");
-	if (parts.length === 1) return "";
-	const prefix = parts[0] as Request.Prefix;
-	if (!Object.values(Request.Prefix).includes(prefix)) return "";
-	return prefix === Request.Prefix.INGESTION
-		? translations.ingestingSuffix
-		: translations.loadingSuffix;
+/** Measured tooltip size used by the pure clamp calculation. */
+export interface CanvasCacheWarningTooltipSize {
+	width: number;
+	height: number;
+}
+
+/** Minimal legacy warning region consumed by main-thread pointer handling. */
+export interface CanvasCacheWarningHitRegion {
+	sourceId: string;
+	rect: { x: number; y: number; w: number; h: number };
 }
 
 /**
- * Determines whether one source is displaying warning-state data from its cache pool.
- * @param queryCache Runtime cache authority and freshness state for the source.
- * @returns True only for an active, settled cache carrying a freshness warning.
+ * Resolves the topmost legacy cache warning at one Canvas coordinate.
+ * @param regions Warning rectangles in paint order.
+ * @param x Canvas-relative pointer x coordinate.
+ * @param y Canvas-relative pointer y coordinate.
+ * @returns Compact cache-warning identity, or null outside every warning.
  */
-export function shouldShowCanvasCacheWarning(
-	queryCache: QueryCacheState,
-): boolean {
-	return (
-		queryCache.activeGeneration !== null &&
-		!queryCache.isActivating &&
-		queryCache.warningReason !== null &&
-		queryCache.freshness !== "fresh"
+export function hitTestCanvasCacheWarning(
+	regions: readonly CanvasCacheWarningHitRegion[],
+	x: number,
+	y: number,
+): { kind: "cache-warning"; id: string } | null {
+	for (let index = regions.length - 1; index >= 0; index--) {
+		const region = regions[index];
+		if (
+			x >= region.rect.x &&
+			x <= region.rect.x + region.rect.w &&
+			y >= region.rect.y &&
+			y <= region.rect.y + region.rect.h
+		) {
+			return { kind: "cache-warning", id: region.sourceId };
+		}
+	}
+	return null;
+}
+
+/**
+ * Positions a warning tooltip near its entry pointer and clamps it to the Canvas.
+ * @param anchor Pointer entry coordinate and Canvas bounds.
+ * @param size Tooltip dimensions measured once for this entry.
+ * @returns Canvas-relative tooltip origin.
+ */
+export function resolveCanvasCacheWarningTooltipPosition(
+	anchor: CanvasCacheWarningTooltipAnchor,
+	size: CanvasCacheWarningTooltipSize,
+): { x: number; y: number } {
+	const maximumX = Math.max(
+		TOOLTIP_VIEWPORT_MARGIN,
+		anchor.bounds.width - size.width - TOOLTIP_VIEWPORT_MARGIN,
 	);
-}
-
-/**
- * Determines whether a warning-state cache belongs to the rendered source row.
- * Cached queries are source-scoped, so their persisted source id must match the
- * runtime source id exactly; a display name is never an identity boundary.
- * @param source Source row carrying cache state and its applied query provenance.
- * @returns True only when the warning belongs to this exact source id.
- */
-export function shouldShowCanvasSourceCacheWarning(
-	source: Pick<Source.Type, "id" | "appliedQuery" | "queryCache">,
-): boolean {
-	const querySourceIds = source.appliedQuery?.source_config?.source_ids;
-	return (
-		querySourceIds?.length === 1 &&
-		querySourceIds[0] === source.id &&
-		shouldShowCanvasCacheWarning(source.queryCache)
+	const maximumY = Math.max(
+		TOOLTIP_VIEWPORT_MARGIN,
+		anchor.bounds.height - size.height - TOOLTIP_VIEWPORT_MARGIN,
 	);
-}
-
-/**
- * Positions one warning icon on the source-name baseline for the current scroll.
- * @param rowIndex Source index in rendered timeline order.
- * @param scrollY Current vertical Canvas scroll offset.
- * @returns CSS top coordinate for the icon row.
- */
-export function getCanvasCacheWarningTop(
-	rowIndex: number,
-	scrollY: number,
-): number {
-	return rowIndex * SOURCE_ROW_HEIGHT - scrollY + CACHE_WARNING_TOP_OFFSET;
-}
-
-/**
- * Renders accessible cache-warning icons over both worker and legacy Canvas labels.
- * @param props Ordered rendered sources used to align each icon with its label.
- * @returns One shared tooltip layer containing only active cached warnings.
- */
-export function CanvasCacheWarningOverlay({
-	sources,
-}: CanvasCacheWarningOverlayProps) {
-	const scrollY = useScrollY();
-	const requests = useSyncExternalStore(
-		requestStore.subscribe,
-		requestStore.getSnapshot,
-		requestStore.getSnapshot,
-	);
-	const { t } = Locale.use();
-	const tooltip = t("source.cacheWarning.loadedFromCache");
-	const loadingTranslations: SourceLoadingTranslations = {
-		ingestingSuffix: t("renderEngine.ingestingSuffix"),
-		loadingSuffix: t("renderEngine.loadingSuffix"),
+	let x = anchor.x + TOOLTIP_POINTER_OFFSET;
+	if (x + size.width > anchor.bounds.width - TOOLTIP_VIEWPORT_MARGIN) {
+		x = anchor.x - TOOLTIP_POINTER_OFFSET - size.width;
+	}
+	let y = anchor.y - TOOLTIP_POINTER_OFFSET - size.height;
+	if (y < TOOLTIP_VIEWPORT_MARGIN) y = anchor.y + TOOLTIP_POINTER_OFFSET;
+	return {
+		x: Math.min(maximumX, Math.max(TOOLTIP_VIEWPORT_MARGIN, x)),
+		y: Math.min(maximumY, Math.max(TOOLTIP_VIEWPORT_MARGIN, y)),
 	};
+}
+
+/**
+ * Renders the one DOM tooltip shared by every Canvas cache-warning hit region.
+ * @param props No declarative state is required; visibility is fully imperative.
+ * @param forwardedRef Handle receiving show and hide operations.
+ * @returns One normally hidden, non-interactive tooltip node.
+ */
+function CanvasCacheWarningTooltipComponent(
+	_props: object,
+	forwardedRef: ForwardedRef<CanvasCacheWarningTooltipHandle>,
+): ReactElement {
+	const { t } = Locale.use();
+	const tooltipRef = useRef<HTMLDivElement>(null);
+	const visibleSourceIdRef = useRef<string | null>(null);
+
+	useImperativeHandle(
+		forwardedRef,
+		() => ({
+			/** Shows and measures the tooltip only when entering a different warning. */
+			show: (anchor): void => {
+				if (visibleSourceIdRef.current === anchor.sourceId) return;
+				const tooltip = tooltipRef.current;
+				if (!tooltip) return;
+				visibleSourceIdRef.current = anchor.sourceId;
+				tooltip.hidden = false;
+				tooltip.setAttribute("aria-hidden", "false");
+				tooltip.dataset.sourceId = anchor.sourceId;
+				tooltip.style.transform = "translate3d(0, 0, 0)";
+				const measured = tooltip.getBoundingClientRect();
+				const position = resolveCanvasCacheWarningTooltipPosition(anchor, {
+					width: measured.width,
+					height: measured.height,
+				});
+				tooltip.style.transform = `translate3d(${position.x}px, ${position.y}px, 0)`;
+			},
+			/** Hides the tooltip and releases its entry identity. */
+			hide: (): void => {
+				visibleSourceIdRef.current = null;
+				const tooltip = tooltipRef.current;
+				if (!tooltip) return;
+				tooltip.hidden = true;
+				tooltip.setAttribute("aria-hidden", "true");
+				delete tooltip.dataset.sourceId;
+			},
+		}),
+		[],
+	);
 
 	return (
-		<TooltipProvider>
-			<div className={s.cache_warning_layer}>
-				{sources.map((source, rowIndex) =>
-					shouldShowCanvasSourceCacheWarning(source) ? (
-						<div
-							key={source.id}
-							className={s.cache_warning_row}
-							style={{ top: getCanvasCacheWarningTop(rowIndex, scrollY) }}
-							data-source-cache-warning={source.id}
-						>
-							<span className={s.cache_warning_label} aria-hidden="true">
-								{getRenderSourceLabel(
-									source,
-									getCanvasSourceLoadingSuffix(
-										requests.loadings.byFileId.get(source.id),
-										loadingTranslations,
-									),
-								)}
-							</span>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<span
-										className={s.cache_warning_icon}
-										role="img"
-										aria-label={tooltip}
-										tabIndex={0}
-									>
-										<Icon
-											name="AlertTriangle"
-											size={CACHE_WARNING_ICON_SIZE}
-											color={CACHE_WARNING_COLOR}
-											aria-hidden="true"
-										/>
-									</span>
-								</TooltipTrigger>
-								<TooltipContent side="top">{tooltip}</TooltipContent>
-							</Tooltip>
-						</div>
-					) : null,
-				)}
-			</div>
-		</TooltipProvider>
+		<div
+			ref={tooltipRef}
+			className={`${tooltipStyles.tooltip} ${s.cache_warning_tooltip}`}
+			role="tooltip"
+			aria-hidden="true"
+			data-canvas-cache-warning-tooltip="true"
+			hidden
+		>
+			{t("source.cacheWarning.loadedFromCache")}
+		</div>
 	);
 }
+
+export const CanvasCacheWarningTooltip = forwardRef<
+	CanvasCacheWarningTooltipHandle,
+	object
+>(
+	CanvasCacheWarningTooltipComponent,
+);
+CanvasCacheWarningTooltip.displayName = "CanvasCacheWarningTooltip";

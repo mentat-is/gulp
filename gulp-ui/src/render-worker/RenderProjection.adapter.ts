@@ -38,6 +38,7 @@ export interface RenderSourceProjectionInput {
 	contextColor: string;
 	contextTintAlpha?: number;
 	loadingKind: RenderLoadingKind;
+	cacheWarning: boolean;
 	gradient: string[];
 	customPaletteColors?: string[];
 }
@@ -95,6 +96,37 @@ export function resolveRenderAssetIconName(assetKey: string): string | null {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Creates the semantic source-metadata signature used to advance worker revisions.
+ * @param input Source projection values that can affect a rendered row.
+ * @returns Stable serialized signature, including the derived cache-warning flag.
+ */
+export function createRenderSourceMetadataSignature(
+	input: RenderSourceProjectionInput,
+): string {
+	const { source } = input;
+	return JSON.stringify([
+		source.name,
+		source.total,
+		source.timestamp.min,
+		source.timestamp.max,
+		source.settings.offset,
+		source.settings.render_engine,
+		source.settings.timeline_label,
+		source.settings.frequency_sample,
+		source.settings.render_color_palette,
+		source.settings.color_override?.lookup ?? null,
+		source.settings.color_palette?.id ?? null,
+		input.customPaletteColors ?? null,
+		input.contextLabel,
+		input.contextColor,
+		input.contextTintAlpha ?? 0.08,
+		input.loadingKind,
+		input.cacheWarning,
+		input.rowOrder,
+	]);
 }
 
 /**
@@ -176,6 +208,7 @@ export class RenderProjectionAdapter {
 			},
 			total: source.total,
 			loadingKind: input.loadingKind,
+			cacheWarning: input.cacheWarning,
 			offset: source.settings.offset,
 			engine: source.settings.render_engine,
 			frequency: source.settings.frequency_sample,

@@ -2,8 +2,19 @@
 
 ## Advanced Filtering and Querying
 
-- `Source query cache pool`: Added up to five IndexedDB query generations per source, exact startup reuse with latest-cache fallback, source-local Undo/Redo, query provenance restoration, rollback-safe forced queries, and cache invalidation for rebase/source deletion.
-- `Source query range coverage`: Reuses fresh same-query caches when their source-local range covers the newly selected timeframe, while preserving source-change warnings and latest-cache fallback behavior.
+- `Shared timeline queries`: FilterFile, Navigator and source selection now queue
+  source batches in QueryWorker, with independent cache lookup, four concurrent
+  HTTP streams, visible-source priority and cancellation fences. Only complete,
+  fresh, compatible results are reused; note creation forces a server execution.
+- `Operation history reset`: The first selection of each source in an operation
+  session prunes old history to one valid baseline. Later queries and reselection
+  retain up to five generations, with rollback across consecutive cancellations.
+- `Source query cache pool`: Added up to five IndexedDB query generations per source, compatible startup reuse, source-local Undo/Redo, query provenance restoration, rollback-safe forced queries, and cache invalidation for rebase/source deletion.
+- `Source query range coverage`: Reuses fresh same-query caches when their source-local range covers the newly selected timeframe; stale or unrelated results require a server query.
+- `Post-ingest cache reuse`: Preserves a complete warning cache as the initial
+  source baseline and records the ingestion generation's terminal materialized
+  range, preventing source/timeframe selection from issuing a duplicate
+  `query_raw`; later incompatible filters and explicit force actions still query.
 - `Table View deep pagination`: Keeps a point-in-time snapshot per semantic table query, reuses page cursors for adjacent navigation, supports direct jumps beyond the OpenSearch result window, and releases snapshots when the table query changes or closes.
 - `Table View wide schemas`: Added opt-in horizontal column virtualization,
   complete virtualized and searchable column visibility, non-blocking
@@ -14,6 +25,36 @@
 
 ## UI/UX and Rendering
 
+- `Source reset and edge navigation`: Source-menu filter reset now always starts
+  a backend query instead of reusing a cached generation. First/last event actions
+  resolve the full canonical timestamp/sequence edge across EventStore pages, so
+  an oldest event with `event.sequence` zero is selected correctly.
+- `Vertical LOD pan responsiveness`: Keyed projection preemption by the
+  vertically overscanned source window, rejected stale windows missing any
+  currently visible source, and deferred autosave serialization until pan or
+  zoom input is quiet.
+- `Streaming replay validation`: Configurable event totals and source distributions
+  exercise real QueryWorker persistence, IndexedDB and RenderWorker during native
+  pan/zoom. The runner records whole-query latency, queue bounds, disk/memory use,
+  exact source counts, deterministic samples and subsequent cache hits.
+- `Progressive projection delivery`: Adopts compatible covered projections after
+  pan/zoom and accepts source updates independently, preventing continuous input
+  or another source's completion from discarding every progressive refresh.
+- `Boundary refinement cache`: Retains only the render columns of exact pixel
+  boundary blocks under a 128 MiB cap, avoiding repeated full-page IndexedDB clones.
+  Source-indexed eviction keeps offscreen cleanup proportional to that source.
+- `Large-source progressive detail`: Default-engine sources building at least one
+  million events use a four-pixel minimum preview bucket and restore normal detail
+  at completion, preserving exact stored events and per-bucket representatives.
+- `Timeline movement during queries`: Batched source updates, selective loading
+  notifications and separate metadata/data revisions avoid redundant projections.
+  LOD query starts rely on the worker-owned durable `building` generation
+  instead of also clearing main-thread documents. Loading/source metadata runs as
+  bounded idle work, React source publication is interruptible, cache warnings
+  render inside Canvas with one imperative tooltip, and managed-query status updates avoid
+  deep burst copies. Persisted pages and per-source completion remain progressive;
+  covered building projections support pan/zoom while refreshes are coalesced
+  within 250 ms.
 - `Post-ingest timeline movement`: Reused complete transferred projections while
   normal pans remain inside horizontal overscan, while preserving fresh requests
   for building sources, authority changes, and terminal convergence.
@@ -27,7 +68,7 @@
   a source-menu-styled context menu that can reuse caches while refetching or
   authoritatively reset filters in bulk for every selected source, including
   sources hidden from the Canvas.
-- `Cache freshness`: Added localized query summaries and freshness reasons to the source menu. A shared DOM `AlertTriangle` with a cache-origin tooltip now marks only the exact source ID owning a settled active warning; same-name sources, valid caches, and newly fetched backend results remain unmarked.
+- `Cache freshness`: Added localized query summaries and freshness reasons to the source menu. Worker and legacy Canvas now paint `AlertTriangle` only for the exact source ID owning a settled active warning, expose topmost pointer hit regions, and share one clamped imperative DOM tooltip; the legacy singleton also initializes scroll coordinates on its first frame. Same-name sources, valid caches, and newly fetched backend results remain unmarked.
 - `Frame-local counts`: Canvas source labels now show the exact event count inside the selected timeframe even when the active IndexedDB generation covers a wider range.
 - `External query ingestion`: Opened live source selection when an external
   ingestion is accepted and made closing it return to the configured Query

@@ -4,6 +4,8 @@ import type { Operation } from "@/entities/Operation";
 import { Source } from "@/entities/Source";
 import type { EventSourceSummary } from "@/event-store/EventStore.types";
 import { DataStore } from "@/store/DataStore";
+import { requestStore } from "@/store/request.store";
+import type { Request } from "@/entities/Request";
 
 jest.mock("@/entities/addon/Parser", () => ({
 	Parser: {
@@ -138,7 +140,21 @@ function createBuildingSummary(
 
 describe("Source progressive LOD visibility", () => {
 	beforeEach(() => {
+		requestStore.reset();
 		DataStore.resetRenderOperation(OPERATION_ID);
+	});
+
+	it("keeps the query stripe visible before the first page and hides a completed empty source", () => {
+		const source = createSource();
+		const app = createApp(source);
+		const requestId = "pending-source-query" as Request.Id;
+		DataStore.publishEventSourceSummary(createBuildingSummary(), "immediate");
+		expect(Source.Entity.rendered(app)).toEqual([]);
+		requestStore.setLoading(requestId, SOURCE_ID);
+		expect(Source.Entity.rendered(app).map(({ id }) => id)).toEqual([SOURCE_ID]);
+		DataStore.publishEventSourceSummary(createBuildingSummary({ revision: 2, status: "complete" }), "immediate");
+		requestStore.deleteLoadingByRequest(requestId);
+		expect(Source.Entity.rendered(app)).toEqual([]);
 	});
 
 	it("invalidates hidden-source membership on the first positive building summary", () => {

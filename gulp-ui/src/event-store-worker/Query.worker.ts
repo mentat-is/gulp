@@ -24,6 +24,7 @@ function postWorkerEvent(
 }
 
 const callbacks: QueryTransportCallbacks = {
+	onTimelineQueryUpdate: (update) => postWorkerEvent({ type: "TIMELINE_QUERY_UPDATE", update }),
 	onSocketState: (state) => postWorkerEvent({ type: "SOCKET_STATE", state }),
 	onSocketOpen: () => postWorkerEvent({ type: "SOCKET_OPEN" }),
 	onSocketClose: (details) =>
@@ -89,6 +90,15 @@ async function handleCommand(command: QueryWorkerCommand): Promise<void> {
 			} catch (error) {
 				completeControl(command.controlId, error);
 			}
+			break;
+		case "START_TIMELINE_QUERIES":
+			try {
+				await requireSession().startTimelineQueries(command.requests);
+				completeControl(command.controlId);
+			} catch (error) { completeControl(command.controlId, error); }
+			break;
+		case "SET_TIMELINE_QUERY_PRIORITY":
+			requireSession().setTimelineQueryPriority(command.sourceIds);
 			break;
 		case "REGISTER_STREAM":
 			try {

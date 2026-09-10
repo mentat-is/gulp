@@ -81,8 +81,9 @@ selected sources.
 ## Apply, Reset, and Undo
 
 Apply saves the final filter and refetches selected sources. Reset removes active
-filters for a source and refetches it. Undo is available when the timeline cache
-contains previous data for the source.
+filters for a source and always queries the backend instead of activating a cached
+generation; the completed result becomes the new cache authority. Undo is available
+when the timeline cache contains previous data for the source.
 
 Source context menu filter actions:
 
@@ -94,9 +95,9 @@ Right-clicking an empty area below the source rows opens the global timeline
 menu. Its actions always target every user-selected source, including sources
 currently excluded by the timeline text filter or hidden-empty-source setting:
 
-- **Refetch all** reconciles the existing source caches exactly like the first
-  render after source selection and queries the backend only where no reusable
-  cache is available;
+- **Refetch all** reuses complete, fresh, compatible source caches and queries the
+  backend where no reusable cache is available. During the session it preserves
+  Undo/Redo history; only each source's first initialization resets old history;
 - **Reset all filters** clears each selected source query and performs one bulk
   authoritative refetch. The reset does not activate a latest-cache fallback,
   because that cache may still contain the filters being removed.

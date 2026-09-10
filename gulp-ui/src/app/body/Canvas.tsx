@@ -70,6 +70,7 @@ import { Default } from "@/dto/Dataset";
 import { Icon } from "@/ui/Icon";
 import {
 	createRenderAssetIconKey,
+	createRenderSourceMetadataSignature,
 	RenderProjectionAdapter,
 	resolveRenderAssetIconName,
 	type RenderSourceProjectionInput,
@@ -87,6 +88,7 @@ import {
 import {
 	DirtyCanvas,
 	type RenderDataPatch,
+	type RenderHitTestResult,
 	type RenderLoadingKind,
 	type RenderOverlaySnapshot,
 	type RenderResyncRequiredMessage,
@@ -94,6 +96,7 @@ import {
 	type RenderViewportState,
 	type RenderWorkerFontSource,
 } from "@/render-worker/RenderWorker.types";
+import { hasSourceQueryCacheWarning } from "@/entities/QueryCache";
 import {
 	getCanvasPointerPosition,
 	getCanvasSourceRowIndex,
@@ -139,10 +142,12 @@ import {
 import { CanvasTerminalRenderConvergence } from "./CanvasTerminalRenderConvergence";
 import {
 	CanvasRenderWindowScheduler,
+	createCanvasRenderWindowViewportKey,
 	type CanvasRenderWindowPriority,
 } from "./CanvasRenderWindowScheduler";
 import {
 	canReuseCanvasRenderWindow,
+	canAdoptCanvasRenderWindow,
 	createCanvasRenderWindowCoverage,
 	type CanvasRenderWindowCoverage,
 } from "./CanvasRenderWindowCoverage";
@@ -156,8 +161,14 @@ import {
 	type EventPixelPage,
 	type EventTimestampRange,
 } from "@/event-store";
-import { CanvasCacheWarningOverlay } from "./CanvasCacheWarning";
+import {
+	CanvasCacheWarningTooltip,
+	hitTestCanvasCacheWarning,
+	type CanvasCacheWarningTooltipHandle,
+} from "./CanvasCacheWarning";
 import { commitTimelineRangeZoomViewport } from "./CanvasRangeZoom";
+
+const QUERY_LOADING_IDLE_TIMEOUT_MS = 250;
 
 export namespace Canvas {
 	export interface Props extends Stack.Props {
@@ -340,6 +351,8 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const [groupDialogKind, setGroupDialogKind] =
 		useState<DisplayGroupKind>("events");
 	const rendererBackendRef = useRef<CanvasRendererBackend>("initializing");
+	const cacheWarningTooltipRef =
+		useRef<CanvasCacheWarningTooltipHandle>(null);
 	const requestedRendererBackendRef = useRef<CanvasRendererPreference>("auto");
 	const rendererFallbackReasonRef = useRef<string | null>(null);
 	const forcedLegacyBackendRef = useRef<boolean>(false);
@@ -371,6 +384,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const workerSourceMetadataRevisionsRef = useRef<Map<string, number>>(
 		new Map(),
 	);
+	const workerProjectionSettingsRef = useRef(new Map<Source.Id, { signature: string; revision: number }>());
 	const workerSourceMembershipRevisionsRef = useRef<Map<Source.Id, number>>(
 		new Map(),
 	);
@@ -403,8 +417,6 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	);
 	const workerAcceptedRenderWindowCoverageRef =
 		useRef<CanvasRenderWindowCoverage | null>(null);
-	const workerRequestedRenderWindowDescriptorRef =
-		useRef<QueryRenderWindowDescriptor | null>(null);
 	const [scaleCommitGuard] = useState(
 		() => new CanvasScaleCommitGuard(app.timeline.scale),
 	);
@@ -578,6 +590,38 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const [visibleSourceRowCount, setVisibleSourceRowCount] = useState<number>(
 		() => initialVisibleSources.length,
 	);
+
+	/**
+	 * Reconciles the singleton DOM tooltip with one compact Canvas hit identity.
+	 * @param hit Topmost worker or legacy hit at the current pointer coordinate.
+	 * @returns Nothing.
+	 */
+	const updateCacheWarningTooltip = useCallback(
+		(hit: RenderHitTestResult | null): void => {
+			if (hit?.kind !== "cache-warning") {
+				cacheWarningTooltipRef.current?.hide();
+				return;
+			}
+			const surface = render_surface_ref.current;
+			if (!surface) return;
+			cacheWarningTooltipRef.current?.show({
+				sourceId: hit.id,
+				x: mouseXRef.current,
+				y: mouseYRef.current,
+				bounds: {
+					width: surface.clientWidth,
+					height: surface.clientHeight,
+				},
+			});
+		},
+		[],
+	);
+
+	useEffect(() => {
+		hoveredItemRef.current = null;
+		cacheWarningTooltipRef.current?.hide();
+		return () => cacheWarningTooltipRef.current?.hide();
+	}, [operation?.id, rendererBackend]);
 
 	/**
 	 * Commits an Alt-drag range through canonical viewport state and the Canvas rAF.
@@ -890,6 +934,25 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			render.drawLinks();
 		}
 		profiler?.mark("links");
+		render.drawCacheWarnings(viewportSources);
+		if (hoveredItemRef.current?.startsWith("cache-warning:")) {
+			const hoveredSourceId = hoveredItemRef.current.slice(
+				"cache-warning:".length,
+			);
+			const hoveredWarning = RenderEngine.interactiveCacheWarnings.find(
+				(warning) => warning.sourceId === hoveredSourceId,
+			);
+			if (
+				!hoveredWarning ||
+				mouseXRef.current < hoveredWarning.rect.x ||
+				mouseXRef.current > hoveredWarning.rect.x + hoveredWarning.rect.w ||
+				mouseYRef.current < hoveredWarning.rect.y ||
+				mouseYRef.current > hoveredWarning.rect.y + hoveredWarning.rect.h
+			) {
+				hoveredItemRef.current = null;
+				cacheWarningTooltipRef.current?.hide();
+			}
+		}
 
 		ctx.fillStyle = Color.Themer.theme.BORDER;
 		ctx.fillRect(
@@ -1217,6 +1280,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				) {
 					return true;
 				}
+				if (workerHit?.kind === "cache-warning") return true;
 				if (workerHit?.kind === "supplemental-event") {
 					const supplementalEvent =
 						DataStore.getSupplementalEventById(workerHit.id as Doc.Id) ??
@@ -1262,6 +1326,15 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				return false;
 			}
 			if (rendererBackendRef.current !== "legacy") return false;
+
+			if (
+				hitTestCanvasCacheWarning(
+					RenderEngine.interactiveCacheWarnings,
+					canvasHitX,
+					canvasHitY,
+				)
+			)
+				return true;
 
 			for (const item of RenderEngine.interactiveLinks) {
 				if (
@@ -1574,15 +1647,72 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	}, [requestCanvasRender, timestampTimeZone]);
 
 	useEffect(() => {
-		return requestStore.subscribe(() => {
+		let observedLoadings = requestStore.getLoadings();
+		let synchronizedLoadings = observedLoadings;
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		let idleCallback: number | null = null;
+
+		/**
+		 * Returns whether the rendered and latest loading maps have identical pairs.
+		 * @returns True when no worker source metadata needs to change.
+		 */
+		const loadingsMatch = (): boolean => {
+			if (
+				synchronizedLoadings.byFileId.size !==
+				observedLoadings.byFileId.size
+			) {
+				return false;
+			}
+			for (const [sourceId, requestId] of synchronizedLoadings.byFileId) {
+				if (observedLoadings.byFileId.get(sourceId) !== requestId) {
+					return false;
+				}
+			}
+			return true;
+		};
+
+		/**
+		 * Synchronizes the latest net loading state after browser input and paint work.
+		 * @returns Nothing.
+		 */
+		const synchronizeLoadings = (): void => {
+			timer = null;
+			idleCallback = null;
+			if (loadingsMatch()) {
+				synchronizedLoadings = observedLoadings;
+				return;
+			}
+			synchronizedLoadings = observedLoadings;
 			const client = workerClientRef.current;
 			if (rendererBackendRef.current === "worker" && client) {
 				syncWorkerSourcesRef.current(client, false);
-					inputCoordinator.invalidate(DirtyCanvas.Sources);
+				inputCoordinator.invalidate(DirtyCanvas.Sources);
+			} else requestCanvasRender("request-store");
+		};
+
+		const unsubscribe = requestStore.subscribe(() => {
+			const next = requestStore.getLoadings();
+			if (next === observedLoadings) return;
+			observedLoadings = next;
+			if (timer !== null || idleCallback !== null) return;
+			if (typeof window.requestIdleCallback === "function") {
+				idleCallback = window.requestIdleCallback(synchronizeLoadings, {
+					timeout: QUERY_LOADING_IDLE_TIMEOUT_MS,
+				});
 				return;
 			}
-			requestCanvasRender("request-store");
+			timer = setTimeout(synchronizeLoadings, 16);
 		});
+		return () => {
+			unsubscribe();
+			if (timer !== null) clearTimeout(timer);
+			if (
+				idleCallback !== null &&
+				typeof window.cancelIdleCallback === "function"
+			) {
+				window.cancelIdleCallback(idleCallback);
+			}
+		};
 	}, [inputCoordinator, requestCanvasRender]);
 
 	useEffect(() => {
@@ -1681,6 +1811,8 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		 * @returns Nothing.
 		 */
 		const resetHover = (): void => {
+			hoveredItemRef.current = null;
+			cacheWarningTooltipRef.current?.hide();
 			inputCoordinator.queuePointer({
 				clientX: -1000,
 				clientY: -1000,
@@ -1854,38 +1986,72 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	}, [Info]);
 
 	useLayoutEffect(() => {
-		const unsubscribe = renderWindowProjectionBus.subscribe((projection) => {
+		const unsubscribe = renderWindowProjectionBus.subscribe((projection, requestedDescriptor) => {
 			const client = workerClientRef.current;
 			const visibleSourceIds = getCurrentCanvasViewportSourceIds();
+			// Source queries finish independently. An obsolete row must not discard
+			// useful progress for every other row in the same transferred window.
+			const acceptedSources = projection.sources.filter((source) =>
+				isCanvasRenderWindowSourceAcceptable(source,
+					DataStore.getEventSourceSummary(source.sourceId as Source.Id),
+					workerAcceptedProjectionSourcesRef.current.get(source.sourceId as Source.Id)) &&
+				workerTerminalRenderConvergence.acceptsProjection(projection.operationEpoch,
+					new Set(visibleSourceIds.has(source.sourceId as Source.Id) ? [source.sourceId] : []), [source]));
+			const acceptedSourceIds = new Set(
+				acceptedSources.map((source) => source.sourceId),
+			);
+			const currentSources = Source.Entity.rendered(Info.app).filter((source) =>
+				visibleSourceIds.has(source.id),
+			);
+			const coversCurrentViewport = canAdoptCanvasRenderWindow(
+				requestedDescriptor,
+				projection,
+				{
+					...requestedDescriptor,
+					operationEpoch: DataStore.getRenderOperationEpoch(),
+					viewportRevision: workerViewportRevisionRef.current,
+					frame: Info.app.timeline.frame,
+					width: Math.max(
+						1,
+						workerCanvasSizeRef.current?.width ??
+							render_surface_ref.current?.clientWidth ??
+							1,
+					),
+					scale: scaleRef.current,
+					scrollX: scrollXRef.current,
+					sources: currentSources.map((source) => ({
+						sourceId: source.id,
+						offset: source.settings.offset ?? 0,
+						engine: source.settings.render_engine,
+						frequency: source.settings.frequency_sample,
+						overrideHashes: Object.keys(
+							source.settings.color_override?.lookup ?? {},
+						)
+							.map(Number)
+							.filter(Number.isFinite)
+							.sort((a, b) => a - b),
+						settingsRevision:
+							workerProjectionSettingsRef.current.get(source.id)?.revision ??
+							0,
+						overrideRevision:
+							workerOverrideRevisionsRef.current.get(source.id) ?? 0,
+					})),
+				},
+				acceptedSourceIds,
+			);
 			if (
 				rendererBackendRef.current !== "worker" ||
 				!client ||
 				projection.operationEpoch !== DataStore.getRenderOperationEpoch() ||
-				projection.viewportRevision !== workerViewportRevisionRef.current ||
+				!coversCurrentViewport ||
 				(workerLodProjectionRevisionRef.current > 0 &&
 					projection.projectionRevision !==
 						workerLodProjectionRevisionRef.current) ||
-				projection.sources.some((source) => {
-					const summary = DataStore.getEventSourceSummary(
-						source.sourceId as Source.Id,
-					);
-					return !isCanvasRenderWindowSourceAcceptable(
-						source,
-						summary,
-						workerAcceptedProjectionSourcesRef.current.get(
-							source.sourceId as Source.Id,
-						),
-					);
-				}) ||
-				!workerTerminalRenderConvergence.acceptsProjection(
-					projection.operationEpoch,
-					visibleSourceIds,
-					projection.sources,
-				)
+				(acceptedSources.length === 0 && projection.sources.length > 0)
 			) {
 				return false;
 			}
-			for (const source of projection.sources) {
+			for (const source of acceptedSources) {
 				workerAcceptedProjectionSourcesRef.current.set(
 					source.sourceId as Source.Id,
 					{
@@ -1895,19 +2061,17 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					},
 				);
 			}
-			for (const sourceId of projection.evictedSourceIds) {
+			const evictedSourceIds = projection.evictedSourceIds.filter((id) => !visibleSourceIds.has(id as Source.Id));
+			for (const sourceId of evictedSourceIds) {
 				workerAcceptedProjectionSourcesRef.current.delete(
 					sourceId as Source.Id,
 				);
 			}
-			const requestedDescriptor =
-				workerRequestedRenderWindowDescriptorRef.current;
-			workerAcceptedRenderWindowCoverageRef.current = requestedDescriptor
-				? createCanvasRenderWindowCoverage(requestedDescriptor, projection)
-				: null;
+			const acceptedProjection = { ...projection, sources: acceptedSources, evictedSourceIds };
+			workerAcceptedRenderWindowCoverageRef.current = createCanvasRenderWindowCoverage(requestedDescriptor, acceptedProjection);
 			client.queueDataPatch("render-window", {
 				globalRevision: DataStore.getRenderSequence(),
-				renderWindow: projection,
+				renderWindow: { ...acceptedProjection, viewportRevision: workerViewportRevisionRef.current },
 			});
 			inputCoordinator.invalidate(DirtyCanvas.Events);
 			return true;
@@ -1917,6 +2081,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			cancelEventStoreRenderWindowRetry();
 		};
 	}, [
+		Info,
 		cancelEventStoreRenderWindowRetry,
 		getCurrentCanvasViewportSourceIds,
 		inputCoordinator,
@@ -2021,12 +2186,20 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		) {
 			return;
 		}
-		const viewportKey = `${operation.id}:${operationEpoch}:${viewportRevision}`;
+		const viewportSourceIds = getCurrentCanvasViewportSourceIds();
+		// Horizontal movement remains coalesced inside accepted overscan. A changed
+		// vertical row window starts immediately so QueryWorker can abandon obsolete reads.
+		const viewportKey = createCanvasRenderWindowViewportKey(
+			operation.id,
+			operationEpoch,
+			Array.from(viewportSourceIds),
+		);
 		workerRenderWindowScheduler.schedule(
 			viewportKey,
 			priority,
-			async () => {
+			async (priority) => {
 				cancelEventStoreRenderWindowRetry();
+		const viewportRevision = workerViewportRevisionRef.current;
 
 		const width = Math.max(
 			1,
@@ -2086,7 +2259,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					frequency: source.settings.frequency_sample,
 					overrideHashes,
 					settingsRevision:
-						workerSourceMetadataRevisionsRef.current.get(source.id) ?? 0,
+						workerProjectionSettingsRef.current.get(source.id)?.revision ?? 0,
 					overrideRevision,
 				};
 			}),
@@ -2097,12 +2270,12 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				workerAcceptedRenderWindowCoverageRef.current,
 				descriptor,
 				(sourceId) => DataStore.getEventSourceSummary(sourceId),
+				true,
 			)
 		) {
 			return;
 		}
 		workerLodProjectionRevisionRef.current = descriptor.projectionRevision;
-		workerRequestedRenderWindowDescriptorRef.current = descriptor;
 		const requestFence: CanvasRenderWindowRequestFence = {
 			socket,
 			operationEpoch,
@@ -2403,7 +2576,19 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 
 				if (rendererBackendRef.current === "legacy") {
 					let nextHover: string | null = null;
-					for (let index = 0; index < RenderEngine.interactiveLinks.length; index++) {
+					const nextCacheWarningHit = hitTestCanvasCacheWarning(
+						RenderEngine.interactiveCacheWarnings,
+						pointerX,
+						pointerY,
+					);
+					if (nextCacheWarningHit) {
+						nextHover = `cache-warning:${nextCacheWarningHit.id}`;
+					}
+					for (
+						let index = 0;
+						!nextHover && index < RenderEngine.interactiveLinks.length;
+						index++
+					) {
 						const item = RenderEngine.interactiveLinks[index];
 						if (
 							pointerX >= item.rect.x &&
@@ -2431,6 +2616,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					}
 					if (nextHover !== hoveredItemRef.current) {
 						hoveredItemRef.current = nextHover;
+						updateCacheWarningTooltip(nextCacheWarningHit);
 						dirtyMask |= DirtyCanvas.Hover;
 					}
 				}
@@ -2561,6 +2747,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			pointerPositionStore,
 			scaleCommitGuard,
 			workerProjectionScheduler,
+			updateCacheWarningTooltip,
 		],
 	);
 	flushCanvasInputRef.current = flushCanvasInput;
@@ -2841,13 +3028,21 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			const currentApp = Info.app;
 			const selectedSources = Source.Entity.rendered(currentApp);
 			const sourceInputs: RenderSourceProjectionInput[] = [];
+			let projectionSettingsChanged = false;
 			selectedSources.forEach((source, rowOrder) => {
 					const context = Context.Entity.id(currentApp, source.context_id);
+					const projectionSignature = JSON.stringify([source.settings.offset, source.settings.render_engine, source.settings.frequency_sample, Object.keys(source.settings.color_override?.lookup ?? {}).sort()]);
+					const previousProjection = workerProjectionSettingsRef.current.get(source.id);
+					if (previousProjection?.signature !== projectionSignature) {
+						workerProjectionSettingsRef.current.set(source.id, { signature: projectionSignature, revision: (previousProjection?.revision ?? 0) + 1 });
+						projectionSettingsChanged = true;
+					}
 					const paletteId = source.settings.color_palette?.id;
 					const contextLabel = context?.name ?? t("collab.unknownContext");
 					const contextColor =
 						context?.color?.trim() || stringToHexColor(source.context_id);
 					const loadingKind = getWorkerLoadingKind(currentApp, source);
+					const cacheWarning = hasSourceQueryCacheWarning(source);
 					const gradient =
 						Color.GRADIENT[
 							Color.normalizeGradient(source.settings.render_color_palette)
@@ -2855,24 +3050,22 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					const customPaletteColors = paletteId
 						? Color.Entity.getCustomPalette(paletteId)
 						: undefined;
-					const metadataSignature = JSON.stringify([
-						source.name,
-						source.total,
-						source.timestamp.min,
-						source.timestamp.max,
-						source.settings.offset,
-						source.settings.render_engine,
-						source.settings.timeline_label,
-						source.settings.frequency_sample,
-						source.settings.render_color_palette,
-						source.settings.color_override?.lookup ?? null,
-						paletteId ?? null,
-						customPaletteColors ?? null,
+					const sourceInput: RenderSourceProjectionInput = {
+						source,
+						revision: 0,
+						rowOrder,
 						contextLabel,
 						contextColor,
+						contextTintAlpha: Color.Themer.contextTintAlpha(
+							source.context_id,
+						),
 						loadingKind,
-						rowOrder,
-					]);
+						cacheWarning,
+						gradient,
+						customPaletteColors,
+					};
+					const metadataSignature =
+						createRenderSourceMetadataSignature(sourceInput);
 					const previousSignature =
 						workerSourceMetadataSignaturesRef.current.get(source.id);
 					const previousRevision =
@@ -2889,22 +3082,10 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 						source.id,
 						metadataRevision,
 					);
-					if (!streamMissingEvents && previousSignature === metadataSignature) {
+					if (previousSignature === metadataSignature) {
 						return;
 					}
-					sourceInputs.push({
-						source,
-						revision: metadataRevision,
-						rowOrder,
-						contextLabel,
-						contextColor,
-						contextTintAlpha: Color.Themer.contextTintAlpha(
-							source.context_id,
-						),
-						loadingKind,
-						gradient,
-						customPaletteColors,
-					});
+					sourceInputs.push({ ...sourceInput, revision: metadataRevision });
 				},
 			);
 			const previousSourceIds = workerKnownSourceIdsRef.current;
@@ -2968,8 +3149,9 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				workerGraphSignaturesRef.current.delete(removedSourceId);
 				workerSourceMetadataSignaturesRef.current.delete(removedSourceId);
 				workerSourceMetadataRevisionsRef.current.delete(removedSourceId);
+				workerProjectionSettingsRef.current.delete(removedSourceId);
 			}
-			requestEventStoreRenderWindowRef.current();
+			if (projectionSettingsChanged || removedSourceIds.length > 0) requestEventStoreRenderWindowRef.current("progress");
 		},
 		[
 			Info,
@@ -3047,26 +3229,27 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		if (!isEventStoreLodEnabled()) return;
 		let lastProjectionAt = 0;
 		let pendingProjection: ReturnType<typeof setTimeout> | null = null;
-		const requestProjection = (immediate: boolean): void => {
-			if (immediate) {
-				if (pendingProjection) clearTimeout(pendingProjection);
-				pendingProjection = null;
-				lastProjectionAt = performance.now();
-				requestEventStoreRenderWindowRef.current("terminal");
-				return;
-			}
-			const elapsed = performance.now() - lastProjectionAt;
-			if (elapsed >= 250) {
-				lastProjectionAt = performance.now();
-				requestEventStoreRenderWindowRef.current("normal");
-				return;
-			}
-			if (pendingProjection) return;
+		let pendingTerminal = false;
+		let pendingImmediate = false;
+		const seenSources = new Map<Source.Id, { generation: number; count: number }>();
+		/** Groups first/terminal source updates into one projection, retaining progress. */
+		const requestProjection = (immediate: boolean, terminal = false): void => {
+			pendingTerminal ||= terminal;
+			if (pendingProjection && (!immediate || pendingImmediate)) return;
+			if (pendingProjection) clearTimeout(pendingProjection);
+			pendingImmediate = immediate;
 			pendingProjection = setTimeout(() => {
 				pendingProjection = null;
+				pendingImmediate = false;
 				lastProjectionAt = performance.now();
-				requestEventStoreRenderWindowRef.current("normal");
-			}, 250 - elapsed);
+				if (pendingTerminal) {
+					refreshWorkerOverlayDependencies();
+					const client = workerClientRef.current;
+					if (client) syncWorkerFlagsRef.current(client);
+				}
+				requestEventStoreRenderWindowRef.current(pendingTerminal ? "terminal" : "progress");
+				pendingTerminal = false;
+			}, immediate ? 16 : Math.max(0, 250 - (performance.now() - lastProjectionAt)));
 		};
 
 		const unsubscribe = DataStore.subscribeEventSourceSummaries((summary) => {
@@ -3083,15 +3266,13 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				});
 			}
 			if (rendererBackendRef.current !== "worker") return;
-			if (isTerminal) refreshWorkerOverlayDependencies();
-			if (summary.status === "complete") {
-				const client = workerClientRef.current;
-				if (client) syncWorkerFlagsRef.current(client);
-			}
+			const previous = seenSources.get(summary.sourceId);
+			const first = previous?.generation !== summary.generation || (previous.count === 0 && summary.eventCount > 0);
+			seenSources.set(summary.sourceId, { generation: summary.generation, count: summary.eventCount });
 
 			const viewportSourceIds = getCurrentCanvasViewportSourceIds();
 			if (!viewportSourceIds.has(summary.sourceId)) return;
-			requestProjection(isTerminal);
+			requestProjection(isTerminal || first, isTerminal);
 		});
 		const socket = SmartSocket.Class.instance;
 		const unsubscribeProjectionInvalidations = socket
@@ -3194,11 +3375,11 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				workerRenderWindowScheduler.reset();
 				workerAcceptedProjectionSourcesRef.current.clear();
 				workerAcceptedRenderWindowCoverageRef.current = null;
-				workerRequestedRenderWindowDescriptorRef.current = null;
 				workerKnownSourceIdsRef.current.clear();
 				workerGraphSignaturesRef.current.clear();
 				workerSourceMetadataSignaturesRef.current.clear();
 				workerSourceMetadataRevisionsRef.current.clear();
+				workerProjectionSettingsRef.current.clear();
 				workerSourceMembershipRevisionsRef.current.clear();
 				workerOverrideSignaturesRef.current.clear();
 				workerOverrideRevisionsRef.current.clear();
@@ -3408,7 +3589,9 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				const sourceId = request.id as Source.Id;
 				if (!workerKnownSourceIdsRef.current.has(sourceId)) return;
 				if (isEventStoreLodEnabled()) {
-					requestEventStoreRenderWindowRef.current();
+					workerSourceMetadataSignaturesRef.current.delete(sourceId);
+					syncWorkerSourcesRef.current(client, false);
+					requestEventStoreRenderWindowRef.current("progress");
 					return;
 				}
 				const source = Source.Entity.id(
@@ -3419,6 +3602,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				return;
 			}
 			if (request.scope === "sources") {
+				workerSourceMetadataSignaturesRef.current.clear();
 				syncWorkerSourcesRef.current(client, true);
 				return;
 			}
@@ -3650,6 +3834,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 							hoveredItemRef.current = hit
 								? `${hit.kind}:${hit.id}`
 								: null;
+							updateCacheWarningTooltip(hit);
 						},
 					onResyncRequired: (request) => {
 						handleWorkerResyncRef.current(request);
@@ -3729,6 +3914,11 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				const synchronization = client.getSynchronizationState();
 				const projectionMetrics = workerProjectionScheduler.getMetrics();
 				return {
+					viewport: {
+						width: workerCanvasSizeRef.current?.width ?? 1,
+						scale: scaleRef.current, scrollX: scrollXRef.current,
+						frame: { ...Info.app.timeline.frame },
+					},
 					activeBackend: "worker",
 					ready: synchronization.ready,
 					operationEpoch: synchronization.operationEpoch,
@@ -4067,7 +4257,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 						ref={canvas_ref}
 						id="canvas"
 					/>
-					<CanvasCacheWarningOverlay sources={Source.Entity.rendered(app)} />
+					<CanvasCacheWarningTooltip ref={cacheWarningTooltipRef} />
 				</div>
 				<Stack
 					pos="absolute"

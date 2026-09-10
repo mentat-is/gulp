@@ -4,6 +4,7 @@ import { EventDocumentCache } from "./EventStore.cache";
 import { compareEventDocuments } from "./EventStore.order";
 import type {
 	EventNeighborWindow,
+	EventSourceEdge,
 	EventStoreReader,
 	EventTimestampNeighborWindow,
 	EventTimestampRange,
@@ -133,6 +134,38 @@ export class EventStoreFacade implements EventStoreReader {
 			cacheHistory: [],
 			cacheHistoryCursor: -1,
 			nextGeneration: 1,
+		};
+	}
+
+	/**
+	 * Resolves one canonical source edge without materializing the full source.
+	 * @param sourceId Source whose edge is requested.
+	 * @param newest Whether to select the newest rather than the oldest event.
+	 * @returns Exact edge and the source revision used to select it.
+	 */
+	public async getSourceEdge(
+		sourceId: Source.Id,
+		newest: boolean,
+	): Promise<EventSourceEdge> {
+		if (this.reader) {
+			const edge = await this.reader.getSourceEdge(sourceId, newest);
+			if (edge.event) this.cache.set(edge.event);
+			return edge;
+		}
+
+		let selected: Doc.Type | null = null;
+		for (const event of this.fallbacks.resolveSource?.(sourceId) ?? []) {
+			if (!selected) {
+				selected = event;
+				continue;
+			}
+			const comparison = compareEventDocuments(event, selected);
+			if (newest ? comparison < 0 : comparison > 0) selected = event;
+		}
+		if (selected) this.cache.set(selected);
+		return {
+			event: selected,
+			sourceRevision: this.fallbacks.resolveSourceRevision?.(sourceId) ?? 0,
 		};
 	}
 

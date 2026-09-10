@@ -1,3 +1,5 @@
+import { cloneQueryForCache } from "@/entities/QueryCache";
+import type { Query } from "@/entities/Query";
 import { cn, getTimestamp } from "@/ui/utils";
 import s from "./styles/Navigator.module.css";
 import { Application } from "@/context/Application.context";
@@ -286,11 +288,12 @@ export function Navigator({
 				scrollStore.setScroll(0, -26);
 			} else {
 				let hasChanges = false;
+				const queriesBySourceId: Partial<Record<Source.Id, Query.Type>> = {};
 				const sources = Source.Entity.selected(app);
 				if (sources.length === 0) return;
 
 				sources.forEach((source: Source.Type) => {
-					const query = Info.getQuery(source);
+					const query = cloneQueryForCache(Info.getQuery(source));
 					const existingFilterIndex = query.filters.findIndex(
 						(f) => f.id === EVENT_FILTER_ID,
 					);
@@ -299,7 +302,7 @@ export function Navigator({
 					if (trimmedValue === "") {
 						if (existingFilterIndex !== -1) {
 							query.filters.splice(existingFilterIndex, 1);
-							Info.setQuery(source, query);
+							queriesBySourceId[source.id] = query;
 							hasChanges = true;
 						}
 					} else {
@@ -320,13 +323,13 @@ export function Navigator({
 							...query.fieldTypeMap,
 							"event.original": "wildcard",
 						};
-						Info.setQuery(source, query);
+						queriesBySourceId[source.id] = query;
 						hasChanges = true;
 					}
 				});
 
 				if (hasChanges) {
-					Info.refetch({ ids: sources.map((s: Source.Type) => s.id) });
+					void Info.refetch({ ids: sources.map((s: Source.Type) => s.id), queriesBySourceId });
 					scrollStore.setScroll(0, -26);
 				}
 			}
@@ -376,21 +379,22 @@ export function Navigator({
 		if (filterMode === "events") {
 			// Cleanup: remove event filters when switching back to file filtering
 			let hasChanges = false;
+			const queriesBySourceId: Partial<Record<Source.Id, Query.Type>> = {};
 			const sources = Source.Entity.selected(app);
 			sources.forEach((source: Source.Type) => {
-				const query = Info.getQuery(source);
+				const query = cloneQueryForCache(Info.getQuery(source));
 				const existingFilterIndex = query.filters.findIndex(
 					(f) => f.id === EVENT_FILTER_ID,
 				);
 				if (existingFilterIndex !== -1) {
 					query.filters.splice(existingFilterIndex, 1);
-					Info.setQuery(source, query);
+					queriesBySourceId[source.id] = query;
 					hasChanges = true;
 				}
 			});
 
 			if (hasChanges) {
-				Info.refetch({ ids: sources.map((s: Source.Type) => s.id) });
+				void Info.refetch({ ids: sources.map((s: Source.Type) => s.id), queriesBySourceId });
 			}
 		}
 

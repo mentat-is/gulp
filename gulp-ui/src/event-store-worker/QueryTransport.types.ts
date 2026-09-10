@@ -1,3 +1,4 @@
+import type { TimelineQueryRequest, TimelineQueryUpdate } from "@/event-stream";
 import type {
 	DocumentStreamDescriptor,
 	DocumentStreamFinalization,
@@ -23,6 +24,7 @@ import type { Source } from "@/entities/Source";
 
 /** Application-facing callbacks shared by worker and direct fallback transports. */
 export interface QueryTransportCallbacks {
+	onTimelineQueryUpdate?: (update: TimelineQueryUpdate) => void;
 	onSocketState: (state: QuerySocketState) => void;
 	onSocketOpen: () => void;
 	onSocketClose: (details: QuerySocketCloseDetails) => void;
@@ -38,6 +40,10 @@ export interface QueryTransportCallbacks {
 
 /** Socket facade implemented by a QueryWorker client and its direct test fallback. */
 export interface QueryTransport {
+	/** Enqueues source replacements in QueryWorker. */
+	startTimelineQueries(requests: TimelineQueryRequest[]): Promise<void>;
+	/** Updates source priority without an interaction settle gate. */
+	setTimelineQueryPriority(sourceIds: Source.Id[]): void;
 	/** Returns the latest worker-owned socket state. */
 	readonly state: QuerySocketState;
 

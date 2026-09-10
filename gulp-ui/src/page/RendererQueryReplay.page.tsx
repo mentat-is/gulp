@@ -1,12 +1,13 @@
 import { Timeline } from "@/app/body/Timeline";
 import { CanvasProfiler } from "@/app/body/CanvasProfiler";
+import { getCanvasViewportSourceIds } from "@/app/body/CanvasViewport";
 import { Application } from "@/context/Application.context";
 import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import type { Glyph } from "@/entities/Glyph";
 import { Operation } from "@/entities/Operation";
 import { createEmptyQueryCacheState } from "@/entities/QueryCache";
-import type { Source } from "@/entities/Source";
+import { Source } from "@/entities/Source";
 import type { User } from "@/entities/User";
 import { Internal } from "@/entities/addon/Internal";
 import {
@@ -31,6 +32,8 @@ import {
 import { createOfflineRendererTestApp } from "./RendererTest.fixture";
 import {
 	evaluateRendererQueryReplayGate,
+	getRendererQueryReplayConfiguration,
+	getRendererQueryReplaySources,
 	RendererQueryReplayClient,
 	RENDERER_QUERY_REPLAY_CHUNK_EVENTS,
 	RENDERER_QUERY_REPLAY_TARGET_EVENTS,
@@ -51,6 +54,8 @@ const REPLAY_CONTEXT_ID =
 const REPLAY_SOURCE_ID =
 	"bbbbbbbb-0000-4000-8000-000000000003" as Source.Id;
 const REPLAY_USER_ID = "renderer-query-replay-user" as User.Id;
+const REPLAY_CONFIGURATION = getRendererQueryReplayConfiguration(typeof window === "undefined" ? "" : window.location.search);
+const REPLAY_TARGET = REPLAY_CONFIGURATION.targetEvents;
 const REPLAY_TIME_SPAN_MS = 7 * 24 * 60 * 60 * 1_000;
 const PROJECTION_POLL_MS = 250;
 const BUILDING_FRAME_POLL_MS = 16;
@@ -58,6 +63,8 @@ const TERMINAL_POLL_MS = 10;
 const TERMINAL_GATE_TIMEOUT_MS = 6_000;
 
 interface RendererQueryReplayPublishedDiagnostics {
+	performance?: ReturnType<typeof CanvasProfiler.getWorkerSnapshot>;
+	baselinePerformance?: ReturnType<typeof CanvasProfiler.getWorkerSnapshot>;
 	profile: RendererQueryReplayProfile;
 	status: "running" | "complete" | "failed";
 	processedEvents: number;
@@ -73,7 +80,7 @@ declare global {
 	}
 }
 
-/** Creates the single 14M-source operation fixture used by the replay profile. */
+/** Creates the configured multi-source operation fixture used by the replay profile. */
 function createReplayFixture(
 	documentMinTimestamp: number,
 	frameMaxTimestamp: number,
@@ -103,7 +110,7 @@ function createReplayFixture(
 		id: REPLAY_SOURCE_ID,
 		operation_id: REPLAY_OPERATION_ID,
 		context_id: REPLAY_CONTEXT_ID,
-		name: "query_raw_14m.json",
+		name: "query_raw_replay.json",
 		plugin: "renderer-query-replay",
 		type: "source",
 		owner_user_id: REPLAY_USER_ID,
@@ -117,7 +124,7 @@ function createReplayFixture(
 		appliedQuery: null,
 		queryCache: createEmptyQueryCacheState(),
 		settings: { ...Internal.Settings.default },
-		total: RENDERER_QUERY_REPLAY_TARGET_EVENTS,
+		total: REPLAY_TARGET,
 		timestamp: {
 			min: documentMinTimestamp,
 			max: frameMaxTimestamp,
@@ -141,6 +148,7 @@ function createEmptyRenderDiagnostics(): RendererQueryReplayRenderDiagnostics {
 	return {
 		buildingFrames: 0,
 		maximumBuildingFrameIntervalMs: 0,
+		maximumVisibleProgressLatencyMs: 0,
 		completeSummaryToProjectionMs: -1,
 		terminalProjectionEventCount: 0,
 		terminalAckToFrameMs: -1,
@@ -180,7 +188,7 @@ function publishReplayDiagnostics(
 
 /**
  * Runs the dedicated-worker `docs_chunk` replay selected by `/renderer-test`.
- * @param profile Steady 14M path or controlled burst overload.
+ * @param profile Configurable steady path or controlled burst overload.
  * @returns Timeline plus compact machine-readable diagnostics overlay.
  */
 export function RendererQueryReplayPage({
@@ -194,6 +202,9 @@ export function RendererQueryReplayPage({
 	const clientRef = useRef<RendererQueryReplayClient | null>(null);
 	const sourceRef = useRef<Source.Type | null>(null);
 	const latestSummaryRef = useRef<QuerySourceSummaryEvent | null>(null);
+	const summariesRef = useRef(new Map<string, QuerySourceSummaryEvent>());
+	const pendingVisibleProgressRef = useRef(new Map<Source.Id, { revision: number; receivedAt: number }>());
+	const replaySourcesRef = useRef<Source.Type[]>([]);
 	const completeSummaryAtRef = useRef<number | null>(null);
 	const firstBuildingSummaryAtRef = useRef<number | null>(null);
 	const lastBuildingFrameAtRef = useRef<number | null>(null);
@@ -206,6 +217,8 @@ export function RendererQueryReplayPage({
 	const terminalAckSequenceRef = useRef<number>(0);
 	const resultRef = useRef<RendererQueryReplayResult | null>(null);
 	const processedEventsRef = useRef<number>(0);
+	const baselinePerformanceRef = useRef<ReturnType<typeof CanvasProfiler.getWorkerSnapshot> | undefined>(undefined);
+	const lastTelemetryAtRef = useRef(0);
 	const renderDiagnosticsRef = useRef<RendererQueryReplayRenderDiagnostics>(
 		createEmptyRenderDiagnostics(),
 	);
@@ -257,6 +270,8 @@ export function RendererQueryReplayPage({
 					: null;
 			const diagnostics: RendererQueryReplayPublishedDiagnostics = {
 				profile,
+				performance: CanvasProfiler.getWorkerSnapshot(),
+				baselinePerformance: baselinePerformanceRef.current,
 				status: terminal ? (gate?.passed ? "complete" : "failed") : "running",
 				processedEvents: result?.processedEvents ?? processedEventsRef.current,
 				result,
@@ -271,6 +286,7 @@ export function RendererQueryReplayPage({
 
 	/** Requests one latest viewport projection with one active and one trailing slot. */
 	const requestProjection = useCallback((): void => {
+		if (renderDiagnosticsRef.current.terminalProjectionEventCount === REPLAY_TARGET) return;
 		const client = clientRef.current;
 		const source = sourceRef.current;
 		const summaryAtRequest = latestSummaryRef.current;
@@ -280,50 +296,51 @@ export function RendererQueryReplayPage({
 			projectionTrailingRef.current = true;
 			return;
 		}
-		const frame = latestAppRef.current.timeline.frame;
+		const { frame, width, scale, scrollX } = synchronization.viewport;
 		if (frame.max <= frame.min) return;
-		const request = client
-			.requestProjection({
+		const visible = new Set(getCanvasViewportSourceIds(
+			Source.Entity.rendered(latestAppRef.current),
+			scrollStore.getY(),
+			document.getElementById("canvas")?.clientHeight ?? 900,
+		));
+		// Keep active builders observable, but do not repeatedly scan all completed
+		// offscreen sources. The terminal pass still validates every source together.
+		const allComplete = summariesRef.current.size === replaySourcesRef.current.length &&
+			[...summariesRef.current.values()].every((event) => event.summary.status === "complete");
+		const projectedSources = replaySourcesRef.current.filter((candidate) => {
+			const summary = summariesRef.current.get(candidate.id)?.summary;
+			return summary && synchronization.sources.some((known) => known.sourceId === candidate.id) &&
+				(allComplete || visible.has(candidate.id) || summary.status === "building");
+		});
+		const projectedIds = new Set(projectedSources.map((candidate) => candidate.id));
+		const descriptor: Parameters<RendererQueryReplayClient["requestProjection"]>[0] = {
 				operationId: REPLAY_OPERATION_ID,
 				operationEpoch: DataStore.getRenderOperationEpoch(),
 				viewportRevision: synchronization.requestedViewportRevision,
 				projectionRevision: ++projectionRevisionRef.current,
 				frame,
-				width: Math.max(1, Info.width),
-				scale: Math.max(0.01, latestAppRef.current.timeline.scale),
-				scrollX: scrollStore.getX(),
-				horizontalOverscanPixels: Math.max(1, Info.width),
+				width: Math.max(1, width),
+				scale: Math.max(0.01, scale),
+				scrollX,
+				horizontalOverscanPixels: Math.max(1, width),
 				maxRepresentatives: EVENT_RENDER_PROJECTION_LIMIT,
-				sources: [
-					{
-						sourceId: source.id,
-						offset: source.settings.offset,
-						engine: source.settings.render_engine,
-						frequency: source.settings.frequency_sample,
-						overrideHashes: [],
-						settingsRevision: 0,
-						overrideRevision: 0,
-					},
-				],
-			})
+				evictedSourceIds: replaySourcesRef.current.filter((candidate) => !projectedIds.has(candidate.id)).map((candidate) => candidate.id),
+				sources: projectedSources.map((candidate) => ({
+					sourceId: candidate.id, offset: candidate.settings.offset, engine: candidate.settings.render_engine, frequency: candidate.settings.frequency_sample,
+					overrideHashes: [], settingsRevision: 0, overrideRevision: 0,
+				})),
+			};
+		const request = client.requestProjection(descriptor)
 			.then((projection) => {
-				if (!projection || !renderWindowProjectionBus.publish(projection)) return;
-				const projectedSource = projection.sources.find(
-					(candidate) => candidate.sourceId === source.id,
-				);
-				if (!projectedSource) return;
+				if (!projection || !renderWindowProjectionBus.publish(projection, descriptor)) return;
 				const now = performance.now();
-				if (
-					projectedSource.sourceStatus === "complete" &&
-					projectedSource.sourceGeneration ===
-						summaryAtRequest.summary.generation &&
-					projectedSource.sourceRevision ===
-						summaryAtRequest.summary.revision
-				) {
-					renderDiagnosticsRef.current.completeSummaryToProjectionMs =
-						Math.max(0, now - (completeSummaryAtRef.current ?? now));
-					renderDiagnosticsRef.current.terminalProjectionEventCount =
-						projectedSource.loadedCount;
+				const complete = projection.sources.length === replaySourcesRef.current.length && projection.sources.every((candidate) => {
+					const summary = summariesRef.current.get(candidate.sourceId)?.summary;
+					return candidate.sourceStatus === "complete" && summary?.generation === candidate.sourceGeneration && summary.revision === candidate.sourceRevision;
+				});
+				if (complete && renderDiagnosticsRef.current.terminalProjectionEventCount !== REPLAY_TARGET) {
+					renderDiagnosticsRef.current.completeSummaryToProjectionMs = Math.max(0, now - (completeSummaryAtRef.current ?? now));
+					renderDiagnosticsRef.current.terminalProjectionEventCount = projection.sources.reduce((sum, candidate) => sum + candidate.loadedCount, 0);
 				}
 			})
 			.catch((error: unknown) => {
@@ -339,7 +356,7 @@ export function RendererQueryReplayPage({
 				}
 			});
 		projectionInFlightRef.current = request;
-	}, [Info.width]);
+	}, []);
 	requestProjectionRef.current = requestProjection;
 
 	useEffect(() => {
@@ -352,6 +369,37 @@ export function RendererQueryReplayPage({
 			frameMaxTimestamp,
 		);
 		sourceRef.current = fixture.source;
+		const allocations = getRendererQueryReplaySources({ ...REPLAY_CONFIGURATION, sourceId: REPLAY_SOURCE_ID });
+		const contexts = Array.from({ length: Math.min(3, allocations.length) }, (_, index) => ({ ...fixture.context, id: `${REPLAY_CONTEXT_ID}-${index}` as Context.Id, name: `Replay context ${index + 1}` }));
+		replaySourcesRef.current = allocations.map((entry, index) => ({
+			...fixture.source,
+			id: entry.sourceId,
+			total: entry.count,
+			context_id: contexts[index % contexts.length].id,
+			name: `query_source_${index + 1}.json`,
+			appliedQuery: REPLAY_CONFIGURATION.cacheWarnings
+				? {
+						string: "renderer cache-warning replay",
+						filters: [],
+						source_config: {
+							operation_id: REPLAY_OPERATION_ID,
+							source_ids: [entry.sourceId],
+							range: {
+								min: documentMinTimestamp,
+								max: frameMaxTimestamp,
+							},
+						},
+					}
+				: null,
+			queryCache: REPLAY_CONFIGURATION.cacheWarnings
+				? {
+						...createEmptyQueryCacheState(),
+						activeGeneration: 1,
+						freshness: "source-changed",
+						warningReason: "source-changed",
+					}
+				: createEmptyQueryCacheState(),
+		}));
 		DataStore.resetRenderOperation(REPLAY_OPERATION_ID);
 		DataStore.openEventStoreNamespace({
 			cacheNamespaceId: REPLAY_CACHE_NAMESPACE_ID,
@@ -359,11 +407,12 @@ export function RendererQueryReplayPage({
 		});
 		setInfo(((previous: App.Type) => ({
 			...createOfflineRendererTestApp(previous),
+			hidden: { ...previous.hidden, sourcesWithNoEvents: false },
 			target: {
 				...previous.target,
 				operations: [fixture.operation],
-				contexts: [fixture.context],
-				files: [fixture.source],
+				contexts,
+				files: replaySourcesRef.current,
 				notes: [],
 				links: [],
 				highlights: [],
@@ -383,13 +432,24 @@ export function RendererQueryReplayPage({
 			{
 				onSourceSummary: (event) => {
 					latestSummaryRef.current = event;
+					summariesRef.current.set(event.summary.sourceId, event);
 					DataStore.publishEventSourceSummary(
 						event.summary as EventSourceSummary,
 						"deferred",
 					);
 					if (event.summary.status === "building") {
 						firstBuildingSummaryAtRef.current ??= performance.now();
-					} else if (event.summary.status === "complete") {
+						const visible = getCanvasViewportSourceIds(
+							Source.Entity.rendered(latestAppRef.current), scrollStore.getY(),
+							document.getElementById("canvas")?.clientHeight ?? 900,
+						);
+						if (event.summary.eventCount > 0 && visible.includes(event.summary.sourceId) &&
+							!pendingVisibleProgressRef.current.has(event.summary.sourceId)) {
+							pendingVisibleProgressRef.current.set(event.summary.sourceId, {
+								revision: event.summary.revision, receivedAt: performance.now(),
+							});
+						}
+					} else if (event.summary.status === "complete" && summariesRef.current.size === replaySourcesRef.current.length && [...summariesRef.current.values()].every((entry) => entry.summary.status === "complete")) {
 						const completedAt = performance.now();
 						completeSummaryAtRef.current = completedAt;
 						if (lastBuildingFrameAtRef.current !== null) {
@@ -405,6 +465,10 @@ export function RendererQueryReplayPage({
 				},
 				onProgress: (progress: RendererQueryReplayProgress) => {
 					processedEventsRef.current = progress.processedEvents;
+					if (performance.now() - lastTelemetryAtRef.current >= 1000) {
+						lastTelemetryAtRef.current = performance.now();
+						publishCurrent(null, false);
+					}
 					setPublished((previous) => {
 						const next = {
 							...previous,
@@ -418,7 +482,10 @@ export function RendererQueryReplayPage({
 			},
 		);
 		clientRef.current = client;
-		const startFrame = requestAnimationFrame(() => {
+		const startFrame = window.setTimeout(() => {
+			baselinePerformanceRef.current = CanvasProfiler.getWorkerSnapshot();
+			CanvasProfiler.resetWorkerMetrics();
+			publishCurrent(null, false);
 			void client
 				.start({
 					profile,
@@ -426,7 +493,7 @@ export function RendererQueryReplayPage({
 					operationId: REPLAY_OPERATION_ID,
 					operationEpoch: DataStore.getRenderOperationEpoch(),
 					sourceId: REPLAY_SOURCE_ID,
-					targetEvents: RENDERER_QUERY_REPLAY_TARGET_EVENTS,
+					...REPLAY_CONFIGURATION,
 					chunkEvents: RENDERER_QUERY_REPLAY_CHUNK_EVENTS,
 					documentMinTimestamp,
 					frameSpanMs: REPLAY_TIME_SPAN_MS,
@@ -440,9 +507,9 @@ export function RendererQueryReplayPage({
 					console.error("[RendererQueryReplay] replay failed", error);
 					setPublished((previous) => ({ ...previous, status: "failed" }));
 				});
-		});
+		}, Math.max(0, Number(new URLSearchParams(window.location.search).get("delay") ?? 0)));
 		return () => {
-			cancelAnimationFrame(startFrame);
+			window.clearTimeout(startFrame);
 			client.dispose();
 			clientRef.current = null;
 			DataStore.closeEventStoreNamespace();
@@ -457,7 +524,7 @@ export function RendererQueryReplayPage({
 				status === "building" ||
 				(status === "complete" &&
 					renderDiagnosticsRef.current.terminalProjectionEventCount !==
-						RENDERER_QUERY_REPLAY_TARGET_EVENTS)
+						REPLAY_TARGET)
 			) {
 				requestProjectionRef.current();
 			}
@@ -468,23 +535,32 @@ export function RendererQueryReplayPage({
 	useEffect(() => {
 		if (profile !== "steady") return;
 		const buildingFramePoll = window.setInterval(() => {
-			if (latestSummaryRef.current?.summary.status !== "building") return;
 			const synchronization =
 				CanvasProfiler.getWorkerSynchronizationSnapshot();
-			const source = synchronization?.sources.find(
-				(candidate) => candidate.sourceId === REPLAY_SOURCE_ID,
-			);
-			if (
-				!source ||
-				source.acknowledgedRevision <= lastBuildingFrameRevisionRef.current ||
-				source.acknowledgedDataSequence <=
-					lastBuildingFrameSequenceRef.current ||
-				(synchronization?.renderedDataSequence ?? 0) <
-					source.acknowledgedDataSequence ||
-				(synchronization?.renderedDataAtMs ?? 0) <= 0
-			) {
-				return;
+			if (!synchronization) return;
+			const visible = new Set(getCanvasViewportSourceIds(
+				Source.Entity.rendered(latestAppRef.current), scrollStore.getY(),
+				document.getElementById("canvas")?.clientHeight ?? 900,
+			));
+			// Measure committed visible data waiting for its frame. Offscreen sources
+			// and time spent waiting for the next persisted page are not render stalls.
+			for (const [sourceId, pending] of pendingVisibleProgressRef.current) {
+				if (!visible.has(sourceId)) {
+					pendingVisibleProgressRef.current.delete(sourceId);
+					continue;
+				}
+				const acknowledged = synchronization.sources.find((source) => source.sourceId === sourceId);
+				const rendered = acknowledged && acknowledged.acknowledgedRevision >= pending.revision &&
+					synchronization.renderedDataSequence >= acknowledged.acknowledgedDataSequence;
+				const observedAt = rendered ? synchronization.renderedDataAtMs : performance.now();
+				renderDiagnosticsRef.current.maximumVisibleProgressLatencyMs = Math.max(
+					renderDiagnosticsRef.current.maximumVisibleProgressLatencyMs,
+					observedAt - pending.receivedAt,
+				);
+				if (rendered) pendingVisibleProgressRef.current.delete(sourceId);
 			}
+			if (resultRef.current || ![...summariesRef.current.values()].some((event) => event.summary.status === "building")) return;
+			if (!synchronization || synchronization.renderedDataSequence <= lastBuildingFrameSequenceRef.current || synchronization.renderedDataAtMs <= 0) return;
 			const renderedAt = synchronization!.renderedDataAtMs;
 			const previous =
 				lastBuildingFrameAtRef.current ??
@@ -496,8 +572,8 @@ export function RendererQueryReplayPage({
 				renderedAt - previous,
 			);
 			lastBuildingFrameAtRef.current = renderedAt;
-			lastBuildingFrameRevisionRef.current = source.acknowledgedRevision;
-			lastBuildingFrameSequenceRef.current = source.acknowledgedDataSequence;
+			lastBuildingFrameRevisionRef.current = synchronization.renderedDataSequence;
+			lastBuildingFrameSequenceRef.current = synchronization.renderedDataSequence;
 		}, BUILDING_FRAME_POLL_MS);
 		return () => window.clearInterval(buildingFramePoll);
 	}, [profile]);
@@ -506,41 +582,44 @@ export function RendererQueryReplayPage({
 		if (profile !== "steady") return;
 		const terminalPoll = window.setInterval(() => {
 			const result = resultRef.current;
-			const summary = result?.latestSummary;
-			if (!result || summary?.summary.status !== "complete") return;
+			const terminalSummaries = [...summariesRef.current.values()];
+			if (terminalSummaries.length !== replaySourcesRef.current.length ||
+				!terminalSummaries.every((event) => event.summary.status === "complete")) return;
 			const synchronization = CanvasProfiler.getWorkerSynchronizationSnapshot();
-			const source = synchronization?.sources.find(
-				(candidate) => candidate.sourceId === REPLAY_SOURCE_ID,
-			);
 			const now = performance.now();
-			if (
-				ackObservedAtRef.current === null &&
-				source &&
-				source.acknowledgedRevision >= summary.summary.revision
-			) {
-				ackObservedAtRef.current = source.acknowledgedAtMs;
-				terminalAckSequenceRef.current = source.acknowledgedDataSequence;
+			const acknowledged = terminalSummaries.map((event) => synchronization?.sources.find((candidate) => candidate.sourceId === event.summary.sourceId));
+			if (ackObservedAtRef.current === null && renderDiagnosticsRef.current.terminalProjectionEventCount === REPLAY_TARGET && acknowledged.every((source, index) => source && source.acknowledgedRevision >= terminalSummaries[index].summary.revision)) {
+				ackObservedAtRef.current = Math.max(...acknowledged.map((source) => source!.acknowledgedAtMs));
+				terminalAckSequenceRef.current = Math.max(...acknowledged.map((source) => source!.acknowledgedDataSequence));
 			}
 			if (
 				ackObservedAtRef.current !== null &&
 				(synchronization?.renderedDataSequence ?? 0) >=
 					terminalAckSequenceRef.current
 			) {
-				renderDiagnosticsRef.current.terminalAckToFrameMs = Math.max(
-					0,
-					(synchronization?.renderedDataAtMs ?? now) -
-						ackObservedAtRef.current,
-				);
-				window.clearInterval(terminalPoll);
-				publishCurrent(result, true);
+				// Capture the first converged frame before test-only sample/cache reads;
+				// later input frames must not overwrite its latency.
+				if (renderDiagnosticsRef.current.terminalAckToFrameMs < 0) {
+					renderDiagnosticsRef.current.terminalAckToFrameMs = Math.max(
+						0, (synchronization?.renderedDataAtMs ?? now) - ackObservedAtRef.current,
+					);
+				}
+				clientRef.current?.verifyResults();
+				if (result) {
+					window.clearInterval(terminalPoll);
+					publishCurrent(result, true);
+				}
 				return;
 			}
 			if (
 				completeSummaryAtRef.current !== null &&
 				now - completeSummaryAtRef.current >= TERMINAL_GATE_TIMEOUT_MS
 			) {
-				window.clearInterval(terminalPoll);
-				publishCurrent(result, true);
+				clientRef.current?.verifyResults();
+				if (result) {
+					window.clearInterval(terminalPoll);
+					publishCurrent(result, true);
+				}
 			}
 		}, TERMINAL_POLL_MS);
 		return () => window.clearInterval(terminalPoll);
@@ -550,7 +629,7 @@ export function RendererQueryReplayPage({
 		<Stack gap={12} className={s.page} ai="stretch">
 			<Timeline disableSessionAutosave />
 			<div className={s.overlay}>
-				<div className={s.badge}>QuerySocketSession 14M replay</div>
+				<div className={s.badge}>QuerySocketSession replay</div>
 				<div className={s.row}>
 					<span className={s.label}>profile</span>
 					<span className={s.value}>{profile}</span>
@@ -558,13 +637,13 @@ export function RendererQueryReplayPage({
 				<div className={s.row}>
 					<span className={s.label}>events</span>
 					<span className={s.value}>
-						{published.processedEvents.toLocaleString()} / 14,000,000
+						{published.processedEvents.toLocaleString()} / {REPLAY_TARGET.toLocaleString()}
 					</span>
 				</div>
 				<div className={s.row}>
 					<span className={s.label}>pages</span>
 					<span className={s.value}>
-						{published.result?.diagnostics.pages.created ?? 0} / 855
+						{published.result?.diagnostics.pages.created ?? 0}
 					</span>
 				</div>
 				<div className={s.row}>

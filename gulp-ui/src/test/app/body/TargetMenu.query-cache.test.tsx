@@ -225,6 +225,14 @@ describe("TargetMenu query-cache controls", () => {
 		);
 	});
 
+	it("routes source filter reset through the forced reset command", () => {
+		act(() => root.render(<TargetMenu source={mockSource} />));
+
+		act(() => getMenuButton(container, "X").click());
+
+		expect(mockInfo.filters_remove).toHaveBeenCalledWith(mockSource);
+	});
+
 	it("disables both history actions while cache activation is in progress", () => {
 		mockSource = {
 			...mockSource,

@@ -1,3 +1,5 @@
+import { TimelineQueryCoordinator } from "./TimelineQueryCoordinator";
+import type { TimelineQueryRequest } from "@/event-stream";
 import {
 	DOCUMENT_CHUNK_ACK_MESSAGE_TYPE,
 	QueryStreamRouter,
@@ -50,6 +52,8 @@ export class QuerySocketSession {
 	private readonly socketFactory: QuerySocketFactory;
 	private readonly router: QueryStreamRouter;
 	private readonly persistence: QueryPersistenceCoordinator;
+	private readonly timelineQueries: TimelineQueryCoordinator;
+	private timelineControlChain: Promise<void> = Promise.resolve();
 	private socket: WebSocket | null = null;
 	private socketState: QuerySocketState = "disconnected";
 	private reconnectAttempts = 0;
@@ -70,12 +74,14 @@ export class QuerySocketSession {
 	 * @param callbacks Serializable transport delivery callbacks.
 	 * @param socketFactory Injectable WebSocket factory used by the direct fallback tests.
 	 * @param persistenceOptions Injectable EventStore dependencies and limits.
+	 * @param fetcher Optional HTTP peer for deterministic integration replays.
 	 */
 	public constructor(
 		initialization: QueryWorkerInitialization,
 		callbacks: QueryTransportCallbacks,
 		socketFactory: QuerySocketFactory = (url) => new WebSocket(url),
 		persistenceOptions: QueryPersistenceCoordinatorOptions = {},
+		fetcher?: typeof fetch,
 	) {
 		this.initialization = initialization;
 		this.callbacks = callbacks;
@@ -84,7 +90,10 @@ export class QuerySocketSession {
 			onForwardMessage: callbacks.onForwardMessage,
 			onDocumentChunkReady: (chunk) =>
 				this.persistence.handleDocumentChunk(chunk),
-			onStreamStateChange: callbacks.onStreamStateChange,
+			onStreamStateChange: (change) => {
+				this.timelineQueries?.onStreamState(change);
+				callbacks.onStreamStateChange(change);
+			},
 			onUnknownDocumentStream: (requestId, message) => {
 				if (!this.initialization.legacyUnknownDocumentPassthrough) return;
 				this.router.register({
@@ -115,6 +124,33 @@ export class QuerySocketSession {
 			},
 			persistenceOptions,
 		);
+		this.timelineQueries = new TimelineQueryCoordinator(initialization, {
+			lookup: (request, mode) => this.persistence.reconcileSourceQueryCache({ operationId: request.descriptor.operationId, sourceId: request.sourceId, desired: request.desired, mode }),
+			register: (descriptor) => this.registerDocumentStream(descriptor),
+			cancel: async (requestId) => {
+				this.router.cancel(requestId);
+				await this.persistence.cancel(requestId);
+			},
+			publish: (update) => callbacks.onTimelineQueryUpdate?.(update),
+			isReady: () => this.state === "ready",
+		}, fetcher);
+	}
+
+	/** Queues source-local timeline replacements in the worker scheduler. */
+	public startTimelineQueries(requests: TimelineQueryRequest[]): Promise<void> {
+		return this.serializeTimelineControl(() => this.timelineQueries.start(requests));
+	}
+
+	/** Orders operation release and query controls without blocking socket ingestion or projections. */
+	private serializeTimelineControl(action: () => Promise<void>): Promise<void> {
+		const next = this.timelineControlChain.then(action);
+		this.timelineControlChain = next.catch(() => undefined);
+		return next;
+	}
+
+	/** Updates scheduling priority without blocking on viewport activity. */
+	public setTimelineQueryPriority(sourceIds: Source.Id[]): void {
+		this.timelineQueries.setPriority(sourceIds);
 	}
 
 	/** Returns the latest WebSocket state published by this session. */
@@ -147,11 +183,13 @@ export class QuerySocketSession {
 	 * Cancels one stream and drops later document chunks for its request ID.
 	 * @param requestId Request identifier to cancel.
 	 */
-	public cancelDocumentStream(requestId: string): Promise<void> {
-		this.router.cancel(requestId);
-		this.scheduleMailboxSweep();
-		this.trackPersistenceCleanup(this.persistence.cancel(requestId));
-		return Promise.resolve();
+	public async cancelDocumentStream(requestId: string): Promise<void> {
+		return this.serializeTimelineControl(async () => {
+			if (await this.timelineQueries.cancel(requestId)) return;
+			this.router.cancel(requestId);
+			this.scheduleMailboxSweep();
+			this.trackPersistenceCleanup(this.persistence.cancel(requestId));
+		});
 	}
 
 	/**
@@ -172,16 +210,18 @@ export class QuerySocketSession {
 	 * @param operationId Operation identifier to cancel.
 	 * @param operationEpoch Optional epoch guard.
 	 */
-	public cancelOperationStreams(
+	public async cancelOperationStreams(
 		operationId: string,
 		operationEpoch?: number,
 	): Promise<void> {
-		this.router.cancelOperation(operationId, operationEpoch);
-		this.scheduleMailboxSweep();
-		this.trackPersistenceCleanup(
-			this.persistence.cancelOperation(operationId, operationEpoch),
-		);
-		return Promise.resolve();
+		return this.serializeTimelineControl(async () => {
+			await this.timelineQueries.cancelOperation(operationId, operationEpoch);
+			this.router.cancelOperation(operationId, operationEpoch);
+			this.scheduleMailboxSweep();
+			this.trackPersistenceCleanup(
+				this.persistence.cancelOperation(operationId, operationEpoch),
+			);
+		});
 	}
 
 	/**
@@ -190,6 +230,12 @@ export class QuerySocketSession {
 	 * @param operationId Operation whose transient worker context should be released.
 	 */
 	public async releaseOperation(operationId: string): Promise<void> {
+		return this.serializeTimelineControl(() => this.releaseOperationContext(operationId));
+	}
+
+	/** Drains the old operation before queued starts may reopen the same IndexedDB context. */
+	private async releaseOperationContext(operationId: string): Promise<void> {
+		await this.timelineQueries.cancelOperation(operationId, undefined, true);
 		this.router.cancelOperation(operationId);
 		this.scheduleMailboxSweep();
 		const cancellation = this.persistence.cancelOperation(operationId);
@@ -379,6 +425,7 @@ export class QuerySocketSession {
 
 	/** Permanently releases socket, reconnect timer, and retained stream data. */
 	public destroy(): void {
+		this.timelineQueries.destroy();
 		if (this.destroyed) return;
 		this.destroyed = true;
 		this.close();
@@ -584,6 +631,7 @@ export class QuerySocketSession {
 		}
 
 		try {
+			this.timelineQueries.onServerMessage(parsed);
 			this.router.route(parsed, rawData.length * 2);
 			this.scheduleMailboxSweep();
 			if (parsed.type === "ws_connected") this.setState("ready");
@@ -640,6 +688,7 @@ export class QuerySocketSession {
 		if (this.socketState === state) return;
 		this.socketState = state;
 		this.callbacks.onSocketState(state);
+		if (state === "ready") this.timelineQueries.pump();
 	}
 
 	/**

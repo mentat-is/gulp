@@ -1,3 +1,4 @@
+import type { TimelineQueryRequest } from "@/event-stream";
 import type {
 	DocumentStreamDescriptor,
 	DocumentStreamFinalization,
@@ -91,6 +92,16 @@ export class DirectQueryTransport implements QueryTransport {
 			};
 			this.readyWaiters.add(waiter);
 		});
+	}
+
+	/** Uses the same coordinator in the existing direct transport. */
+	public startTimelineQueries(requests: TimelineQueryRequest[]): Promise<void> {
+		return this.session.startTimelineQueries(requests);
+	}
+
+	/** Updates visible source scheduling priority. */
+	public setTimelineQueryPriority(sourceIds: Source.Id[]): void {
+		this.session.setTimelineQueryPriority(sourceIds);
 	}
 
 	/**

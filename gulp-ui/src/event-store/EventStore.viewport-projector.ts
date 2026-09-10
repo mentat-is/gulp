@@ -31,8 +31,11 @@ const DEFAULT_MAXIMUM_REPRESENTATIVES = EVENT_RENDER_PROJECTION_LIMIT;
 export const EVENT_HEIGHT_MAXIMUM_WORKING_BUCKET_LIMIT = 65_536;
 const PROJECTION_GUARD_CHECK_MASK = 0xff;
 const EXACT_PAGE_CACHE_BYTE_LIMIT = 16 * 1024 * 1024;
-const LOD_PAGE_CACHE_BYTE_LIMIT = 4 * 1024 * 1024;
+// Retain the LOD working set of a 20M source during continuous pan/zoom.
+const LOD_PAGE_CACHE_BYTE_LIMIT = 32 * 1024 * 1024;
 const HEIGHT_PAGE_CACHE_BYTE_LIMIT = 4 * 1024 * 1024;
+// Visible rows must fit together; a smaller LRU repeatedly cloned their pages.
+const REFINEMENT_CACHE_BYTE_LIMIT = 128 * 1024 * 1024;
 const TRANSIENT_PAGE_RECORD = Symbol("EventStoreViewportTransientPage");
 
 /** Reports whether the viewport request owning projection work is still current. */
@@ -164,6 +167,8 @@ interface ProjectionPageCacheEntry<TValue> {
 	value: TValue;
 }
 
+type ProjectionRefinementBlock = Pick<EncodedEventPage, "timestamps" | "hashes" | "handles" | "tombstones">;
+
 interface TransientProjectionPageRecord {
 	exact: EncodedEventPage;
 	lod: EncodedEventPageLod;
@@ -181,6 +186,7 @@ interface ProjectionPageCatalogEntry extends EventPageCatalogEntry {
  */
 class BoundedProjectionPageCache<TValue> {
 	private readonly entries = new Map<string, ProjectionPageCacheEntry<TValue>>();
+	private readonly sourceKeys = new Map<Source.Id, Set<string>>();
 	private encodedBytes = 0;
 
 	/**
@@ -218,21 +224,19 @@ class BoundedProjectionPageCache<TValue> {
 	): void {
 		if (!Number.isFinite(encodedBytes) || encodedBytes <= 0) return;
 		const size = Math.max(1, Math.floor(encodedBytes));
-		const existing = this.entries.get(key);
-		if (existing) {
-			this.encodedBytes -= existing.encodedBytes;
-			this.entries.delete(key);
-		}
+		this.remove(key);
 		if (size > this.byteLimit) return;
 		while (this.encodedBytes + size > this.byteLimit) {
 			const oldest = this.entries.entries().next().value as
 				| [string, ProjectionPageCacheEntry<TValue>]
 				| undefined;
 			if (!oldest) break;
-			this.entries.delete(oldest[0]);
-			this.encodedBytes -= oldest[1].encodedBytes;
+			this.remove(oldest[0]);
 		}
 		this.entries.set(key, { sourceId, encodedBytes: size, value });
+		let keys = this.sourceKeys.get(sourceId);
+		if (!keys) this.sourceKeys.set(sourceId, keys = new Set());
+		keys.add(key);
 		this.encodedBytes += size;
 	}
 
@@ -242,11 +246,18 @@ class BoundedProjectionPageCache<TValue> {
 	 * @returns Nothing.
 	 */
 	public deleteSource(sourceId: Source.Id): void {
-		for (const [key, entry] of this.entries) {
-			if (entry.sourceId !== sourceId) continue;
-			this.entries.delete(key);
-			this.encodedBytes -= entry.encodedBytes;
-		}
+		for (const key of this.sourceKeys.get(sourceId) ?? []) this.remove(key);
+	}
+
+	/** Removes one entry and its source index without scanning other retained sources. */
+	private remove(key: string): void {
+		const entry = this.entries.get(key);
+		if (!entry) return;
+		this.entries.delete(key);
+		this.encodedBytes -= entry.encodedBytes;
+		const keys = this.sourceKeys.get(entry.sourceId);
+		keys?.delete(key);
+		if (keys?.size === 0) this.sourceKeys.delete(entry.sourceId);
 	}
 
 	/**
@@ -263,6 +274,7 @@ export interface EventStoreViewportProjectorDiagnostics {
 	exactPageCacheBytes: number;
 	lodPageCacheBytes: number;
 	heightPageCacheBytes: number;
+	refinementCacheBytes: number;
 }
 
 /**
@@ -286,6 +298,7 @@ export class EventStoreViewportProjector {
 			HEIGHT_PAGE_CACHE_BYTE_LIMIT,
 		);
 	private maximumHeightWorkingBuckets = 0;
+	private readonly refinementCache = new BoundedProjectionPageCache<ProjectionRefinementBlock>(REFINEMENT_CACHE_BYTE_LIMIT);
 
 	/**
 	 * Creates a projector with bounded aggregate caches over one operation-scoped backend.
@@ -305,6 +318,7 @@ export class EventStoreViewportProjector {
 			exactPageCacheBytes: this.exactPageCache.sizeBytes,
 			lodPageCacheBytes: this.lodPageCache.sizeBytes,
 			heightPageCacheBytes: this.heightPageCache.sizeBytes,
+			refinementCacheBytes: this.refinementCache.sizeBytes,
 		};
 	}
 
@@ -329,6 +343,7 @@ export class EventStoreViewportProjector {
 			this.exactPageCache.deleteSource(sourceId);
 			this.lodPageCache.deleteSource(sourceId);
 			this.heightPageCache.deleteSource(sourceId);
+			this.refinementCache.deleteSource(sourceId);
 		}
 		const bucketPixelWidth = this.calculateBucketPixelWidth(descriptor);
 		const manifests = await this.backend.getMany<EventSourceHeadManifest>(
@@ -562,6 +577,11 @@ export class EventStoreViewportProjector {
 		isCurrent: EventStoreProjectionGuard,
 	): Promise<RenderWindowSourceProjection> {
 		this.assertProjectionCurrent(isCurrent);
+		// Large active streams use a progressive preview. Fewer exact pixel-edge
+		// refinements keep durable updates moving; completion restores normal detail.
+		if (source.engine === "default" && manifest?.status === "building" && manifest.eventCount >= 1_000_000) {
+			bucketPixelWidth = Math.max(bucketPixelWidth, 4);
+		}
 		const transform = this.createTransform(
 			descriptor,
 			source.offset,
@@ -868,29 +888,39 @@ export class EventStoreViewportProjector {
 					continue;
 				}
 
-				exactPage ??= await this.loadExactPage(
-					manifest.sourceId,
-					manifest.generation,
-					catalog,
-				);
-				this.assertProjectionCurrent(isCurrent);
-				this.assertExactPageRevision(exactPage, catalog);
-				for (
-					let offset = lod.startOffsets[block];
-					offset < lod.endOffsets[block];
-					offset++
-				) {
+				const transient = (catalog as ProjectionPageCatalogEntry)[TRANSIENT_PAGE_RECORD];
+				// Retain only the boundary block's render columns. Repeated pan/zoom
+				// must not clone its full page (including document IDs) after LRU eviction.
+				const refinementKey = `${this.createProjectionPageCacheKey(manifest.sourceId, manifest.generation, catalog)}:${lod.startOffsets[block]}:${lod.endOffsets[block]}`;
+				let refined = transient ? undefined : this.refinementCache.get(refinementKey);
+				if (!refined) {
+					exactPage ??= await this.loadExactPage(manifest.sourceId, manifest.generation, catalog);
+					this.assertProjectionCurrent(isCurrent);
+					this.assertExactPageRevision(exactPage, catalog);
+					const start = lod.startOffsets[block], end = lod.endOffsets[block];
+					refined = {
+						timestamps: exactPage.timestamps.slice(start, end),
+						hashes: exactPage.hashes.slice(start, end),
+						handles: exactPage.handles.slice(start, end),
+						tombstones: exactPage.tombstones.slice(start, end),
+					};
+					if (!transient) {
+						const bytes = refined.timestamps.byteLength + refined.hashes.byteLength + refined.handles.byteLength + refined.tombstones.byteLength;
+						this.refinementCache.set(refinementKey, manifest.sourceId, bytes + refinementKey.length * 2 + 128, refined);
+					}
+				}
+				for (let offset = 0; offset < refined.timestamps.length; offset++) {
 					if ((offset & PROJECTION_GUARD_CHECK_MASK) === 0) {
 						this.assertProjectionCurrent(isCurrent);
 					}
-					if (exactPage.tombstones[offset] !== 0) continue;
-					const bucket = this.getBucket(exactPage.timestamps[offset], transform);
+					if (refined.tombstones[offset] !== 0) continue;
+					const bucket = this.getBucket(refined.timestamps[offset], transform);
 					if (bucket === null) continue;
-					const hash = exactPage.hashes[offset];
+					const hash = refined.hashes[offset];
 					this.mergeRepresentative(buckets, {
 						bucket,
-						handle: exactPage.handles[offset],
-						timestamp: exactPage.timestamps[offset],
+						handle: refined.handles[offset],
+						timestamp: refined.timestamps[offset],
 						hash,
 						isOverride: overrides.has(hash),
 					});

@@ -42,7 +42,12 @@ function hasFiniteNumbers(
 function isRenderHitTestResult(value: unknown): value is RenderHitTestResult | null {
 	if (value === null) return true;
 	if (!isRecord(value) || typeof value.id !== "string") return false;
-	if (value.kind === "link" || value.kind === "supplemental-event") return true;
+	if (
+		value.kind === "link" ||
+		value.kind === "cache-warning" ||
+		value.kind === "supplemental-event"
+	)
+		return true;
 	return (
 		value.kind === "note" &&
 		Array.isArray(value.noteIds) &&

@@ -9,6 +9,7 @@ import {
 	type EventStoreOverridePreparationResult,
 	type EventStoreViewportDescriptor,
 	type EventStoreViewportTransientPage,
+	type EventStoreViewportProjectorDiagnostics,
 } from "@/event-store/EventStore.viewport-projector";
 import {
 	EventStoreRepository,
@@ -83,10 +84,11 @@ interface QueryPersistenceRepository {
 		sourceId: Source.Id,
 		generation: number,
 	) => Promise<EventSourceSummary>;
-	/** Selects the safest exact, range-covered, or latest startup cache. */
+	/** Selects a complete, fresh exact or range-covered cache for startup or reuse. */
 	reconcileQueryCache(input: {
 		sourceId: Source.Id;
 		desired: DesiredQueryCacheLookup;
+		mode?: "initial" | "reuse";
 	}): Promise<EventSourceQueryCacheReconciliation | null>;
 	/** Activates the preceding source-local cache generation. */
 	undoQueryCache(
@@ -110,6 +112,7 @@ interface QueryPersistenceRevisionBus {
 }
 
 interface QueryViewportProjector {
+	getDiagnostics?(): EventStoreViewportProjectorDiagnostics;
 	requestRenderWindow(
 		descriptor: EventStoreViewportDescriptor,
 		isCurrent?: () => boolean,
@@ -418,7 +421,17 @@ export class QueryPersistenceCoordinator {
 		projections: QueryWorkerDiagnostics["projections"],
 	): QueryWorkerDiagnostics {
 		const pageCapacity = this.createdPageCount * EVENT_PAGE_SIZE;
+		const projectionCache = { exactBytes: 0, lodBytes: 0, heightBytes: 0, refinementBytes: 0 };
+		for (const operation of this.operations.values()) {
+			const cache = operation.projector.getDiagnostics?.();
+			if (!cache) continue;
+			projectionCache.exactBytes += cache.exactPageCacheBytes;
+			projectionCache.lodBytes += cache.lodPageCacheBytes;
+			projectionCache.heightBytes += cache.heightPageCacheBytes;
+			projectionCache.refinementBytes += cache.refinementCacheBytes;
+		}
 		return {
+			projectionCache,
 			capturedAtMs: this.now(),
 			activeStreams: this.streams.size,
 			loadedOperations: this.operations.size,
@@ -553,6 +566,7 @@ export class QueryPersistenceCoordinator {
 		const transientPages = new Map<Source.Id, EventStoreViewportTransientPage>();
 		for (const context of this.streams.values()) {
 			if (
+				context.descriptor.durableProjectionOnly ||
 				context.operation !== operation ||
 				(context.descriptor.kind ?? "query-upsert") !== "replace" ||
 				context.failed ||
@@ -611,14 +625,15 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Selects one reusable startup cache while holding the source mutation lease.
+	 * Selects a reusable cache under the source lease, optionally resetting startup history.
 	 * @param input Operation, source, and desired exact/shape/range lookup.
-	 * @returns Exact, covered, or latest cache activation, or null when none is reusable.
+	 * @returns Fresh exact or covered cache activation, or null when none is reusable.
 	 */
 	public reconcileSourceQueryCache(input: {
 		operationId: string;
 		sourceId: Source.Id;
 		desired: DesiredQueryCacheLookup;
+		mode?: "initial" | "reuse";
 	}): Promise<EventSourceQueryCacheReconciliation | null> {
 		return this.runSourceCacheMutation(
 			input.operationId,
@@ -627,6 +642,7 @@ export class QueryPersistenceCoordinator {
 				repository.reconcileQueryCache({
 					sourceId: input.sourceId,
 					desired: input.desired,
+					mode: input.mode,
 				}),
 			(result) => result?.summary ?? null,
 		);
@@ -1241,7 +1257,7 @@ export class QueryPersistenceCoordinator {
 		context: PersistenceStreamContext,
 		sourceIds: readonly Source.Id[],
 	): void {
-		if ((context.descriptor.kind ?? "query-upsert") !== "replace") return;
+		if (context.descriptor.durableProjectionOnly || (context.descriptor.kind ?? "query-upsert") !== "replace") return;
 		const pendingSourceIds = sourceIds.filter(
 			(sourceId) => {
 				const source = context.pageBuilderSources.get(sourceId);
@@ -2256,9 +2272,18 @@ export class QueryPersistenceCoordinator {
 		}
 		const manifest = context.operation.manifests.get(sourceId);
 		if (!manifest) return queryCache;
+		const materializedRange = {
+			min: (
+				BigInt(Math.round(manifest.minTimestamp)) * 1_000_000n
+			).toString(),
+			max: (
+				BigInt(Math.round(manifest.maxTimestamp)) * 1_000_000n
+			).toString(),
+		};
 		return {
 			...queryCache,
 			query: cloneQueryForCache(queryCache.query),
+			materializedRange,
 			normalization: {
 				...queryCache.normalization,
 				requestedFields: [...queryCache.normalization.requestedFields],
@@ -2266,12 +2291,8 @@ export class QueryPersistenceCoordinator {
 			serverSnapshot: {
 				...queryCache.serverSnapshot,
 				total: manifest.eventCount,
-				minNanoseconds: (
-					BigInt(Math.round(manifest.minTimestamp)) * 1_000_000n
-				).toString(),
-				maxNanoseconds: (
-					BigInt(Math.round(manifest.maxTimestamp)) * 1_000_000n
-				).toString(),
+				minNanoseconds: materializedRange.min,
+				maxNanoseconds: materializedRange.max,
 				millisecondPrecision: true,
 			},
 		};

@@ -26,6 +26,7 @@ Object.defineProperties(globalThis, {
 });
 
 const DEFAULT_SOURCE_ID = "projector-default" as Source.Id;
+(jest as unknown as { setTimeout(milliseconds: number): void }).setTimeout(60_000);
 
 interface ExpectedEvent {
 	handle: number;
@@ -229,6 +230,68 @@ function createQueryProvenance(fingerprint: string): QueryCacheProvenance {
 }
 
 describe("EventStoreViewportProjector", () => {
+	it("bounds large building previews and restores exact pixel detail at completion", async () => {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const count = 64 * 16384;
+		await repository.beginGeneration({ sourceId: DEFAULT_SOURCE_ID, generation: 1 });
+		for (let pageId = 0; pageId < 64; pageId++) {
+			const documents = Array.from({ length: 16384 }, (_, index) => {
+				const ordinal = pageId * 16384 + index;
+				return createDocument(`building-${ordinal}`, ordinal, ordinal % 8000);
+			});
+			const page = createPage(DEFAULT_SOURCE_ID, pageId, documents, documents.map((_, index) => pageId * 16384 + index + 1));
+			await repository.appendPages({ sourceId: DEFAULT_SOURCE_ID, generation: 1, pages: [page] });
+		}
+		const projector = new EventStoreViewportProjector(backend);
+		const descriptor = { ...createDescriptor(DEFAULT_SOURCE_ID), frame: { min: 0, max: count }, width: 128 };
+		const building = (await projector.requestRenderWindow(descriptor)).sources[0];
+		expect(building.sourceStatus).toBe("building");
+		expect(building.bucketPixelWidth).toBe(4);
+		expect(building.frameEventCount).toBe(count);
+		await repository.finalizeGeneration(DEFAULT_SOURCE_ID, 1);
+		const complete = (await projector.requestRenderWindow({ ...descriptor, projectionRevision: 10 })).sources[0];
+		expect(complete.sourceStatus).toBe("complete");
+		expect(complete.bucketPixelWidth).toBe(1);
+		expect(complete.frameEventCount).toBe(count);
+		for (const projection of [building, complete]) {
+			const expected = new Map<number, number>();
+			for (let index = 0; index < count; index++) expected.set(Math.floor(Math.round(index / count * 128) / projection.bucketPixelWidth), index);
+			expect(Array.from(projection.representativeTimestamps)).toEqual([...expected.values()].reverse());
+			expect(Array.from(projection.representativeHandles)).toEqual([...expected.values()].reverse().map((index) => index + 1));
+		}
+		expect(complete.representativeHandles.length > building.representativeHandles.length).toBe(true);
+	});
+
+	it("reuses pixel-boundary blocks after full exact pages exceed the cache budget", async () => {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const count = 32 * 8192;
+		const pages = Array.from({ length: 32 }, (_, pageId) => {
+			const documents = Array.from({ length: 8192 }, (_, index) => {
+				const ordinal = pageId * 8192 + index;
+				return createDocument(`refinement-event-${ordinal.toString().padStart(24, "0")}`, ordinal, ordinal % 8000);
+			});
+			return createPage(DEFAULT_SOURCE_ID, pageId, documents, documents.map((_, index) => pageId * 8192 + index + 1));
+		});
+		expect(pages.reduce((bytes, page) => bytes + page.encodedByteLength, 0) > 16 * 1024 ** 2).toBe(true);
+		await persistSource(repository, DEFAULT_SOURCE_ID, pages);
+		const projector = new EventStoreViewportProjector(backend);
+		const descriptor = { ...createDescriptor(DEFAULT_SOURCE_ID), frame: { min: 0, max: count }, width: 80, horizontalOverscanPixels: 80 };
+		backend.resetReads();
+		const first = await projector.requestRenderWindow(descriptor);
+		expect(first.sources[0].frameEventCount).toBe(count);
+		expect(backend.exactPageReads).toBe(32);
+		backend.resetReads();
+		const panned = await projector.requestRenderWindow({ ...descriptor, viewportRevision: 8, projectionRevision: 10, scrollX: 8 });
+		expect(panned.sources[0].representativeHandles).toEqual(first.sources[0].representativeHandles);
+		expect(backend.exactPageReads).toBe(0);
+		expect(projector.getDiagnostics().refinementCacheBytes > 0).toBe(true);
+		expect(projector.getDiagnostics().refinementCacheBytes <= 128 * 1024 ** 2).toBe(true);
+		await projector.requestRenderWindow({ ...descriptor, sources: [], evictedSourceIds: [DEFAULT_SOURCE_ID] });
+		expect(projector.getDiagnostics().refinementCacheBytes).toBe(0);
+	});
+
 	it("projects a bounded transient builder page without reading uncommitted storage", async () => {
 		const backend = new CountingMemoryEventStoreBackend();
 		const repository = new EventStoreRepository(backend);

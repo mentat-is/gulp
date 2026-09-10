@@ -146,7 +146,7 @@ export interface RendererBenchmarkEventStoreDependencies {
 	writer: RendererBenchmarkWriter;
 	projector: RendererBenchmarkProjector;
 	publishSourceSummary?: (summary: EventSourceSummary) => void;
-	publishProjection?: (projection: RenderWindowProjection) => boolean;
+	publishProjection?: (projection: RenderWindowProjection, descriptor: EventStoreViewportDescriptor) => boolean;
 	readHeapUsageBytes?: () => number | null;
 	readMainCacheDocuments?: () => number;
 	readNowMs?: () => number;
@@ -427,8 +427,8 @@ export function createRendererBenchmarkEventStore(
 	return new RendererBenchmarkEventStore({
 		writer: repository,
 		projector: new EventStoreViewportProjector(backend),
-		publishProjection: (projection) =>
-			renderWindowProjectionBus.publish(projection),
+		publishProjection: (projection, descriptor) =>
+			renderWindowProjectionBus.publish(projection, descriptor),
 		...callbacks,
 	});
 }
@@ -444,6 +444,7 @@ export class RendererBenchmarkEventStore {
 	private readonly publishSourceSummary: (summary: EventSourceSummary) => void;
 	private readonly publishProjection: (
 		projection: RenderWindowProjection,
+		descriptor: EventStoreViewportDescriptor,
 	) => boolean;
 	private readonly readHeapUsageBytes: () => number | null;
 	private readonly readMainCacheDocuments: () => number;
@@ -725,7 +726,7 @@ export class RendererBenchmarkEventStore {
 		);
 		try {
 			const projection = await this.requestRenderWindow(descriptor);
-			return this.publishProjection(projection);
+			return this.publishProjection(projection, descriptor);
 		} finally {
 			this.renderBatchesInFlight--;
 		}

@@ -61,6 +61,8 @@ export interface StreamDescriptor {
 	operationEpoch: number;
 	owner: DocumentStreamOwner;
 	completionMode?: "last" | "explicit";
+	/** Timeline replacement previews become visible only after persistence. */
+	durableProjectionOnly?: boolean;
 	/**
 	 * Whether numeric chunk sequences are unique for the whole request.
 	 * Multi-query endpoints may reset `chunk_num` for each child query and must
@@ -148,11 +150,36 @@ export interface DocumentStreamStateChange {
 /** Configuration sent once when the query worker is created. */
 export interface QueryWorkerInitialization {
 	socketUrl: string;
+	/** HTTP API origin/path, independent from the WebSocket URL. */
+	apiUrl?: string;
 	token: string;
 	wsId: string;
 	/** Stable backend/user identity for IndexedDB, revision channels, and Web Locks. */
 	cacheNamespaceId: string;
 	legacyUnknownDocumentPassthrough?: boolean;
+}
+
+/** One source-scoped replacement prepared by the application coordinator. */
+export interface TimelineQueryRequest {
+	descriptor: DocumentStreamDescriptor;
+	sourceId: Source.Id;
+	desired: DesiredQueryCacheLookup;
+	body: Record<string, unknown>;
+	cachePolicy: "reuse" | "force";
+}
+
+/** Compact lifecycle delivery; event documents never cross this interface. */
+export interface TimelineQueryUpdate {
+	requestId: string;
+	operationId: string;
+	operationEpoch: number;
+	sourceId: Source.Id;
+	state: "started" | "cache-hit" | "failed" | "canceled";
+	/** Previous-session history was reconciled before this decision. */
+	initialized?: boolean;
+	activation?: EventSourceQueryCacheReconciliation;
+	error?: string;
+	httpStatus?: number;
 }
 
 /** Operation-qualified viewport request executable inside QueryWorker. */
@@ -215,6 +242,7 @@ export interface QueryStreamFailureEvent {
 
 /** On-demand persistence and projection telemetry retained inside QueryWorker. */
 export interface QueryWorkerDiagnostics {
+	projectionCache?: { exactBytes: number; lodBytes: number; heightBytes: number; refinementBytes: number };
 	capturedAtMs: number;
 	activeStreams: number;
 	loadedOperations: number;
@@ -313,7 +341,7 @@ export interface ResetQueryDiagnosticsCommand extends QueryWorkerControlCommand 
 	type: "RESET_QUERY_DIAGNOSTICS";
 }
 
-/** Selects one startup cache by exact fingerprint or latest fallback. */
+/** Selects one fresh startup cache by exact fingerprint or covered range. */
 export interface ReconcileSourceQueryCacheCommand {
 	type: "RECONCILE_SOURCE_QUERY_CACHE";
 	cacheRequestId: string;
@@ -365,6 +393,8 @@ export interface CloseQuerySocketCommand {
 
 /** Commands accepted by the query worker. */
 export type QueryWorkerCommand =
+	| { type: "START_TIMELINE_QUERIES"; controlId: string; requests: TimelineQueryRequest[] }
+	| { type: "SET_TIMELINE_QUERY_PRIORITY"; sourceIds: Source.Id[] }
 	| InitializeQueryWorkerCommand
 	| RegisterDocumentStreamCommand
 	| CancelDocumentStreamCommand
@@ -482,6 +512,7 @@ export interface QueryWorkerProtocolErrorEvent {
 
 /** Events emitted by the query worker client protocol. */
 export type QueryWorkerEvent =
+	| { type: "TIMELINE_QUERY_UPDATE"; update: TimelineQueryUpdate }
 	| QueryWorkerControlResult
 	| QueryWorkerSocketStateEvent
 	| QueryWorkerSocketOpenEvent

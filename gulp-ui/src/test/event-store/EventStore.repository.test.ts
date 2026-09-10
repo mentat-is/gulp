@@ -1,6 +1,7 @@
 import type { Doc } from "@/entities/Doc";
 import {
 	fingerprintSourceQueryShape,
+	type QueryCacheNanosecondRange,
 	type QueryCacheProvenance,
 	type QueryCacheServerSnapshot,
 } from "@/entities/QueryCache";
@@ -138,17 +139,22 @@ async function appendQueryCache(
 	timestamp: number,
 	options: {
 		range?: { min: number; max: number };
+		materializedRange?: QueryCacheNanosecondRange;
 		serverSnapshot?: Partial<QueryCacheServerSnapshot>;
 	} = {},
 ): Promise<number> {
+	const queryCache = createQueryCacheProvenance(
+		fingerprint,
+		options.range,
+		options.serverSnapshot,
+	);
+	if (options.materializedRange) {
+		queryCache.materializedRange = options.materializedRange;
+	}
 	const building = await repository.beginGeneration({
 		sourceId: SOURCE_ID,
 		...(generation === undefined ? {} : { generation }),
-		queryCache: createQueryCacheProvenance(
-			fingerprint,
-			options.range,
-			options.serverSnapshot,
-		),
+		queryCache,
 	});
 	await repository.appendPages({
 		sourceId: SOURCE_ID,
@@ -420,7 +426,7 @@ describe("EventStoreRepository", () => {
 					1,
 					[
 						{ ...createDocument("sequence-30", 100), "event.sequence": 30 },
-						{ ...createDocument("sequence-10", 100), "event.sequence": 10 },
+						{ ...createDocument("sequence-0", 100), "event.sequence": 0 },
 					],
 					[1, 2],
 				),
@@ -453,12 +459,22 @@ describe("EventStoreRepository", () => {
 			firstPage.nextCursor ?? undefined,
 		);
 		expect(secondPage.events.map((event) => event["event.sequence"])).toEqual([
-			20, 10,
+			20, 0,
 		]);
+		expect(
+			(await repository.getSourceEdge(SOURCE_ID, true)).event?.[
+				"event.sequence"
+			],
+		).toBe(40);
+		expect(
+			(await repository.getSourceEdge(SOURCE_ID, false)).event?.[
+				"event.sequence"
+			],
+		).toBe(0);
 
 		const neighbors = await repository.getNeighbors(SOURCE_ID, 4, 2, 1);
 		expect(neighbors.events.map((event) => event["event.sequence"])).toEqual([
-			40, 30, 20, 10,
+			40, 30, 20, 0,
 		]);
 		expect(neighbors.currentIndex).toBe(2);
 	});
@@ -1458,7 +1474,7 @@ describe("EventStoreRepository", () => {
 		).toEqual([4, 5, 6]);
 	});
 
-	it("reconciles an exact cache or latest reusable fallback and prunes alternatives", async () => {
+	it("reconciles an exact cache or latest reusable startup fallback", async () => {
 		let now = 0;
 		const backend = new CountingMemoryEventStoreBackend();
 		const repository = new EventStoreRepository(backend, {
@@ -1643,6 +1659,46 @@ describe("EventStoreRepository", () => {
 		});
 	});
 
+	it("uses an ingestion materialized range for covered timerange reuse", async () => {
+		const repository = new EventStoreRepository(
+			new MemoryEventStoreBackend(),
+		);
+		const serverSnapshot = {
+			total: 1,
+			minNanoseconds: "10",
+			maxNanoseconds: "20",
+			timeUpdated: 1,
+			millisecondPrecision: false,
+		};
+		await appendQueryCache(
+			repository,
+			undefined,
+			"ingestion-provisional-range",
+			"ingested",
+			10,
+			{
+				range: { min: 1_000, max: 2_000 },
+				materializedRange: { min: "10", max: "20" },
+				serverSnapshot,
+			},
+		);
+		const desired = createDesiredQueryCacheLookup(
+			"selected-timerange",
+			{ min: 12, max: 18 },
+			serverSnapshot,
+		);
+		desired.shapeFingerprint = createQueryCacheProvenance(
+			"ingestion-provisional-range",
+		).shapeFingerprint!;
+
+		const reconciled = await repository.reconcileQueryCache({
+			sourceId: SOURCE_ID,
+			desired,
+			mode: "reuse",
+		});
+		expect(reconciled).toMatchObject({ match: "covered" });
+	});
+
 	it("does not cover-match a v4 cache that has no persisted query shape", async () => {
 		const backend = new MemoryEventStoreBackend();
 		const repository = new EventStoreRepository(backend);
@@ -1691,9 +1747,8 @@ describe("EventStoreRepository", () => {
 
 		expect(reconciled).toMatchObject({
 			match: "latest",
-			cache: { generation: 1 },
+			cache: { provenance: { fingerprint: "legacy-full-fingerprint" } },
 		});
-		expect(reconciled?.cache.provenance.shapeFingerprint).toBeUndefined();
 	});
 
 	it("marks an upserted active cache mutated and refuses it at startup", async () => {

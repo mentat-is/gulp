@@ -136,6 +136,7 @@ export namespace Source {
 		/** Memoization cache for the Canvas-rendered source row set. */
 		private static _renderedCache: {
 			ref: Source.Type[] | null;
+			loadings: ReturnType<typeof requestStore.getLoadings> | null;
 			filterText: string;
 			sourcesWithNoEvents: boolean;
 			notesHidden: boolean;
@@ -146,6 +147,7 @@ export namespace Source {
 			result: Source.Type[];
 		} = {
 			ref: null,
+			loadings: null,
 			filterText: "",
 			sourcesWithNoEvents: true,
 			notesHidden: false,
@@ -160,12 +162,13 @@ export namespace Source {
 		 * Checks whether a source should stay visible while empty-source rows are hidden.
 		 * @param source Source whose query, supplemental events, and notes are inspected.
 		 * @param notesHidden Whether note-only rows are currently suppressed.
-		 * @returns True when query or supplemental events exist, or a visible note targets the source.
+		 * @returns True while loading, when events exist, or when a visible note targets the source.
 		 */
 		private static hasVisibleEvents = (
 			source: Source.Type,
 			notesHidden: boolean,
 		): boolean => {
+			if (requestStore.getRequestIdByFile(source.id)) return true;
 			if (DataStore.hasRenderableSourceEvents(source.id, source.total)) {
 				return true;
 			}
@@ -222,9 +225,11 @@ export namespace Source {
 			const eventSourceVisibilitySequence =
 				DataStore.getEventSourceVisibilitySequence();
 			const documentsVersion = DataStore.getDocumentsSnapshot();
+			const loadings = requestStore.getLoadings();
 
 			if (
 				app.target.files === Source.Entity._renderedCache.ref &&
+				loadings === Source.Entity._renderedCache.loadings &&
 				currentFilter === Source.Entity._renderedCache.filterText &&
 				hiddenSourcesWithNoEvents ===
 					Source.Entity._renderedCache.sourcesWithNoEvents &&
@@ -253,6 +258,7 @@ export namespace Source {
 
 			Source.Entity._renderedCache = {
 				ref: app.target.files,
+				loadings,
 				filterText: currentFilter,
 				sourcesWithNoEvents: hiddenSourcesWithNoEvents,
 				notesHidden,

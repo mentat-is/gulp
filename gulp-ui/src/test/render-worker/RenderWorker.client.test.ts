@@ -229,6 +229,29 @@ describe("RenderWorkerClient acknowledgement telemetry", () => {
 		).toBe(false);
 	});
 
+	it("validates cache-warning hit identities in protocol v11", () => {
+		const response = {
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 1,
+			type: "HOVER_CHANGED",
+			payload: {
+				viewportRevision: 3,
+				hit: { kind: "cache-warning", id: "source-a" },
+			},
+		};
+		expect(isRenderWorkerResponse(response)).toBe(true);
+		expect(
+			isRenderWorkerResponse({
+				...response,
+				payload: {
+					viewportRevision: 3,
+					hit: { kind: "cache-warning", id: 7 },
+				},
+			}),
+		).toBe(false);
+	});
+
 	it("does not reinstate a rejected revision when RESYNC arrives before ACK", () => {
 		const revisions = new Map([
 			["source-a", { revision: 1, dataSequence: 1 }],

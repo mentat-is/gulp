@@ -46,6 +46,7 @@ function createRenderSource(overrides: Partial<RenderSource> = {}): RenderSource
 		timestamp: { min: 0, max: 240_000 },
 		total: 3,
 		loadingKind: "none",
+		cacheWarning: false,
 		offset: 0,
 		engine: "default",
 		frequency: 1,
@@ -1239,9 +1240,21 @@ describe("WorkerRenderRepository", () => {
 				width: 20,
 				height: 20,
 			},
+			{
+				kind: "cache-warning",
+				id: "source-a",
+				x: 15,
+				y: 15,
+				width: 14,
+				height: 14,
+			},
 		]);
 
 		expect(repository.hitTest(20, 20)).toEqual({
+			kind: "cache-warning",
+			id: "source-a",
+		});
+		expect(repository.hitTest(30, 30)).toEqual({
 			kind: "note",
 			id: "note-a",
 			noteIds: ["note-a", "note-b"],

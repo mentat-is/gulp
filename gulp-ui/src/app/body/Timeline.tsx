@@ -15,6 +15,7 @@ import {
 	cleanupTimelineAutosave,
 	runTimelineAutosaveWhenIdle,
 	scheduleTimelineAutosave,
+	TIMELINE_AUTOSAVE_INTERACTION_QUIET_MS,
 } from "./TimelineAutosave";
 import { serializeWorkspaceSessionValue } from "@/class/WorkspaceSessionRepository";
 
@@ -118,6 +119,10 @@ export function Timeline({
 	const persistedFingerprintsRef = useRef(new Map<string, string>());
 	const autosaveInFlightRef = useRef(false);
 	const autosaveRerunRequestedRef = useRef(false);
+	const autosavePreparationPendingRef = useRef(false);
+	const cancelAutosavePreparationRef = useRef<(() => void) | null>(null);
+	const lastViewportInteractionAtRef = useRef(Number.NEGATIVE_INFINITY);
+	const previousTimelineScaleRef = useRef(timelineScale);
 	const debouncedSessionAutosaveRef = useRef<DebouncedFunc<() => void> | null>(
 		null,
 	);
@@ -127,6 +132,11 @@ export function Timeline({
 
 	useEffect(() => {
 		debouncedSessionAutosaveRef.current?.cancel();
+		cancelAutosavePreparationRef.current?.();
+		cancelAutosavePreparationRef.current = null;
+		autosavePreparationPendingRef.current = false;
+		autosaveRerunRequestedRef.current = false;
+		lastViewportInteractionAtRef.current = Number.NEGATIVE_INFINITY;
 		const initialSnapshot = Info.session_snapshot();
 		if (selectedOperationId && initialSnapshot) {
 			persistedFingerprintsRef.current.set(
@@ -154,43 +164,54 @@ export function Timeline({
 				autosaveRerunRequestedRef.current = true;
 				return;
 			}
+			if (autosavePreparationPendingRef.current) return;
 
-			runTimelineAutosaveWhenIdle(() => {
-				const snapshot = Info.session_snapshot(selectedOperationId);
-				if (
-					!snapshot ||
-					snapshot.selected.files.length === 0 ||
-					snapshot.selected.contexts.length === 0
-				) {
-					return;
-				}
-				const fingerprint = serializeWorkspaceSessionValue(snapshot);
-				if (
-					selectedOperationId &&
-					persistedFingerprintsRef.current.get(selectedOperationId) ===
-						fingerprint
-				) {
-					return;
-				}
+			autosavePreparationPendingRef.current = true;
+			const cancelPreparation = runTimelineAutosaveWhenIdle(
+				() => {
+					autosavePreparationPendingRef.current = false;
+					cancelAutosavePreparationRef.current = null;
+					const snapshot = Info.session_snapshot(selectedOperationId);
+					if (
+						!snapshot ||
+						snapshot.selected.files.length === 0 ||
+						snapshot.selected.contexts.length === 0
+					) {
+						return;
+					}
+					const fingerprint = serializeWorkspaceSessionValue(snapshot);
+					if (
+						selectedOperationId &&
+						persistedFingerprintsRef.current.get(selectedOperationId) ===
+							fingerprint
+					) {
+						return;
+					}
 
-				autosaveInFlightRef.current = true;
-				void Info.session_autosave(snapshot, selectedOperationId)
-					.then((persisted) => {
-						if (persisted && selectedOperationId) {
-							persistedFingerprintsRef.current.set(
-								selectedOperationId,
-								fingerprint,
-							);
-						}
-					})
-					.finally(() => {
-						autosaveInFlightRef.current = false;
-						if (autosaveRerunRequestedRef.current) {
-							autosaveRerunRequestedRef.current = false;
-							debouncedSessionAutosaveRef.current?.();
-						}
-					});
-			});
+					autosaveInFlightRef.current = true;
+					void Info.session_autosave(snapshot, selectedOperationId)
+						.then((persisted) => {
+							if (persisted && selectedOperationId) {
+								persistedFingerprintsRef.current.set(
+									selectedOperationId,
+									fingerprint,
+								);
+							}
+						})
+						.finally(() => {
+							autosaveInFlightRef.current = false;
+							if (autosaveRerunRequestedRef.current) {
+								autosaveRerunRequestedRef.current = false;
+								debouncedSessionAutosaveRef.current?.();
+							}
+						});
+				},
+				() =>
+					Date.now() - lastViewportInteractionAtRef.current <
+					TIMELINE_AUTOSAVE_INTERACTION_QUIET_MS,
+			);
+			cancelAutosavePreparationRef.current =
+				autosavePreparationPendingRef.current ? cancelPreparation : null;
 		};
 
 		return debounce(
@@ -204,6 +225,15 @@ export function Timeline({
 	debouncedSessionAutosaveRef.current = debouncedSessionAutosave;
 
 	useEffect(() => {
+		if (previousTimelineScaleRef.current !== timelineScale) {
+			lastViewportInteractionAtRef.current = Date.now();
+			previousTimelineScaleRef.current = timelineScale;
+		}
+		if (disableSessionAutosave) {
+			cancelAutosavePreparationRef.current?.();
+			cancelAutosavePreparationRef.current = null;
+			autosavePreparationPendingRef.current = false;
+		}
 		scheduleTimelineAutosave(
 			debouncedSessionAutosave,
 			disableSessionAutosave,
@@ -224,7 +254,10 @@ export function Timeline({
 
 	useEffect(() => {
 		if (disableSessionAutosave) return;
-		return scrollStore.subscribe(() => debouncedSessionAutosave());
+		return scrollStore.subscribe(() => {
+			lastViewportInteractionAtRef.current = Date.now();
+			debouncedSessionAutosave();
+		});
 	}, [debouncedSessionAutosave, disableSessionAutosave]);
 
 	useEffect(() => {

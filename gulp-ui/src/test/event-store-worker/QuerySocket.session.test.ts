@@ -413,6 +413,7 @@ describe("QuerySocketSession render windows", () => {
 
 	it("drains an invalidated active projection before releasing its operation", async () => {
 		const deferred: DeferredProjection[] = [];
+		let openedStores = 0;
 		const backend = new MemoryEventStoreBackend();
 		const repository = new EventStoreRepository(backend);
 		const closeRepository = jest.spyOn(repository, "close");
@@ -427,7 +428,12 @@ describe("QuerySocketSession render windows", () => {
 			callbacks,
 			undefined,
 			{
-				createOperationStore: () => ({ backend, repository }),
+				createOperationStore: () => {
+					openedStores++;
+					if (openedStores === 1) return { backend, repository };
+					const nextBackend = new MemoryEventStoreBackend();
+					return { backend: nextBackend, repository: new EventStoreRepository(nextBackend) };
+				},
 				createRevisionBus: () => ({
 					publish: () => undefined,
 					close: closeRevisionBus,
@@ -447,13 +453,22 @@ describe("QuerySocketSession render windows", () => {
 		const release = session.releaseOperation("operation-one").then(() => {
 			releaseFinished = true;
 		});
+		const sourceId = "reopened-source" as Source.Id;
+		const restarted = session.startTimelineQueries([{
+			sourceId, cachePolicy: "reuse", body: {},
+			descriptor: { requestId: "reopened-request", operationId: "operation-one", operationEpoch: 3, kind: "replace", owner: "persist", sourceIds: [sourceId] },
+			desired: { fingerprint: "reopened", shapeFingerprint: "reopened", range: { min: "0", max: "100" }, serverSnapshot: { total: 1, minNanoseconds: "0", maxNanoseconds: "100", timeUpdated: 1, millisecondPrecision: false } },
+		}]);
 		await Promise.resolve();
 		expect(releaseFinished).toBe(false);
 		expect(closeRepository).not.toHaveBeenCalled();
+		expect(openedStores).toBe(1);
 
 		deferred[0].resolve(createProjection(deferred[0].descriptor));
 		expect(await projection).toBeNull();
 		await release;
+		await restarted;
+		await waitFor(() => openedStores === 2);
 		expect(closeRepository).toHaveBeenCalledTimes(1);
 		expect(closeRevisionBus).toHaveBeenCalledTimes(1);
 		session.destroy();

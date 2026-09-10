@@ -1,28 +1,14 @@
-import { act, type ReactNode } from "react";
+import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { Source } from "@/entities/Source";
-import type { Request } from "@/entities/Request";
-import { requestStore } from "@/store/request.store";
 import {
-	createEmptyQueryCacheState,
-	type QueryCacheState,
-} from "@/entities/QueryCache";
-import {
-	CanvasCacheWarningOverlay,
-	getCanvasSourceLoadingSuffix,
-	getCanvasCacheWarningTop,
-	shouldShowCanvasCacheWarning,
-	shouldShowCanvasSourceCacheWarning,
+	CanvasCacheWarningTooltip,
+	hitTestCanvasCacheWarning,
+	resolveCanvasCacheWarningTooltipPosition,
+	type CanvasCacheWarningTooltipHandle,
 } from "@/app/body/CanvasCacheWarning";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
 	.IS_REACT_ACT_ENVIRONMENT = true;
-
-let mockScrollY = 0;
-
-jest.mock("@/store/scroll.store", () => ({
-	useScrollY: (): number => mockScrollY,
-}));
 
 jest.mock("@/locales", () => ({
 	Locale: {
@@ -32,210 +18,113 @@ jest.mock("@/locales", () => ({
 	},
 }));
 
-jest.mock("@/ui/Tooltip", () => ({
-	Tooltip: ({ children }: { children?: ReactNode }) => children ?? null,
-	TooltipContent: ({ children }: { children?: ReactNode }) => (
-		<span data-tooltip-content>{children}</span>
-	),
-	TooltipProvider: ({ children }: { children?: ReactNode }) => children ?? null,
-	TooltipTrigger: ({ children }: { children?: ReactNode }) => children ?? null,
-}));
-
-jest.mock("@/ui/Icon", () => ({
-	Icon: ({ name }: { name: string }) => <svg data-icon={name} />,
-}));
-
-/** Creates one runtime cache state with optional semantic overrides. */
-function createQueryCacheState(
-	overrides: Partial<QueryCacheState> = {},
-): QueryCacheState {
-	return {
-		...createEmptyQueryCacheState(),
-		activeGeneration: 7,
-		freshness: "query-mismatch",
-		warningReason: "query-mismatch",
-		...overrides,
-	};
-}
-
-/** Creates the minimal source projection consumed by the DOM warning overlay. */
-function createSource(
-	id: string,
-	queryCache: QueryCacheState,
-	options: {
-		name?: string;
-		querySourceIds?: string[];
-		timelineLabel?: "filename" | "full_path";
-	} = {},
-): Source.Type {
-	return {
-		id: id as Source.Id,
-		name: options.name ?? `${id}.json`,
-		appliedQuery: {
-			string: "cached query",
-			filters: [],
-			source_config: {
-				operation_id: "operation-id",
-				source_ids: options.querySourceIds ?? [id],
-				range: { min: 1, max: 2 },
-			},
-		},
-		settings: {
-			timeline_label: options.timelineLabel ?? "filename",
-		},
-		queryCache,
-	} as unknown as Source.Type;
-}
-
-describe("CanvasCacheWarningOverlay", () => {
+describe("CanvasCacheWarningTooltip", () => {
 	let container: HTMLDivElement;
 	let root: Root;
+	let handle: ReturnType<typeof createRef<CanvasCacheWarningTooltipHandle>>;
 
 	beforeEach(() => {
-		mockScrollY = 0;
-		requestStore.reset();
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
+		handle = createRef<CanvasCacheWarningTooltipHandle>();
+		act(() => root.render(<CanvasCacheWarningTooltip ref={handle} />));
 	});
 
 	afterEach(() => {
-		act(() => {
-			root.unmount();
-			requestStore.reset();
-		});
+		act(() => root.unmount());
 		container.remove();
 	});
 
-	it("shows AlertTriangle and the localized cache tooltip only for cached warnings", () => {
-		const cachedWarning = createSource(
-			"cached-warning",
-			createQueryCacheState(),
-			{ name: "/evidence/host/cached-warning.json" },
+	it("mounts one hidden non-interactive tooltip and no per-source trigger", () => {
+		const tooltips = container.querySelectorAll(
+			"[data-canvas-cache-warning-tooltip]",
 		);
-		requestStore.setLoading(
-			"ingestion-active" as Request.Id,
-			cachedWarning.id,
+		expect(tooltips).toHaveLength(1);
+		expect((tooltips[0] as HTMLElement).hidden).toBe(true);
+		expect(tooltips[0].textContent).toBe(
+			"source.cacheWarning.loadedFromCache",
 		);
-		const sources = [
-			cachedWarning,
-			createSource(
-				"cached-fresh",
-				createQueryCacheState({ freshness: "fresh", warningReason: null }),
+		expect(container.querySelector("[data-source-cache-warning]")).toBeNull();
+		expect(container.querySelector('[tabindex="0"]')).toBeNull();
+	});
+
+	it("anchors once per source entry, switches source, and hides imperatively", () => {
+		const tooltip = container.querySelector<HTMLElement>(
+			"[data-canvas-cache-warning-tooltip]",
+		);
+		expect(tooltip).not.toBeNull();
+		const measure = jest.fn(() => ({
+			width: 80,
+			height: 30,
+		}) as DOMRect);
+		if (tooltip) tooltip.getBoundingClientRect = measure;
+
+		act(() => {
+			handle.current?.show({
+				sourceId: "source-a",
+				x: 100,
+				y: 100,
+				bounds: { width: 300, height: 200 },
+			});
+		});
+		expect(tooltip?.hidden).toBe(false);
+		expect(tooltip?.dataset.sourceId).toBe("source-a");
+		expect(tooltip?.style.transform).toBe("translate3d(112px, 58px, 0)");
+		expect(measure).toHaveBeenCalledTimes(1);
+
+		act(() => {
+			handle.current?.show({
+				sourceId: "source-a",
+				x: 250,
+				y: 150,
+				bounds: { width: 300, height: 200 },
+			});
+		});
+		expect(tooltip?.style.transform).toBe("translate3d(112px, 58px, 0)");
+		expect(measure).toHaveBeenCalledTimes(1);
+
+		act(() => {
+			handle.current?.show({
+				sourceId: "source-b",
+				x: 290,
+				y: 5,
+				bounds: { width: 300, height: 200 },
+			});
+		});
+		expect(tooltip?.dataset.sourceId).toBe("source-b");
+		expect(tooltip?.style.transform).toBe("translate3d(198px, 17px, 0)");
+		expect(measure).toHaveBeenCalledTimes(2);
+
+		act(() => handle.current?.hide());
+		expect(tooltip?.hidden).toBe(true);
+		expect(tooltip?.getAttribute("aria-hidden")).toBe("true");
+		expect(tooltip?.dataset.sourceId).toBeUndefined();
+	});
+
+	it("clamps oversized tooltips to the Canvas margin", () => {
+		expect(
+			resolveCanvasCacheWarningTooltipPosition(
+				{
+					sourceId: "source-a",
+					x: 299,
+					y: 199,
+					bounds: { width: 300, height: 200 },
+				},
+				{ width: 500, height: 400 },
 			),
-			createSource(
-				"server-unknown",
-				createQueryCacheState({ activeGeneration: null }),
-			),
-			createSource(
-				"cache-building",
-				createQueryCacheState({ isActivating: true }),
-			),
+		).toEqual({ x: 8, y: 8 });
+	});
+
+	it("resolves a 14-pixel warning region before underlying Canvas content", () => {
+		const regions = [
+			{ sourceId: "source-a", rect: { x: 20, y: 10, w: 14, h: 14 } },
+			{ sourceId: "source-b", rect: { x: 20, y: 10, w: 14, h: 14 } },
 		];
-
-		act(() => root.render(<CanvasCacheWarningOverlay sources={sources} />));
-
-		expect(
-			container.querySelectorAll('[data-icon="AlertTriangle"]'),
-		).toHaveLength(1);
-		const indicator = container.querySelector<HTMLElement>(
-			'[data-source-cache-warning="cached-warning"]',
-		);
-		expect(indicator).not.toBeNull();
-		expect(indicator?.style.top).toBe("14px");
-		expect(indicator?.textContent?.includes("cached-warning.json")).toBe(true);
-		expect(
-			indicator?.textContent?.includes("renderEngine.ingestingSuffix"),
-		).toBe(true);
-		expect(indicator?.textContent?.includes("/evidence/host/")).toBe(false);
-		expect(
-			indicator?.textContent?.includes("source.cacheWarning.loadedFromCache"),
-		).toBe(true);
-		expect(container.querySelector('[role="img"]')?.getAttribute("aria-label"))
-			.toBe("source.cacheWarning.loadedFromCache");
-		expect(container.querySelector('[role="img"]')?.getAttribute("tabindex"))
-			.toBe("0");
-	});
-
-	it("resolves only recognized request prefixes to loading suffixes", () => {
-		const translations = {
-			ingestingSuffix: " | ingesting",
-			loadingSuffix: " | loading",
-		};
-		expect(
-			getCanvasSourceLoadingSuffix(
-				"ingestion-active" as Request.Id,
-				translations,
-			),
-		).toBe(" | ingesting");
-		expect(
-			getCanvasSourceLoadingSuffix("query-active" as Request.Id, translations),
-		).toBe(" | loading");
-		expect(
-			getCanvasSourceLoadingSuffix("unknown-active" as Request.Id, translations),
-		).toBe("");
-		expect(
-			getCanvasSourceLoadingSuffix("query" as Request.Id, translations),
-		).toBe("");
-	});
-
-	it("tracks row geometry independently from the parent Canvas", () => {
-		expect(getCanvasCacheWarningTop(0, 0)).toBe(14);
-		expect(getCanvasCacheWarningTop(3, 40)).toBe(118);
-	});
-
-	it("requires active settled cache authority and a non-fresh warning", () => {
-		expect(shouldShowCanvasCacheWarning(createQueryCacheState())).toBe(true);
-		expect(
-			shouldShowCanvasCacheWarning(
-				createQueryCacheState({ activeGeneration: null }),
-			),
-		).toBe(false);
-		expect(
-			shouldShowCanvasCacheWarning(
-				createQueryCacheState({ isActivating: true }),
-			),
-		).toBe(false);
-		expect(
-			shouldShowCanvasCacheWarning(
-				createQueryCacheState({ freshness: "fresh", warningReason: null }),
-			),
-		).toBe(false);
-	});
-
-	it("associates warnings by source id even when source names are identical", () => {
-		const warningState = createQueryCacheState();
-		const cachedSource = createSource("cached-source-id", warningState, {
-			name: "duplicate.json",
+		expect(hitTestCanvasCacheWarning(regions, 34, 24)).toEqual({
+			kind: "cache-warning",
+			id: "source-b",
 		});
-		const differentSource = createSource("different-source-id", warningState, {
-			name: "duplicate.json",
-			querySourceIds: [cachedSource.id],
-		});
-
-		expect(shouldShowCanvasSourceCacheWarning(cachedSource)).toBe(true);
-		expect(shouldShowCanvasSourceCacheWarning(differentSource)).toBe(false);
-
-		act(() =>
-			root.render(
-				<CanvasCacheWarningOverlay
-					sources={[cachedSource, differentSource]}
-				/>,
-			),
-		);
-
-		expect(
-			container.querySelectorAll('[data-icon="AlertTriangle"]'),
-		).toHaveLength(1);
-		expect(
-			container.querySelector(
-				'[data-source-cache-warning="cached-source-id"]',
-			),
-		).not.toBeNull();
-		expect(
-			container.querySelector(
-				'[data-source-cache-warning="different-source-id"]',
-			),
-		).toBeNull();
+		expect(hitTestCanvasCacheWarning(regions, 35, 24)).toBeNull();
 	});
 });

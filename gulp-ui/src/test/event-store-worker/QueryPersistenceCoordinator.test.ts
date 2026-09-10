@@ -698,6 +698,10 @@ describe("QueryPersistenceCoordinator", () => {
 		expect(caches).toHaveLength(1);
 		expect(caches[0].provenance).toMatchObject({
 			fingerprint: "ingestion-cache",
+			materializedRange: {
+				min: "1700000000000000000",
+				max: "1700000029999000000",
+			},
 			normalization: { field: "gulp.event_code" },
 			serverSnapshot: {
 				total: 30_000,

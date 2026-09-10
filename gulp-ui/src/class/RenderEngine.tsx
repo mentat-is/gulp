@@ -24,6 +24,11 @@ import { translate } from "@/locales/core";
 import { requestStore } from "@/store/request.store";
 import { formatTimestampInTimeZone } from "@/timeZone";
 import { getRenderSourceLabel } from "@/render-worker/RenderSourceLabel";
+import { hasSourceQueryCacheWarning } from "@/entities/QueryCache";
+import {
+	getRenderCacheWarningRect,
+	RENDER_CACHE_WARNING_COLOR,
+} from "@/render-worker/RenderCacheWarning";
 
 const NOTE_SIZE = 32;
 const NOTE_OFFSET = (NOTE_SIZE / 2) * -1;
@@ -109,7 +114,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 	sourceRowIndexById = new Map<Source.Id, number>();
 	stats: RenderStats = RenderEngine.emptyStats();
 
-	// INTERACTIVE ELEMENTS IN CANVAS saved to manage clicks for notes and links
+	// Canvas-owned hit regions used for notes, links, and cache warnings.
 	public static interactiveNotes: Array<{
 		notes: Note.Type[];
 		rect: { x: number; y: number; w: number; h: number };
@@ -117,6 +122,11 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 
 	public static interactiveLinks: Array<{
 		link: Link.Type;
+		rect: { x: number; y: number; w: number; h: number };
+	}> = [];
+
+	public static interactiveCacheWarnings: Array<{
+		sourceId: Source.Id;
 		rect: { x: number; y: number; w: number; h: number };
 	}> = [];
 
@@ -214,6 +224,8 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		this.ctx.font = "10px monospace";
 		this.limits = limits;
 		this.info = info;
+		this.scrollX = scrollX;
+		this.scrollY = scrollY;
 		this.getPixelPosition = getPixelPosition;
 
 		this.default = new DefaultEngine(this);
@@ -359,6 +371,57 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 
 		this.stats.visibleLinks += visibleLinks;
 		this.stats.interactiveRects += RenderEngine.interactiveLinks.length;
+	};
+
+	/**
+	 * Draws warning glyphs only for source rows admitted to the vertical viewport.
+	 * The method runs after notes and links so warning hit regions remain topmost.
+	 * @param sources Vertically culled sources for the current Canvas frame.
+	 * @returns Nothing.
+	 */
+	public drawCacheWarnings = (sources: readonly Source.Type[]): void => {
+		RenderEngine.interactiveCacheWarnings = [];
+		this.ctx.font = '12px "Geist", sans-serif';
+		for (const source of sources) {
+			if (!hasSourceQueryCacheWarning(source)) continue;
+			const rowIndex = this.sourceRowIndexById.get(source.id);
+			if (rowIndex === undefined) continue;
+			const requestType = Source.Entity.getRequestType(this.info.app, source);
+			const suffix = !requestType
+				? ""
+				: requestType === Request.Prefix.INGESTION
+					? translate("renderEngine.ingestingSuffix")
+					: translate("renderEngine.loadingSuffix");
+			const sourceLabel = getRenderSourceLabel(source, suffix);
+			const centerY = Source.Entity.getHeight(
+				this.info.app,
+				source,
+				this.scrollY,
+				rowIndex,
+			);
+			const rect = getRenderCacheWarningRect(
+				this.ctx.measureText(sourceLabel).width,
+				centerY,
+			);
+			if (
+				rect.x > this.ctx.canvas.width ||
+				rect.x + rect.width < 0 ||
+				rect.y > this.ctx.canvas.height ||
+				rect.y + rect.height < 0
+			)
+				continue;
+			const icon = getCanvasIcon({
+				name: "AlertTriangle",
+				color: RENDER_CACHE_WARNING_COLOR,
+			});
+			this.ctx.drawImage(icon, rect.x, rect.y, rect.width, rect.height);
+			RenderEngine.interactiveCacheWarnings.push({
+				sourceId: source.id,
+				rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+			});
+		}
+		this.stats.interactiveRects +=
+			RenderEngine.interactiveCacheWarnings.length;
 	};
 
 	/**
@@ -1301,7 +1364,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 	};
 
 	/**
-	 * Draws legacy source labels; cache warnings use the shared DOM overlay.
+	 * Draws legacy source labels; cache warnings are painted in a final Canvas pass.
 	 * @param file Source represented by the current timeline row.
 	 * @param y Optional precomputed row center.
 	 * @returns Nothing.
@@ -1453,6 +1516,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		RenderEngine[CacheKey].links.clear();
 		RenderEngine.interactiveNotes = [];
 		RenderEngine.interactiveLinks = [];
+		RenderEngine.interactiveCacheWarnings = [];
 
 		if (DefaultEngine.instance) {
 			DefaultEngine.instance.clearSourceCache(sourceId);
@@ -1484,6 +1548,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		RenderEngine[CacheKey].links.clear();
 		RenderEngine.interactiveNotes = [];
 		RenderEngine.interactiveLinks = [];
+		RenderEngine.interactiveCacheWarnings = [];
 
 		if (DefaultEngine.instance) {
 			DefaultEngine.instance.clearCache();

@@ -62,17 +62,18 @@ The request envelope identifies the operation. The projector descriptor carries:
 
 Source authority, physical generation, durable revision, status, and counts are
 read from the active EventStore manifest and returned in the projection. Palette,
-localized strings, and source labels are sent separately to RenderWorker.
-Cache-freshness warnings remain in a main-thread DOM overlay. None of these
-values is an input to the EventStore projector.
+localized strings, source labels, and the derived `cacheWarning` boolean are sent
+separately to RenderWorker. Query provenance and cache freshness never enter the
+render protocol, and none of these values is an input to the EventStore projector.
 
 ## Projection scheduling and relevance
 
-Canvas allows one projection request in flight and one coalesced trailing
-trigger. A refresh for the same operation, epoch, and viewport does not cancel an
-already coherent read; that snapshot may publish before the trailing request
-catches up. A different operation, epoch, or viewport invalidates the old request
-immediately.
+Canvas retains one active projection and one coalesced trailing trigger for the
+same operation, epoch, and vertically overscanned source window. Horizontal pan
+and zoom revisions do not cancel an already coherent read; that snapshot may be
+adopted inside its horizontal coverage before the trailing request catches up.
+When vertical movement changes the ordered source window, the replacement starts
+immediately and QueryWorker cooperatively invalidates the obsolete storage read.
 
 Overscan reuse is limited to complete sources whose operation, frame, width,
 scale, source set, settings, generation, revision, authority, and event count
@@ -123,7 +124,7 @@ IndexedDB and are fetched separately for selection, dialogs, and navigation.
 The projector reads all visible source manifests with one batch transaction at
 the start and one at the final consistency check. Exact, LOD, and HeightMap
 records use independent revision-qualified LRU working sets capped at 16 MiB,
-4 MiB, and 4 MiB of encoded data respectively. This absorbs repeated page reads
+32 MiB, and 4 MiB of encoded data respectively. This absorbs repeated page reads
 when parser-order ingestion creates page ranges that overlap in time. A cache
 entry cannot survive a generation or page revision change, and vertical source
 eviction releases its entries.
@@ -188,8 +189,9 @@ until the estimate fits.
 
 `bucketPixelWidth > 1` is reported as `degradedLod`. Degradation reduces only the
 visual density of the current window; it does not change exact pages or cache
-authority. The same width is used consistently for Default representatives,
-HeightMap output, and Graph projection work.
+authority. This shared budget width applies to Default representatives,
+HeightMap output, and Graph projection work. A Default source still building at
+least one million events additionally uses a four-pixel minimum until completion.
 
 ## Projection payload
 
@@ -211,7 +213,7 @@ same buffers to RenderWorker and must not read detached arrays afterward.
 
 ## Render-worker state and drawing
 
-The render protocol is version 10. Viewport/input messages travel over the
+The render protocol is version 11. Viewport/input messages travel over the
 control channel; revisioned scene and projection patches travel over the data
 channel. The worker repository atomically replaces a complete render window, so
 arrays from different projection revisions are never merged.
@@ -304,11 +306,119 @@ The real socket/persistence replay profiles are:
 /renderer-test?queryReplay=burst
 ```
 
-The steady profile produces 14,000,000 events in 10,000-event chunks and checks
-855 normally filled pages, bounded in-flight chunks, exact terminal authority,
-and ACK-covered rendering. The burst profile must stop with controlled reason
+The steady profile defaults to 14,000,000 events and accepts configurable totals,
+source counts, and distributions:
+
+```text
+/renderer-test?queryReplay=steady&docs=20m&sources=140&distribution=uniform
+/renderer-test?queryReplay=steady&docs=20m&sources=140&distribution=skewed
+```
+
+It sends actual JSON chunks through `QuerySocketSession` in a dedicated worker,
+persists exact pages and indexes in browser IndexedDB, and uses the real
+RenderWorker. The HTTP/WebSocket peer is synthetic; no backend is required.
+The skewed distribution places 90% of events in one source and divides the
+remainder among the others. Each run checks source-exact counts and deterministic
+first/middle/last document samples, then repeats the batch and verifies all cache
+hits with no additional HTTP query. Page counts allow bounded pressure flushes.
+`scripts/test-timeline-query-replay.cjs` drives native mouse/wheel interaction
+during arrival, records diagnostics and storage use, and writes JSON evidence.
+Its Chromium and Playwright paths can be supplied through
+`CHROMIUM_EXECUTABLE` and `PLAYWRIGHT_MODULE` without adding dependencies.
+The runner records the pre-query baseline, bounded histograms covering the whole
+query, periodic profiler windows, and Chromium resident memory. Histograms round
+up to 0.1 ms; values above 1,000 ms share the last bin while retaining the true
+maximum. The latency gate requires input-to-frame p95 <=33.4 ms, main-frame p95
+<=20 ms, and zero main long tasks during the query. The full-query gate supplements
+the profiler's bounded recent-sample window. Resident-memory sums include shared
+pages and browser overhead; storage usage is the browser's IndexedDB estimate.
+Terminal projection and ACK-to-frame timings capture first convergence. Only then
+does the page release the worker's sample and cache verification phase, so its
+test-only exact-page reads cannot compete with the terminal render. Both phases
+must succeed; a terminal timeout releases verification but still fails the render
+gate. A completed terminal snapshot is not redundantly requested again.
+The runner uses a persistent Chromium profile and records both estimated usage and
+actual IndexedDB file sizes. Temporary profile paths are included in its output.
+Long-task entries and available long-animation-frame attribution are retained in
+the result. Optional `--trace=true` captures a 64 MiB circular Chromium trace at the
+first query-time long task, or at completion when none occurs; it does not relax
+any latency gate. Trace setup precedes the measured pre-query baseline.
+Horizontal pan and vertical zoom events are sent separately, while periodic
+vertical drags cross source-overscan boundaries. Replay projections use the live
+transient Canvas transform, including an unsettled wheel scale.
+
+`cacheWarnings=all` marks every synthetic replay source with a settled stale
+cache owned by that exact source. The warning-focused workload is available at
+`/renderer-test?queryReplay=steady&docs=500000&sources=202&cacheWarnings=all`.
+It uses the same full-query latency evidence and gates: input-to-frame p95 at
+most 33.4 ms, main-frame p95 at most 20 ms, and no main-thread long task.
+
+The burst profile must stop with controlled reason
 `backlog` while remaining inside the raw-memory bounds documented for the query
 worker.
+
+## Timeline updates during queries
+
+The main thread forwards compact summaries and transferred projection buffers;
+there is no direct channel between QueryWorker and RenderWorker. Loading state,
+source metadata, projection settings, and data revisions have separate change
+checks. Request-statistics changes that do not affect loading produce no Canvas
+projection. Query-owned source metadata is coalesced into browser-idle work with
+a 250 ms latency bound, and its React publication is a transition so pointer and
+pan input can preempt it. Loading changes use the same bounded idle priority and
+collapse start/finish pairs that have no net visual effect before synchronizing
+RenderWorker source decorations. They do not invalidate canonical document data.
+A completed source does not invalidate the whole timeline.
+
+Cache warnings have no DOM row overlay and no scroll-store or request-store
+subscription. A shared predicate derives one boolean from settled cache state
+and exact query/source ownership; that boolean participates in source metadata
+revisions. Both renderers measure the complete localized source label, including
+its loading suffix, and paint the 14-pixel glyph five pixels later in a final
+visible-row pass. `cache-warning` is a topmost hit region in protocol v11. The
+main thread imperatively shows one non-interactive tooltip at pointer entry,
+clamped to the Canvas, and does not update it during movement within the same
+icon.
+An actively loading source remains visible even when empty rows are hidden, so
+its query stripe is visible before the first durable page. A completed empty
+result follows the normal empty-row visibility setting.
+
+First durable availability and completion get prompt projection requests;
+other progress is coalesced within 250 ms. During pan and zoom, an existing
+projection remains usable inside its horizontal overscan while the same building
+generation advances. Data-driven refreshes still request the newer revision.
+For the default engine, building sources with at least one million durable events
+use LOD buckets at least four pixels wide. This bounds exact boundary refinement
+work while events arrive. Completion restores the normal viewport resolution;
+stored events, source counts, override precedence and exact winners within each
+selected bucket remain unchanged. Height and graph aggregation retain their
+engine-specific resolution.
+Generation changes, incomplete authority, settings changes, and movement beyond
+coverage require a new projection. Render data retains one active and one pending
+message; resynchronization explicitly resends affected source metadata.
+
+Completed projection work carries its original request through the main-thread
+bus. If input has advanced the viewport, Canvas verifies source settings and actual
+range coverage before adopting that work at the current viewport revision. During
+zoom it may briefly display the received LOD while the trailing request refines
+resolution. Projection requests retain one active and one trailing slot per
+operation across input changes, so continuous pan cannot discard every refresh.
+Each source is validated independently, but a projection is published only when
+every row in the current vertical viewport passed authority validation and is
+present in the covered request. Invalid offscreen rows do not discard current
+rows, and an older eviction list cannot remove a currently visible row. This
+prevents an old partial window from being relabeled as current after vertical pan.
+
+For exact LOD boundary selection, QueryWorker retains small persisted render-column
+blocks in a separate 128 MiB cache. This avoids repeatedly cloning entire IndexedDB
+pages when the 16 MiB exact-page cache fills. Generation and page-revision keys
+isolate replacements; transient uncommitted blocks are excluded. Source-indexed
+eviction and byte accounting keep this cache bounded.
+
+Replay progress latency measures persisted visible building data waiting for its
+acknowledged rendered sequence. It excludes offscreen-only changes and time spent
+waiting for the next durable page. Gaps between data frames remain diagnostic;
+the progress gate allows at most two seconds from visible data to its frame.
 
 ## Troubleshooting order
 

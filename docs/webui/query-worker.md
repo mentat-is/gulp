@@ -49,8 +49,8 @@ Undo/Redo remains disabled.
 
 ```mermaid
 flowchart LR
-    UI[Main thread] -->|register stream| QW[QueryWorker]
-    UI -->|HTTP query_raw| BE[gULP backend]
+    UI[Main thread] -->|source query batch and viewport priorities| QW[QueryWorker]
+    QW -->|register stream before HTTP query_raw| BE[gULP backend]
     BE -->|docs_chunk WebSocket frames| QW
     QW -->|accepted / durable chunk ACK| BE
     QW -->|cache manifests, binary pages and indexes| IDB[(IndexedDB EventStore)]
@@ -59,8 +59,17 @@ flowchart LR
     DA[Detached application] -->|bounded exact reads| IDB
 ```
 
-The main thread starts backend requests and owns visible UI state. The query
-worker owns the WebSocket, document routing, storage writes, and cache commands.
+The main thread prepares source query snapshots and owns visible UI state.
+`FilterFile`, Navigator event filters, and `SelectFiles` through `Frame` all
+enter `Info.refetch`. Navigator prepares the entire source/query map before
+dispatch; it does not publish React state inside the source loop. The query
+worker owns cache decisions, timeline HTTP requests, WebSocket document routing,
+storage writes, and cache commands. Preview queries retain their dedicated path;
+creating notes forces a server query even when documents are cached.
+For an LOD cache miss, stream registration creates and publishes the durable
+empty `building` generation before backend dispatch. That generation is the
+clearing authority: the main thread does not also clear the legacy document
+collection or emit a duplicate source projection for every query start.
 Main and detached browser realms can open the same operation database for
 bounded, asynchronous reads. The viewport path is shown separately in
 [render-worker.md](render-worker.md#from-viewport-to-frame).
@@ -84,6 +93,7 @@ exposes correlated control requests to the application.
 The worker accepts these command families:
 
 - initialize, reconnect, send, and close the WebSocket;
+- start a batch of source replacements and update visible-source priorities;
 - register, complete, cancel, or release document streams;
 - cancel all streams for an operation epoch;
 - reconcile a source query with its persisted cache pool;
@@ -100,10 +110,11 @@ the registered persistence context.
 
 ### Registration before the backend request
 
-The UI generates the `req_id`. Before calling `/query_raw`, it registers a
-stream descriptor with the query worker and waits for the registration
-acknowledgement. The backend receives the same ID and uses it in each
-`docs_chunk` WebSocket message.
+The UI generates the `req_id` and includes the stream descriptor in its timeline
+query batch. On a cache miss, QueryWorker registers the stream and awaits its
+registration before calling `/query_raw`. The backend receives the same ID and
+uses it in each `docs_chunk` WebSocket message. Other explicitly registered
+document consumers also complete registration before dispatching their request.
 
 This order establishes ownership before any normal response chunk can arrive:
 
@@ -114,9 +125,12 @@ sequenceDiagram
     participant BE as Backend
     participant DB as IndexedDB
 
-    UI->>QW: REGISTER_STREAM(req_id, descriptor)
-    QW-->>UI: registration committed
-    UI->>BE: POST /query_raw(req_id)
+    UI->>QW: START_TIMELINE_QUERIES(source descriptors)
+    QW->>DB: reconcile complete, fresh query cache
+    DB-->>QW: cache miss
+    QW-->>UI: source query started
+    QW->>QW: register stream(req_id, descriptor)
+    QW->>BE: POST /query_raw(req_id)
     BE-->>QW: docs_chunk(req_id, chunk sequence)
     QW-->>BE: accepted ACK after normalization
     QW->>DB: commit page/index/LOD updates
@@ -155,7 +169,7 @@ The router tracks the states `registered`, `streaming`, `flushing`,
 `completed`, `canceled`, and `failed`. Terminal request IDs are guarded for a
 bounded interval so late chunks cannot reopen a completed or canceled stream.
 
-The UI can dispatch up to four source queries concurrently. Streams targeting
+QueryWorker dispatches up to four source queries concurrently. Streams targeting
 different sources can progress independently. Mutations for the same source are
 serialized by source leases, and a superseding replace cancels the obsolete
 writer before publishing the newer generation.
@@ -186,9 +200,22 @@ participate. The query snapshot retained for the UI remains complete.
 
 The descriptor is cloned at the registration boundary. Later edits to a filter
 form cannot change the provenance attached to a stream already in progress.
-Explicit filter, timeframe, normalization, and Refetch actions always dispatch
-the backend request and create a distinct generation; fingerprint matching is
-reserved for initial reconciliation and source-local Undo/Redo.
+Filter, timeframe, normalization, and selection actions reuse a complete,
+compatible cache when possible. `cachePolicy: "force"` and note creation always
+dispatch the backend. A cache hit does not append a server query-history entry.
+
+`TimelineQueryCoordinator` runs four cache lookups independently of four active
+HTTP/stream slots. A cache hit is published immediately, even if all HTTP slots
+are occupied. Visible sources have priority; pan and zoom never pause dispatch.
+On a miss the worker publishes `started`, registers persistence and routing,
+then sends HTTP. The source displays its loading stripe until durable completion.
+The HTTP slot remains occupied until completion, cancellation, or failure of the
+document stream. Request IDs, operation epochs, and source ownership fence late
+responses. Replacements cancel preceding source work and preserve its committed
+rollback state, including when several unfinished queries follow each other.
+Operation release and timeline start/cancel commands are ordered so a rapid
+revisit cannot reopen a context that an older release is still closing. This
+control ordering does not queue WebSocket ingestion or viewport projections.
 
 ## Ingestion and backpressure
 
@@ -258,8 +285,15 @@ without waiting for query completion. Canvas then requests its first persisted
 LOD window, and later building summaries use the normal coalesced projection
 path while the query continues.
 
-Replacement streams also expose their current partial builder page to viewport
-projection before it reaches the durable page size. After each accepted
+Timeline batches use `durableProjectionOnly`: the first normally filled page of
+16,384 events becomes renderable after persistence. The final residual, including
+an empty result, is published independently for each source. Existing pressure
+flushes can publish smaller pages to keep the shared normalized backlog bounded.
+Canvas coalesces subsequent progress within 250 ms; first availability and
+terminal transitions receive priority.
+
+Other replacement streams can also expose their current partial builder page to
+viewport projection before it reaches the durable page size. After each accepted
 `docs_chunk`, QueryWorker sends an operation- and source-scoped projection
 invalidation. Canvas coalesces that signal and requests a new render window;
 its source IDs also temporarily count as non-empty so the initial zero-event
@@ -269,9 +303,8 @@ preview; later invalidations use the normal building coalescer. The projector
 combines the durable manifest with at most one transient page per visible
 source. The transient page uses the same future handles and sorted columnar
 shape as the eventual commit, but it is never written to IndexedDB, added to
-cache provenance, or exposed to exact-read APIs. This lets initial operation
-queries and Navigator event filters render continuously without returning to
-per-chunk durable pages.
+cache provenance, or exposed to exact-read APIs. Timeline batches suppress these
+transient invalidations and use persisted summaries as their progress authority.
 
 Transient replacement pages remain inside the existing global 32,768-document
 normalized bound. When a full, pressure-released, or final partial page enters
@@ -336,11 +369,13 @@ ingestion requests by the UI. A terminal `done` statistics update is the input
 fence: the UI supplies full-source query provenance normalized with
 `gulp.event_code`/`fnv1a`, and the worker flushes every source's last partial
 page before atomically finalizing each provisional generation as an active
-query cache. Loading and progress state is cleared only after that durable
-transition. Initial source loading can therefore reuse the ingested events
-without `/query_raw`, and the released source lease allows a later Refetch to
-start a normal replacement generation. Changing the source hash field later
-follows the existing explicit rebuild path.
+query cache. The terminal manifest also records an exact materialized range in
+that provenance, independently from the provisional source range known when the
+ingest statistics arrived. Loading and progress state is cleared only after that
+durable transition. Initial source loading and covered timerange selections can
+therefore reuse the ingested events without `/query_raw`, and the released source
+lease allows a later forced Refetch to start a normal replacement generation.
+Changing the source hash field later follows the existing explicit rebuild path.
 
 A terminal `failed` or `canceled` statistics update discards the provisional
 generation, releases its source leases, and clears the associated loading and
@@ -431,12 +466,15 @@ record stores a compact generation manifest, the immutable query snapshot,
 exact fingerprint, optional range-independent shape fingerprint, normalization
 settings, server-source snapshot, result summary, creation/activation
 timestamps, and state `exact` or `mutated`. The precise backend range remains
-in the query snapshot.
+in the query snapshot. Ingestion records additionally retain the exact terminal
+materialized range because their documents are the complete source even when
+the source metadata was still provisional at provenance creation time.
 It does not duplicate documents: its manifest points to records in `pages`,
 `page_lod`, and `document_index_pages` with the same physical generation.
 
 Each source keeps at most five reachable cache records. Equal fingerprints may
-occur more than once because an explicit query is always executed. Cache
+occur more than once after forced queries or note creation. Ordinary queries can
+reuse a complete compatible result without another server execution. Cache
 metadata can be listed and activated without decoding event pages.
 
 ### `pages`
@@ -460,6 +498,11 @@ Every page and every cross-page read uses one canonical order: descending
 deterministic fallback. This preserves source order for equal ingestion
 timestamps even when the corresponding events arrive in different chunks or
 land in different 16,384-event pages.
+
+Source-edge navigation selects its candidate from the compact page catalog and
+decodes only that exact page. The oldest edge therefore uses the lowest sequence
+inside the minimum timestamp, while the newest edge uses the highest sequence
+inside the maximum timestamp; numeric zero remains a valid ordering value.
 
 Document-index segments are prepared in separate bounded transactions. They
 remain invisible until the final page append atomically publishes the new page,
@@ -508,7 +551,8 @@ removes every consumed or residual entry.
 ## Initial cache reconciliation
 
 After operation metadata is available and the user confirms source/timeframe
-selection, the main thread requests one reconciliation per source. The request
+selection, the main thread queues one batch. The worker reconciles each source
+before dispatch. Each source request
 contains the desired exact and shape fingerprints, raw nanosecond range and
 current server snapshot. Under the source lease, the worker:
 
@@ -517,25 +561,34 @@ current server snapshot. Under the source lease, the worker:
 3. selects an exact cache with a fresh server snapshot when available;
 4. otherwise selects a fresh same-shape cache when the desired source-local
    range is fully covered;
-5. otherwise prefers an exact stale cache and finally the latest complete
-   cache;
-6. activates the compact manifest and restores the cached query and
+5. during the first source reconciliation only, retains a stale exact or latest
+   complete cache as a warning baseline instead of re-querying data that is
+   already available;
+6. during later runtime reuse, returns a miss when no fresh compatible cache
+   exists so a genuinely new filter can be queried;
+7. activates the compact manifest and restores the cached query and
    normalization settings;
-7. labels a safe range match `covered`, or an unrelated fallback `latest`,
-   while preserving the timeframe selected by the user;
-8. only after selection resets history to the chosen cache and schedules every
-   other cache for bounded cleanup.
+8. labels a safe range match `covered`, preserving the requested query and
+   timeframe, or a fallback `latest` so the UI keeps its warning;
+9. on the first reconciliation in an operation epoch only, resets history to
+   that baseline and schedules every alternative for bounded cleanup. A miss
+   clears the old pool before the new query. Undo and Redo are empty.
 
 All selection branches use only records in state `exact`. If every retained
-record is `mutated`, reconciliation prunes them and returns a miss so the source
-is fetched again from the backend. Records created before shape fingerprints
-remain eligible for exact/latest, but not `covered`; no IndexedDB migration is
-required.
+record is `mutated`, reconciliation returns a miss. A complete warning cache is
+eligible only as the initial baseline; it does not make later unrelated filters
+cache hits. Initialization is tracked once per source and operation epoch, so a
+source selected later receives the same startup cleanup. Reselection and ordinary
+queries use non-destructive runtime lookup: they retain the session's newly built
+history even on a cache miss. Records without shape fingerprints can match
+exactly or serve as the initial latest fallback, but cannot satisfy a
+covered-range lookup.
 
 For cached range `C`, desired range `N`, and complete current source range `S`,
-coverage means `(N intersection S)` is contained by `(C intersection S)`. The
-comparison uses inclusive `BigInt` raw-nanosecond boundaries. It has no
-millisecond tolerance, and invalid ranges conservatively fail coverage.
+coverage means `(N intersection S)` is contained by `(C intersection S)`. `C`
+uses the terminal materialized range for ingestion caches and the query range
+otherwise. The comparison uses inclusive `BigInt` raw-nanosecond boundaries. It
+has no millisecond tolerance, and invalid ranges conservatively fail coverage.
 
 Only a source with no usable complete cache dispatches `/query_raw`. Sources in
 one selection reconcile independently, so cached and uncached results may be
@@ -637,7 +690,7 @@ transactions is therefore constant for a render-window request, including an
 operation with many visible sources.
 
 The projector retains revision-qualified immutable page records in three
-least-recently-used working sets: up to 16 MiB of exact pages, 4 MiB of LOD
+least-recently-used working sets: up to 16 MiB of exact pages, 32 MiB of LOD
 records, and 4 MiB of HeightMap records, measured by encoded payload size. A
 horizontal pan that still touches the same pages avoids another IndexedDB read
 and structured clone. Revision and generation changes select different cache
@@ -759,6 +812,12 @@ The snapshot contains:
 - active streams and loaded operation repositories;
 - projection requests started, completed, superseded, and retried after a stale
   storage read.
+- retained exact, LOD, height, and pixel-boundary refinement cache bytes.
+
+Large default-engine building sources use a minimum four-pixel preview bucket
+from one million durable events onward. Their complete generation uses the normal
+viewport bucket width. This projection policy changes neither persisted pages nor
+cache provenance and retains exact representative selection for each output bucket.
 
 Canvas combines this snapshot with render diagnostics. See
 [render-worker.md](render-worker.md#diagnostics-and-performance-checks) for the
@@ -777,10 +836,18 @@ The event path is expected to preserve these bounds:
 - at most two unaccepted backend chunks per active negotiated child query;
 - no more than two concurrent IndexedDB commits;
 - at most five reachable query caches per source;
-- at most 24 MiB of encoded viewport-projector page records across the exact,
+- at most 52 MiB of encoded viewport-projector page records across the exact,
   LOD, and HeightMap working sets;
+- at most 128 MiB of revision-qualified pixel-boundary blocks, including charged
+  key/entry overhead; these contain only timestamps, hashes, handles and tombstones;
 - no cache cleanup transaction with more than 256 delete operations;
 - exact pixel and dialog reads return at most 100 events per page.
+
+Boundary refinement does not retain document IDs or whole pages. Repeated
+pan/zoom can reuse these small blocks after full exact pages leave their 16 MiB
+LRU, avoiding repeated IndexedDB cloning of large immutable pages. Transient
+uncommitted blocks are excluded. Page revision and generation qualify every key;
+source-indexed eviction releases offscreen entries without scanning other sources.
 
 Benchmarking at 10, 20, and 30 million events must verify IndexedDB throughput,
 actual storage consumption, steady-state memory, query correctness, viewport

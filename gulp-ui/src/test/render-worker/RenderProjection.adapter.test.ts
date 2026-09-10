@@ -1,7 +1,11 @@
 import type { Doc } from "@/entities/Doc";
 import type { Note } from "@/entities/Note";
 import type { Source } from "@/entities/Source";
-import { RenderProjectionAdapter } from "@/render-worker/RenderProjection.adapter";
+import {
+	createRenderSourceMetadataSignature,
+	RenderProjectionAdapter,
+	type RenderSourceProjectionInput,
+} from "@/render-worker/RenderProjection.adapter";
 import { DataStore } from "@/store/DataStore";
 
 const SOURCE_ID = "source-a" as Source.Id;
@@ -82,11 +86,44 @@ describe("RenderProjectionAdapter cooperative ranges", () => {
 				contextLabel: "Context",
 				contextColor: "#000000",
 				loadingKind: "none",
+				cacheWarning: true,
 				gradient: [],
 			}).name;
 
 		expect(project("filename")).toBe("events.json");
 		expect(project("full_path")).toBe(source.name);
+	});
+
+	it("projects cache warnings and advances the metadata signature when they change", () => {
+		const adapter = new RenderProjectionAdapter({
+			resolveDocument: () => undefined,
+		});
+		const input = {
+			source: {
+				id: SOURCE_ID,
+				name: "events.json",
+				settings: {
+					offset: 0,
+					render_engine: "default",
+					timeline_label: "filename",
+					frequency_sample: 1_000,
+				},
+				timestamp: { min: 0, max: 1 },
+				total: 0,
+			} as Source.Type,
+			revision: 1,
+			rowOrder: 0,
+			contextLabel: "Context",
+			contextColor: "#000000",
+			loadingKind: "none",
+			cacheWarning: true,
+			gradient: [],
+		} satisfies RenderSourceProjectionInput;
+
+		expect(adapter.createSource(input).cacheWarning).toBe(true);
+		expect(createRenderSourceMetadataSignature(input)).not.toBe(
+			createRenderSourceMetadataSignature({ ...input, cacheWarning: false }),
+		);
 	});
 
 	it("projects supplemental events without query authority fields", () => {

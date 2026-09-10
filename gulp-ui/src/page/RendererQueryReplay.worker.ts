@@ -1,3 +1,10 @@
+import type { Operation } from "@/entities/Operation";
+import { getRendererQueryReplaySources } from "./RendererTest.query-replay";
+import { IndexedDbEventStoreBackend } from "@/event-store/IndexedDbEventStore.backend";
+import { EventStoreRepository } from "@/event-store/EventStore.repository";
+import type { TimelineQueryRequest } from "@/event-stream";
+import type { QueryCacheProvenance } from "@/entities/QueryCache";
+import type { Doc } from "@/entities/Doc";
 /// <reference lib="webworker" />
 
 import { QuerySocketSession } from "@/event-store-worker/QuerySocket.session";
@@ -87,6 +94,7 @@ class SyntheticReplaySocket implements SyntheticSocketHandlers {
 let activeSession: QuerySocketSession | null = null;
 let activeSocket: SyntheticReplaySocket | null = null;
 let cancelled = false;
+let releaseVerification = (): void => undefined;
 
 /** Posts one compact event to the renderer-test page. */
 function postEvent(
@@ -110,6 +118,8 @@ function yieldToWorker(): Promise<void> {
 function buildChunk(
 	options: RendererQueryReplayStartOptions,
 	chunkIndex: number,
+	sourceOffset = 0,
+	requestId = REPLAY_REQUEST_ID,
 ): { raw: string; documentCount: number; last: boolean } {
 	const offset = chunkIndex * options.chunkEvents;
 	const documentCount = Math.min(
@@ -126,7 +136,7 @@ function buildChunk(
 				? 0
 				: globalIndex / (options.targetEvents - 1);
 		documents[localIndex] = {
-			_id: `renderer-query-${globalIndex.toString(16).padStart(8, "0")}`,
+			_id: `renderer-query-${(globalIndex + sourceOffset).toString(16).padStart(8, "0")}`,
 			"gulp.source_id": options.sourceId,
 			"gulp.event_code": globalIndex % 8_000,
 			"@timestamp":
@@ -136,7 +146,7 @@ function buildChunk(
 	const last = offset + documentCount >= options.targetEvents;
 	const message: QuerySocketMessage = {
 		type: "docs_chunk",
-		req_id: REPLAY_REQUEST_ID,
+		req_id: requestId,
 		operation_id: options.operationId,
 		payload: {
 			docs: documents,
@@ -147,25 +157,6 @@ function buildChunk(
 		},
 	};
 	return { raw: JSON.stringify(message), documentCount, last };
-}
-
-/**
- * Waits until a steady pump has committed every full page it made available.
- * A sub-page normalized remainder is expected to stay in the replace builder.
- * @param session Replay session exposing passive persistence diagnostics.
- */
-async function waitForSteadyPump(session: QuerySocketSession): Promise<void> {
-	while (!cancelled) {
-		const diagnostics = session.getQueryDiagnostics();
-		if (
-			diagnostics.rawBacklog.currentBytes === 0 &&
-			diagnostics.commits.active === 0 &&
-			diagnostics.normalizedBacklog.currentDocuments < EVENT_PAGE_SIZE
-		) {
-			return;
-		}
-		await yieldToWorker();
-	}
 }
 
 /**
@@ -184,6 +175,7 @@ async function waitForRawDrain(session: QuerySocketSession): Promise<void> {
  * @param options Steady or burst replay options.
  */
 async function runReplay(options: RendererQueryReplayStartOptions): Promise<void> {
+	if (options.profile === "steady") return runTimelineReplay(options);
 	cancelled = false;
 	let latestSummary: QuerySourceSummaryEvent | null = null;
 	let failure: QueryStreamFailureEvent | null = null;
@@ -266,10 +258,7 @@ async function runReplay(options: RendererQueryReplayStartOptions): Promise<void
 	const chunkCount = Math.ceil(options.targetEvents / options.chunkEvents);
 	let nextChunk = 0;
 	while (nextChunk < chunkCount && !cancelled && !failure) {
-		const pumpSize =
-			options.profile === "steady"
-				? STEADY_CHUNKS_PER_PUMP
-				: chunkCount - nextChunk;
+		const pumpSize = chunkCount - nextChunk;
 		const pumpEnd = Math.min(chunkCount, nextChunk + pumpSize);
 		for (; nextChunk < pumpEnd && !failure; nextChunk++) {
 			const chunk = buildChunk(options, nextChunk);
@@ -286,8 +275,7 @@ async function runReplay(options: RendererQueryReplayStartOptions): Promise<void
 				);
 			}
 		}
-		if (options.profile === "steady") await waitForSteadyPump(session);
-		else await waitForRawDrain(session);
+		await waitForRawDrain(session);
 		postEvent({
 			type: "PROGRESS",
 			progress: {
@@ -296,7 +284,6 @@ async function runReplay(options: RendererQueryReplayStartOptions): Promise<void
 				diagnostics: session.getQueryDiagnostics(),
 			},
 		});
-		if (options.profile === "steady") await yieldToWorker();
 	}
 
 	if (!cancelled) {
@@ -325,11 +312,119 @@ async function runReplay(options: RendererQueryReplayStartOptions): Promise<void
 	postEvent({ type: "COMPLETE", result });
 }
 
+/** Replays real source-local replacement scheduling with bounded synthetic HTTP/WS peers. */
+async function runTimelineReplay(options: RendererQueryReplayStartOptions): Promise<void> {
+	cancelled = false;
+	const verificationReady = new Promise<void>((resolve) => { releaseVerification = resolve; });
+	const sources = getRendererQueryReplaySources(options);
+	const summaries = new Map<string, QuerySourceSummaryEvent>();
+	const completed = new Set<string>();
+	const server = new Map<string, { source: typeof sources[number]; chunk: number }>();
+	let failure: QueryStreamFailureEvent | null = null;
+	let emittedEvents = 0;
+	let queryDoneCount = 0;
+	let cacheHits = 0;
+	let httpQueries = 0;
+	let lastProgressAt = 0;
+	let resolveReady = (): void => undefined;
+	const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
+	const session = new QuerySocketSession({ socketUrl: "ws://renderer-query-replay.invalid/ws", apiUrl: "http://renderer-query-replay.invalid", token: "renderer-query-replay", wsId: "renderer-query-replay", cacheNamespaceId: options.cacheNamespaceId }, {
+		onSocketState: (state) => { if (state === "ready") resolveReady(); },
+		onSocketOpen: () => undefined, onSocketClose: () => undefined, onSocketError: () => undefined,
+		onForwardMessage: (message) => { if (message.type === "query_done") queryDoneCount++; },
+		onStreamStateChange: (change) => { if (change.state === "completed") completed.add(change.descriptor.requestId); },
+		onSourceSummary: (event) => { summaries.set(event.summary.sourceId, event); postEvent({ type: "SOURCE_SUMMARY", event }); },
+		onIngestionProgress: () => undefined,
+		onStreamFailure: (event) => { failure = event; },
+		onTimelineQueryUpdate: (update) => {
+			if (update.state === "cache-hit") cacheHits++;
+			if (update.state === "failed") failure = { ...update, reason: "storage", message: update.error ?? "Replay query failed" };
+		},
+		onProtocolError: (details) => { throw new Error(details.message); },
+	}, () => {
+		const socket = new SyntheticReplaySocket(); activeSocket = socket; socket.open(); return socket as unknown as WebSocket;
+	}, { rawGlobalByteLimit: options.rawGlobalByteLimit, rawStreamByteLimit: options.rawStreamByteLimit }, async (input) => {
+		const url = new URL(String(input));
+		const id = url.searchParams.get("req_id")!;
+		if (url.pathname === "/query_raw") {
+			const source = sources.find((entry) => entry.requestId === id);
+			if (!source) throw new Error(`Unexpected replay HTTP query ${id}`);
+			server.set(id, { source, chunk: 0 }); httpQueries++;
+		} else server.delete(id);
+		return new Response(JSON.stringify({ status: "pending" }), { status: 200 });
+	});
+	activeSession = session; session.connect(); await ready;
+	const range = { min: String(BigInt(options.documentMinTimestamp) * 1_000_000n), max: String(BigInt(options.documentMinTimestamp + options.frameSpanMs) * 1_000_000n) };
+	const requests: TimelineQueryRequest[] = sources.map((source) => {
+		const provenance: QueryCacheProvenance = {
+			query: { string: "Replay query", filters: [], source_config: { operation_id: options.operationId, source_ids: [source.sourceId], range } },
+			fingerprint: `${source.sourceId}:${source.count}:${source.offset}:${range.min}`, shapeFingerprint: `${source.sourceId}:${source.count}:${source.offset}`,
+			normalization: { field: "gulp.event_code", hashFunction: "fnv1a", requestedFields: [] },
+			serverSnapshot: { total: source.count, minNanoseconds: range.min, maxNanoseconds: range.max, timeUpdated: 1, millisecondPrecision: false },
+		};
+		return { sourceId: source.sourceId, cachePolicy: "force", body: { q: [{ q: { match_all: {} } }], q_options: {} }, desired: { fingerprint: provenance.fingerprint, shapeFingerprint: provenance.shapeFingerprint!, range, serverSnapshot: provenance.serverSnapshot }, descriptor: { requestId: source.requestId, operationId: options.operationId, operationEpoch: options.operationEpoch, owner: "persist", kind: "replace", sourceIds: [source.sourceId], expectedEvents: source.count, queryCache: provenance, durableProjectionOnly: true } };
+	});
+	session.resetQueryDiagnostics();
+	await session.startTimelineQueries(requests);
+	while (!cancelled && !failure && completed.size < sources.length) {
+		// Round-robin active requests; JSON and normalized backlogs drain between pumps.
+		for (const [id, entry] of [...server.entries()].slice(0, STEADY_CHUNKS_PER_PUMP)) {
+			server.delete(id);
+			const chunk = buildChunk({ ...options, sourceId: entry.source.sourceId, targetEvents: entry.source.count }, entry.chunk++, entry.source.offset, id);
+			activeSocket?.deliver(chunk.raw); emittedEvents += chunk.documentCount;
+			if (!chunk.last) server.set(id, entry);
+			else activeSocket?.deliver(JSON.stringify({ type: "query_done", req_id: id, operation_id: options.operationId, payload: {} }));
+		}
+		await waitForRawDrain(session);
+		while (!cancelled && !failure && session.getQueryDiagnostics().commits.active > 0) await yieldToWorker();
+		if (performance.now() - lastProgressAt >= 100) {
+			lastProgressAt = performance.now();
+			postEvent({ type: "PROGRESS", progress: { processedEvents: emittedEvents, totalEvents: options.targetEvents, diagnostics: session.getQueryDiagnostics() } });
+		}
+		await yieldToWorker();
+	}
+	let sampledDocuments = 0;
+	if (!cancelled && !failure) {
+		// Exact sample reads decode many pages. They are test-only work and must
+		// start after measuring the terminal frame, not compete with its projection.
+		await verificationReady;
+	}
+	if (!cancelled && !failure) {
+		const repository = new EventStoreRepository(new IndexedDbEventStoreBackend({ cacheNamespaceId: options.cacheNamespaceId, operationId: options.operationId as Operation.Id }));
+		try {
+			const samples = sources.flatMap((source) => [...new Set([0, Math.floor(source.count / 2), source.count - 1])].filter((index) => index >= 0 && index < source.count).map((index) => ({ source, index, id: `renderer-query-${(source.offset + index).toString(16).padStart(8, "0")}` as Doc.Id })));
+			const documents = await repository.getByIds(samples.map((sample) => sample.id));
+			const byId = new Map(documents.map((document) => [document._id, document]));
+			for (const sample of samples) {
+				const document = byId.get(sample.id);
+				if (!document || document["gulp.source_id"] !== sample.source.sourceId || document["gulp.event_code"] !== sample.index % 8000) throw new Error(`Persisted replay sample mismatch: ${sample.id}`);
+				sampledDocuments++;
+			}
+			for (const source of sources) if (summaries.get(source.sourceId)?.summary.eventCount !== source.count) throw new Error(`Replay source count mismatch: ${source.sourceId}`);
+		} finally { repository.close(); }
+		const before = httpQueries;
+		await session.startTimelineQueries(requests.map((request) => ({ ...request, cachePolicy: "reuse", descriptor: { ...request.descriptor, requestId: `${request.descriptor.requestId}-cached` } })));
+		while (!cancelled && !failure && cacheHits < sources.length) await yieldToWorker();
+		if (httpQueries !== before) throw new Error("Cache replay dispatched unexpected HTTP queries");
+	}
+	const sourceSummaries = [...summaries.values()];
+	const terminalFailure = failure as QueryStreamFailureEvent | null;
+	postEvent({ type: "COMPLETE", result: {
+		status: cancelled ? "cancelled" : terminalFailure ? "failed" : "complete", processedEvents: emittedEvents, targetEvents: options.targetEvents,
+		sourceSummaries, expectedPages: sources.reduce((sum, source) => sum + Math.ceil(source.count / EVENT_PAGE_SIZE), 0), cacheHits, sampledDocuments,
+		queryDoneReceived: queryDoneCount === sources.length, streamCompleted: completed.size === sources.length,
+		latestSummary: sourceSummaries[sourceSummaries.length - 1] ?? null, failure: terminalFailure, diagnostics: session.getQueryDiagnostics(),
+	} });
+}
+
 /** Executes one replay-worker command. */
 async function handleCommand(
 	command: RendererQueryReplayWorkerCommand,
 ): Promise<void> {
 	switch (command.type) {
+		case "VERIFY_RESULTS":
+			releaseVerification();
+			break;
 		case "START":
 			if (activeSession) throw new Error("Renderer query replay is already active.");
 			await runReplay(command.options);
@@ -360,6 +455,7 @@ async function handleCommand(
 		}
 		case "CANCEL":
 			cancelled = true;
+			releaseVerification();
 			activeSession?.destroy();
 			activeSession = null;
 			activeSocket = null;

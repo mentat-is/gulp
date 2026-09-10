@@ -1,3 +1,4 @@
+import type { TimelineQueryRequest, TimelineQueryUpdate } from "@/event-stream";
 import { Logger } from "@/dto/Logger.class";
 import type {
 	DocumentStreamDescriptor,
@@ -146,6 +147,7 @@ export namespace SmartSocket {
 			this.transport = createQueryTransport(
 				{
 					socketUrl: `${Internal.Settings.server}/ws`,
+					apiUrl: Internal.Settings.server,
 					token: Internal.Settings.token,
 					wsId,
 					cacheNamespaceId,
@@ -153,6 +155,7 @@ export namespace SmartSocket {
 					legacyUnknownDocumentPassthrough: !isEventStoreLodEnabled(),
 				},
 				{
+					onTimelineQueryUpdate: (update) => this.emit("timeline-query-update", update),
 					onSocketState: () => undefined,
 					onSocketOpen: () => this.handleSocketOpen(),
 					onSocketClose: (details) => this.handleSocketClose(details),
@@ -419,6 +422,22 @@ export namespace SmartSocket {
 			});
 		}
 
+		/** Observes compact lifecycle updates for worker-owned timeline queries. */
+		public subscribeTimelineQueries(listener: (update: TimelineQueryUpdate) => void): () => void {
+			this.on("timeline-query-update", listener);
+			return () => { this.off("timeline-query-update", listener); };
+		}
+
+		/** Queues a batch; the worker waits for authentication before HTTP dispatch. */
+		public async startTimelineQueries(requests: TimelineQueryRequest[]): Promise<void> {
+			return this.transport.startTimelineQueries(requests);
+		}
+
+		/** Reprioritizes existing worker jobs without waiting for pan/zoom to stop. */
+		public setTimelineQueryPriority(sourceIds: Source.Id[]): void {
+			this.transport.setTimelineQueryPriority(sourceIds);
+		}
+
 		/**
 		 * Registers document ownership before issuing the matching backend request.
 		 * @param descriptor Request, operation epoch, and ownership policy.
@@ -496,7 +515,7 @@ export namespace SmartSocket {
 			descriptor: QueryRenderWindowDescriptor,
 		): Promise<RenderWindowProjection | null> {
 			const projection = await this.transport.requestRenderWindow(descriptor);
-			if (projection && !renderWindowProjectionBus.publish(projection)) {
+			if (projection && !renderWindowProjectionBus.publish(projection, descriptor)) {
 				throw new Error(
 					"Render-window projection was not accepted by the active Canvas.",
 				);

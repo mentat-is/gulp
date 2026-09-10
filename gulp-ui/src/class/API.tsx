@@ -287,7 +287,7 @@ function showApiErrorToast<T>(
 /**
  * Clears local authentication state and redirects the main window to login.
  */
-function redirectToLogin() {
+export function redirectToLogin(): void {
 	WindowBridge.persistMainStatus("auth_lost");
 	if (window.location.pathname.startsWith("/detached/")) {
 		WindowBridge.sendControlMessage(

@@ -95,6 +95,7 @@ describe("EventStoreFacade supplemental navigation", () => {
 	];
 	const reader: EventStoreReader = {
 		getSourceSummary: async () => null,
+		getSourceEdge: async () => ({ event: null, sourceRevision: 11 }),
 		getById: async (documentId) =>
 			queryEvents.find((event) => event._id === documentId) ?? null,
 		getByIds: async (documentIds) =>
@@ -188,6 +189,7 @@ describe("EventStoreFacade supplemental navigation", () => {
 		];
 		const equalReader: EventStoreReader = {
 			...reader,
+			getSourceEdge: async () => ({ event: null, sourceRevision: 12 }),
 			getById: async () => null,
 			getNeighbors: async () => ({
 				events: [],

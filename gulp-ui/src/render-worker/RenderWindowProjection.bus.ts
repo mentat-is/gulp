@@ -1,7 +1,9 @@
 import type { RenderWindowProjection } from "./RenderWorker.types";
+import type { EventStoreViewportDescriptor } from "@/event-store/EventStore.viewport-projector";
 
 export type RenderWindowProjectionListener = (
 	projection: RenderWindowProjection,
+	descriptor: EventStoreViewportDescriptor,
 ) => boolean | void;
 
 /**
@@ -27,12 +29,13 @@ export class RenderWindowProjectionBus {
 	/**
 	 * Delivers one projection synchronously without retaining it on the main thread.
 	 * @param projection Complete viewport replacement produced by EventStore LOD.
+	 * @param descriptor Original transform and source settings used by the projector.
 	 * @returns True when an active Canvas accepted the projection.
 	 */
-	public publish(projection: RenderWindowProjection): boolean {
+	public publish(projection: RenderWindowProjection, descriptor: EventStoreViewportDescriptor): boolean {
 		const listener = this.listener;
 		if (!listener) return false;
-		return listener(projection) !== false;
+		return listener(projection, descriptor) !== false;
 	}
 
 	/** Releases the current claim during operation teardown and focused tests. */

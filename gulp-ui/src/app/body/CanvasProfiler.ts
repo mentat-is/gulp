@@ -75,6 +75,7 @@ export interface CanvasWorkerSourceSynchronization {
 }
 
 export interface CanvasWorkerSynchronizationSnapshot {
+	viewport: { width: number; scale: number; scrollX: number; frame: { min: number; max: number } };
 	activeBackend: "worker" | "legacy";
 	ready: boolean;
 	operationEpoch: number;

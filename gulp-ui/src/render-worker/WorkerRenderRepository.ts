@@ -61,7 +61,7 @@ export interface WorkerRenderEventView {
 
 /** Canvas rectangle associated with a compact overlay identity. */
 export interface WorkerHitRegion {
-	kind: "note" | "link" | "supplemental-event";
+	kind: "note" | "link" | "cache-warning" | "supplemental-event";
 	id: string;
 	noteIds?: string[];
 	x: number;

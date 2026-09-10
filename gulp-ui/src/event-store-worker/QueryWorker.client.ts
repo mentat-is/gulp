@@ -1,3 +1,4 @@
+import type { TimelineQueryRequest } from "@/event-stream";
 import type {
 	DocumentStreamDescriptor,
 	DocumentStreamFinalization,
@@ -155,6 +156,16 @@ export class QueryWorkerClient implements QueryTransport {
 		});
 	}
 
+	/** Enqueues a batch without waiting for its cache or backend results. */
+	public startTimelineQueries(requests: TimelineQueryRequest[]): Promise<void> {
+		return this.sendControl({ type: "START_TIMELINE_QUERIES", controlId: this.nextControlId(), requests });
+	}
+
+	/** Sends current visible source ordering to the worker scheduler. */
+	public setTimelineQueryPriority(sourceIds: Source.Id[]): void {
+		this.postCommand({ type: "SET_TIMELINE_QUERY_PRIORITY", sourceIds });
+	}
+
 	/**
 	 * Registers one request before its backend call can publish document chunks.
 	 * @param descriptor Request identity and document ownership policy.
@@ -299,7 +310,7 @@ export class QueryWorkerClient implements QueryTransport {
 	}
 
 	/**
-	 * Selects the safest exact, range-covered, or latest startup cache for one source.
+	 * Selects a complete, fresh exact or range-covered cache for one source.
 	 * @param input Operation, source, and desired exact/shape/range lookup.
 	 * @returns Reconciled activation, or null when the source has no reusable cache.
 	 */
@@ -542,6 +553,9 @@ export class QueryWorkerClient implements QueryTransport {
 				break;
 			case "STREAM_STATE":
 				this.callbacks.onStreamStateChange(event.change);
+				break;
+			case "TIMELINE_QUERY_UPDATE":
+				this.callbacks.onTimelineQueryUpdate?.(event.update);
 				break;
 			case "SOURCE_SUMMARY":
 				this.callbacks.onSourceSummary(event.event);
