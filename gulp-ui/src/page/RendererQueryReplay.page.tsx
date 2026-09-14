@@ -175,6 +175,16 @@ function publishReplayDiagnostics(
 			? "passed"
 			: "failed"
 		: "pending";
+	const journalWrites = diagnostics.result?.diagnostics.journalWrites;
+	document.documentElement.dataset.rendererQueryReplayJournalActive = String(
+		journalWrites?.active ?? 0,
+	);
+	document.documentElement.dataset.rendererQueryReplayJournalMaximumActive = String(
+		journalWrites?.maximumActive ?? 0,
+	);
+	document.documentElement.dataset.rendererQueryReplayJournalMaximumBytes = String(
+		journalWrites?.maximumBytes ?? 0,
+	);
 	if (!diagnostics.gate) return;
 	requestAnimationFrame(() => {
 		document.dispatchEvent(
@@ -500,7 +510,7 @@ export function RendererQueryReplayPage({
 				})
 				.then((result) => {
 					resultRef.current = result;
-					if (profile === "burst") publishCurrent(result, true);
+					if (profile !== "steady") publishCurrent(result, true);
 					else requestProjectionRef.current();
 				})
 				.catch((error: unknown) => {
@@ -650,6 +660,12 @@ export function RendererQueryReplayPage({
 					<span className={s.label}>raw high-water</span>
 					<span className={s.value}>
 						{published.result?.diagnostics.rawBacklog.maximumBytes ?? 0}
+					</span>
+				</div>
+				<div className={s.row}>
+					<span className={s.label}>journal writes</span>
+					<span className={s.value}>
+						{published.result?.diagnostics.journalWrites.maximumActive ?? 0} / {published.result?.diagnostics.journalWrites.completed ?? 0}
 					</span>
 				</div>
 				<div className={s.row}>

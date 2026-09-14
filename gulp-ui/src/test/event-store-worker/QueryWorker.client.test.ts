@@ -259,6 +259,13 @@ describe("QueryWorkerClient", () => {
 				maximumBytes: 2_000,
 				maximumStreamBytes: 2_000,
 			},
+			journalWrites: {
+				active: 0,
+				maximumActive: 0,
+				completed: 0,
+				currentBytes: 0,
+				maximumBytes: 0,
+			},
 			normalizedBacklog: {
 				currentDocuments: 0,
 				maximumDocuments: 20_000,

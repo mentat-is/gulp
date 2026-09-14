@@ -23,6 +23,13 @@ function createSteadyResult(): RendererQueryReplayResult {
 			maximumBytes: 32 * 1024 ** 2,
 			maximumStreamBytes: 32 * 1024 ** 2,
 		},
+		journalWrites: {
+			active: 0,
+			maximumActive: 0,
+			completed: 0,
+			currentBytes: 0,
+			maximumBytes: 0,
+		},
 		normalizedBacklog: {
 			currentDocuments: 0,
 			maximumDocuments: 32_768,
@@ -103,6 +110,9 @@ describe("RendererTest query replay", () => {
 	it("selects replay profiles without changing existing benchmark URLs", () => {
 		expect(getRendererQueryReplayProfile("?queryReplay=steady")).toBe("steady");
 		expect(getRendererQueryReplayProfile("?queryReplay=burst")).toBe("burst");
+		expect(getRendererQueryReplayProfile("?queryReplay=ingestion")).toBe(
+			"ingestion",
+		);
 		expect(getRendererQueryReplayProfile("?events=30m")).toBeNull();
 	});
 
@@ -172,8 +182,34 @@ describe("RendererTest query replay", () => {
 			).rawBacklog,
 		).toBe(false);
 	});
-});
 
+	it("requires ingestion streams and journal writes to drain at completion", () => {
+		const result = createSteadyResult();
+		result.queryDoneReceived = false;
+		result.diagnostics.journalWrites.maximumActive = 200;
+		result.diagnostics.journalWrites.maximumBytes = 256 * 1024 ** 2;
+		const gate = evaluateRendererQueryReplayGate(
+			"ingestion",
+			result,
+			createRenderDiagnostics(),
+			4 * 1024 ** 2,
+			1024 ** 2,
+		);
+		expect(gate.passed).toBe(true);
+		expect(gate.terminalDrain).toBe(true);
+
+		result.diagnostics.journalWrites.active = 1;
+		expect(
+			evaluateRendererQueryReplayGate(
+				"ingestion",
+				result,
+				createRenderDiagnostics(),
+				4 * 1024 ** 2,
+				1024 ** 2,
+			).passed,
+		).toBe(false);
+	});
+});
 
 describe("multi-source replay configuration", () => {
 	it("allocates exactly twenty million events over 140 uniform or skewed sources", () => {
@@ -190,6 +226,8 @@ describe("multi-source replay configuration", () => {
 				sourceCount: 140,
 				distribution,
 				cacheWarnings: false,
+				commitDelayMs: 0,
+				ingestionConcurrency: 1,
 			});
 			expect(sources).toHaveLength(140);
 			expect(sources.reduce((sum, source) => sum + source.count, 0)).toBe(
@@ -212,6 +250,29 @@ describe("multi-source replay configuration", () => {
 			sourceCount: 202,
 			distribution: "uniform",
 			cacheWarnings: true,
+			commitDelayMs: 0,
+			ingestionConcurrency: 1,
 		});
+	});
+
+	it("defaults the ingestion profile to 200 sources with delayed commits", () => {
+		expect(
+			getRendererQueryReplayConfiguration("?queryReplay=ingestion"),
+		).toEqual({
+			targetEvents: 2_000_000,
+			sourceCount: 200,
+			distribution: "uniform",
+			cacheWarnings: false,
+			commitDelayMs: 10,
+			ingestionConcurrency: 5,
+		});
+	});
+
+	it("allows the ingestion profile to reproduce the former unbounded admission", () => {
+		expect(
+			getRendererQueryReplayConfiguration(
+				"?queryReplay=ingestion&ingestionConcurrency=200",
+			).ingestionConcurrency,
+		).toBe(200);
 	});
 });

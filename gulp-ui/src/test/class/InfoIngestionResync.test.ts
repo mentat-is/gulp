@@ -203,6 +203,14 @@ function createIngestionLifecycleSocketHarness(): IngestionLifecycleSocketHarnes
 	const streamStateSubscribers = new Set<
 		(change: DocumentStreamStateChange) => void
 	>();
+	const requestSourceSummarySubscribers = new Map<
+		string,
+		Set<(event: QuerySourceSummaryEvent) => void>
+	>();
+	const requestStreamStateSubscribers = new Map<
+		string,
+		Set<(change: DocumentStreamStateChange) => void>
+	>();
 	let listenerSequence = 0;
 	const completeDocumentStream = jest.fn(
 		(
@@ -257,6 +265,36 @@ function createIngestionLifecycleSocketHarness(): IngestionLifecycleSocketHarnes
 			streamStateSubscribers.add(subscriber);
 			return () => streamStateSubscribers.delete(subscriber);
 		},
+		subscribeSourceSummariesForRequest: (
+			requestId: Request.Id,
+			subscriber: (event: QuerySourceSummaryEvent) => void,
+		): (() => void) => {
+			const subscribers =
+				requestSourceSummarySubscribers.get(requestId) ?? new Set();
+			subscribers.add(subscriber);
+			requestSourceSummarySubscribers.set(requestId, subscribers);
+			return () => {
+				subscribers.delete(subscriber);
+				if (subscribers.size === 0) {
+					requestSourceSummarySubscribers.delete(requestId);
+				}
+			};
+		},
+		subscribeDocumentStreamStatesForRequest: (
+			requestId: Request.Id,
+			subscriber: (change: DocumentStreamStateChange) => void,
+		): (() => void) => {
+			const subscribers =
+				requestStreamStateSubscribers.get(requestId) ?? new Set();
+			subscribers.add(subscriber);
+			requestStreamStateSubscribers.set(requestId, subscribers);
+			return () => {
+				subscribers.delete(subscriber);
+				if (subscribers.size === 0) {
+					requestStreamStateSubscribers.delete(requestId);
+				}
+			};
+		},
 	};
 
 	return {
@@ -277,14 +315,34 @@ function createIngestionLifecycleSocketHarness(): IngestionLifecycleSocketHarnes
 		},
 		emitSourceSummary: (event) => {
 			for (const subscriber of sourceSummarySubscribers) subscriber(event);
+			for (
+				const subscriber of requestSourceSummarySubscribers.get(event.requestId) ?? []
+			) {
+				subscriber(event);
+			}
 		},
 		emitStreamState: (change) => {
 			for (const subscriber of streamStateSubscribers) subscriber(change);
+			for (
+				const subscriber of
+					requestStreamStateSubscribers.get(change.descriptor.requestId) ?? []
+			) {
+				subscriber(change);
+			}
 		},
 		listenerCount: (event) =>
 			listeners.filter((listener) => listener.event === event).length,
 		subscriptionCount: () =>
-			sourceSummarySubscribers.size + streamStateSubscribers.size,
+			sourceSummarySubscribers.size +
+			streamStateSubscribers.size +
+			[...requestSourceSummarySubscribers.values()].reduce(
+				(total, subscribers) => total + subscribers.size,
+				0,
+			) +
+			[...requestStreamStateSubscribers.values()].reduce(
+				(total, subscribers) => total + subscribers.size,
+				0,
+			),
 	};
 }
 
@@ -740,6 +798,7 @@ describe("Info event stream registration", () => {
 		} as unknown as App.Type["target"];
 		app.general.ws_id = "file-ingestion-test";
 		const info = createInfo(app);
+		let releaseAdmissionSlot: (() => void) | undefined;
 		(
 			info as unknown as {
 				_register_ingest_source_done_listeners: () => void;
@@ -748,14 +807,32 @@ describe("Info event stream registration", () => {
 		)._register_ingest_source_done_listeners = () => undefined;
 		(
 			info as unknown as {
-				_register_persisted_ingestion_listeners: () => () => void;
+				_register_persisted_ingestion_listeners: (
+					requestId: Request.Id,
+					operationId: Operation.Id,
+					operationEpoch: number,
+					filename: string,
+					onReleased?: () => void,
+				) => () => void;
 			}
-		)._register_persisted_ingestion_listeners = () => () => undefined;
+		)._register_persisted_ingestion_listeners = (
+			_requestId,
+			_operationId,
+			_operationEpoch,
+			_filename,
+			onReleased,
+		) => {
+			releaseAdmissionSlot = onReleased;
+			return () => onReleased?.();
+		};
 		const enqueue = ingestWorkerManager.enqueue as unknown as {
 			mockClear: () => void;
 			mock: {
 				calls: Array<[
-					{ settings: { field?: string; hash_function?: string } },
+					{
+						settings: { field?: string; hash_function?: string };
+						releaseWhen?: Promise<void>;
+					},
 				]>;
 			};
 		};
@@ -784,6 +861,16 @@ describe("Info event stream registration", () => {
 			field: "category",
 			hash_function: "djb2",
 		});
+		let admissionReleased = false;
+		void enqueue.mock.calls[0][0].releaseWhen?.then(() => {
+			admissionReleased = true;
+		});
+		await Promise.resolve();
+		expect(admissionReleased).toBe(false);
+
+		releaseAdmissionSlot?.();
+		await Promise.resolve();
+		expect(admissionReleased).toBe(true);
 	});
 
 	it("dispatches raw queries to IndexedDB persistence on an insecure origin", async () => {

@@ -1,6 +1,9 @@
 import type { QueryCacheProvenance } from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
-import type { EventStoreName } from "@/event-store/EventStore.backend";
+import type {
+	EventStoreName,
+	EventStoreWriteOperation,
+} from "@/event-store/EventStore.backend";
 import { MemoryEventStoreBackend } from "@/event-store/MemoryEventStore.backend";
 import { EventStoreRepository } from "@/event-store/EventStore.repository";
 import type {
@@ -60,6 +63,27 @@ class IngestionProjectionBackend extends MemoryEventStoreBackend {
 		this.exactPageReads = 0;
 		this.lodPageReads = 0;
 		this.sourceReadTransactions = 0;
+	}
+}
+
+class DelayedIngestionJournalBackend extends MemoryEventStoreBackend {
+	/**
+	 * Adds deterministic latency only to ingestion-journal puts.
+	 * @param operations Atomic EventStore write set.
+	 * @returns Promise settled after the optional delay and commit.
+	 */
+	public override async commit(
+		operations: readonly EventStoreWriteOperation[],
+	): Promise<void> {
+		if (
+			operations.some(
+				(operation) =>
+					operation.type === "put" && operation.store === "stream_journal",
+			)
+		) {
+			await new Promise<void>((resolve) => setTimeout(resolve, 1));
+		}
+		await super.commit(operations);
 	}
 }
 
@@ -154,6 +178,101 @@ async function waitForProgress(
 }
 
 describe("ingestion cache timeline integration", () => {
+	it("drains journaled data for 200 concurrent ingestion streams", async () => {
+		const sourceCount = 200;
+		const eventsPerSource = 10;
+		const backend = new DelayedIngestionJournalBackend();
+		const repository = new EventStoreRepository(backend);
+		const completed = new Set<string>();
+		const failures: string[] = [];
+		const coordinator = new QueryPersistenceCoordinator(
+			"concurrent-ingestion-test",
+			{
+				onSourceSummary: () => undefined,
+				onIngestionProgress: () => undefined,
+				onStreamFailure: (event) => failures.push(event.reason),
+				onStreamFlushing: () => undefined,
+				onStreamCompleted: (requestId) => completed.add(requestId),
+				onDocumentChunkAcknowledged: () => undefined,
+			},
+			{
+				rawGlobalByteLimit: 1,
+				rawStreamByteLimit: 1,
+				createOperationStore: () => ({ backend, repository }),
+				createRevisionBus: () => ({
+					publish: () => undefined,
+					close: () => undefined,
+				}),
+			},
+		);
+		const descriptors = Array.from({ length: sourceCount }, (_, index) => ({
+			requestId: `concurrent-ingestion-request-${index}`,
+			operationId: "concurrent-ingestion-operation",
+			operationEpoch: 1,
+			owner: "persist" as const,
+			kind: "ingestion-build" as const,
+			completionMode: "explicit" as const,
+			sourceIds: [],
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a" as const,
+			},
+		}));
+		for (const descriptor of descriptors) await coordinator.register(descriptor);
+		for (let sourceIndex = 0; sourceIndex < descriptors.length; sourceIndex++) {
+			const descriptor = descriptors[sourceIndex];
+			const sourceId = `concurrent-ingestion-source-${sourceIndex}` as Source.Id;
+			const documents = Array.from({ length: eventsPerSource }, (_, eventIndex) => ({
+				_id: `concurrent-ingestion-event-${sourceIndex}-${eventIndex}`,
+				"gulp.source_id": sourceId,
+				"gulp.timestamp": 1_700_000_000_000 + eventIndex,
+				"gulp.event_code": eventIndex,
+			}));
+			coordinator.handleDocumentChunk({
+				descriptor,
+				sequence: 0,
+				rawByteLength: 2,
+				message: {
+					type: "docs_chunk",
+					req_id: descriptor.requestId,
+					operation_id: descriptor.operationId,
+					payload: { docs: documents, last: true, chunk_num: 0 },
+				},
+			});
+		}
+		await Promise.all(
+			descriptors.map((descriptor) => coordinator.complete(descriptor.requestId)),
+		);
+
+		const diagnostics = coordinator.getDiagnostics({
+			started: 0,
+			completed: 0,
+			superseded: 0,
+			retries: 0,
+		});
+		expect(failures).toEqual([]);
+		expect(completed.size).toBe(sourceCount);
+		expect(diagnostics.activeStreams).toBe(0);
+		expect(diagnostics.rawBacklog.currentBytes).toBe(0);
+		expect(diagnostics.normalizedBacklog.currentDocuments).toBe(0);
+		expect(diagnostics.journalWrites.active).toBe(0);
+		expect(diagnostics.journalWrites.currentBytes).toBe(0);
+		expect(diagnostics.journalWrites.maximumActive > 0).toBe(true);
+		expect(diagnostics.journalWrites.maximumActive <= 2).toBe(true);
+		expect(diagnostics.journalWrites.completed).toBe(sourceCount);
+		expect(await backend.getAll("stream_journal")).toEqual([]);
+		const manifests = await backend.getAll<EventSourceHeadManifest>("sources");
+		expect(manifests).toHaveLength(sourceCount);
+		expect(
+			manifests.every(
+				(manifest) =>
+					manifest.status === "complete" &&
+					manifest.eventCount === eventsPerSource,
+			),
+		).toBe(true);
+		coordinator.destroy();
+	});
+
 	it("keeps 70-source 140k-event pans off the IndexedDB page path after warmup", async () => {
 		const sourceIds = createSourceIds();
 		const backend = new IngestionProjectionBackend();

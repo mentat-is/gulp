@@ -632,7 +632,7 @@ export class QuerySocketSession {
 
 		try {
 			this.timelineQueries.onServerMessage(parsed);
-			this.router.route(parsed, rawData.length * 2);
+			this.router.route(parsed, rawData.length * 2, rawData);
 			this.scheduleMailboxSweep();
 			if (parsed.type === "ws_connected") this.setState("ready");
 		} catch (error) {

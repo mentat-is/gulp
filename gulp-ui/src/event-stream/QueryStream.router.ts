@@ -22,6 +22,7 @@ interface BufferedUnknownChunk {
 	requestId: string;
 	message: QuerySocketMessage;
 	byteLength: number;
+	rawText?: string;
 	expiresAt: number;
 }
 
@@ -196,7 +197,12 @@ export class QueryStreamRouter {
 
 		const earlyChunks = this.takeUnknownChunks(descriptor.requestId);
 		for (const chunk of earlyChunks) {
-			this.routeRegisteredChunk(context, chunk.message, chunk.byteLength);
+			this.routeRegisteredChunk(
+				context,
+				chunk.message,
+				chunk.byteLength,
+				chunk.rawText,
+			);
 		}
 	}
 
@@ -301,11 +307,13 @@ export class QueryStreamRouter {
 	 * Routes a parsed WebSocket message without knowing which realm hosts the router.
 	 * @param message Validated WebSocket message.
 	 * @param byteLength Conservative raw byte size used by the unknown-stream mailbox.
+	 * @param rawText Original text frame used by ingestion spill storage.
 	 * @returns Delivery decision made for the message.
 	 */
 	public route(
 		message: QuerySocketMessage,
 		byteLength = 0,
+		rawText?: string,
 	): QueryStreamRouteResult {
 		if (message.type !== DOCUMENT_CHUNK_MESSAGE_TYPE) {
 			this.callbacks.onForwardMessage(message);
@@ -319,12 +327,12 @@ export class QueryStreamRouter {
 
 		const context = this.contexts.get(requestId);
 		if (context) {
-			return this.routeRegisteredChunk(context, message, byteLength);
+			return this.routeRegisteredChunk(context, message, byteLength, rawText);
 		}
 		this.sweepTerminalGuards();
 		if (this.terminalGuards.has(requestId)) return "terminal";
 
-		this.bufferUnknownChunk(requestId, message, byteLength);
+		this.bufferUnknownChunk(requestId, message, byteLength, rawText);
 		return "buffered";
 	}
 
@@ -393,12 +401,14 @@ export class QueryStreamRouter {
 	 * @param context Registered stream receiving the chunk.
 	 * @param message Document chunk to deliver or discard.
 	 * @param rawByteLength Conservative size of the original WebSocket frame.
+	 * @param rawText Original text frame used by ingestion spill storage.
 	 * @returns Delivery decision made for the chunk.
 	 */
 	private routeRegisteredChunk(
 		context: RegisteredStreamContext,
 		message: QuerySocketMessage,
 		rawByteLength = 0,
+		rawText?: string,
 	): QueryStreamRouteResult {
 		if (this.isTerminal(context.state) || context.state === "flushing") {
 			return "terminal";
@@ -425,6 +435,7 @@ export class QueryStreamRouter {
 					message,
 					sequence,
 					rawByteLength: this.normalizeByteLength(rawByteLength),
+					rawText,
 				});
 				result = "document-ready";
 				break;
@@ -463,11 +474,13 @@ export class QueryStreamRouter {
 	 * @param requestId Unknown request identifier.
 	 * @param message Document chunk awaiting registration.
 	 * @param byteLength Conservative raw payload size.
+	 * @param rawText Original text frame used by ingestion spill storage.
 	 */
 	private bufferUnknownChunk(
 		requestId: string,
 		message: QuerySocketMessage,
 		byteLength: number,
+		rawText?: string,
 	): void {
 		this.sweepExpired();
 		const safeByteLength = this.normalizeByteLength(byteLength);
@@ -477,6 +490,7 @@ export class QueryStreamRouter {
 			requestId,
 			message,
 			byteLength: safeByteLength,
+			rawText,
 			expiresAt: this.now() + this.unknownMailboxTtlMs,
 		});
 		this.unknownMailboxBytes += safeByteLength;

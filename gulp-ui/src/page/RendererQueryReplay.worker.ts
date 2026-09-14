@@ -1,4 +1,6 @@
 import type { Operation } from "@/entities/Operation";
+import type { EventStoreWriteOperation } from "@/event-store/EventStore.backend";
+import type { EventStoreNamespace } from "@/event-store/EventStore.types";
 import { getRendererQueryReplaySources } from "./RendererTest.query-replay";
 import { IndexedDbEventStoreBackend } from "@/event-store/IndexedDbEventStore.backend";
 import { EventStoreRepository } from "@/event-store/EventStore.repository";
@@ -27,6 +29,36 @@ const workerScope = self as DedicatedWorkerGlobalScope;
 const REPLAY_REQUEST_ID = "renderer-query-replay";
 const STEADY_CHUNKS_PER_PUMP = 2;
 const DRAIN_POLL_MS = 0;
+
+class DelayedIndexedDbEventStoreBackend extends IndexedDbEventStoreBackend {
+	/**
+	 * Creates a real browser backend with an optional test-only commit delay.
+	 * @param namespace IndexedDB cache and operation identity.
+	 * @param commitDelayMs Artificial delay before each transaction.
+	 */
+	public constructor(
+		namespace: EventStoreNamespace,
+		private readonly commitDelayMs: number,
+	) {
+		super(namespace);
+	}
+
+	/**
+	 * Delays every transaction to make producer/consumer imbalance observable.
+	 * @param operations Atomic EventStore write set.
+	 * @returns Promise settled after the delayed transaction completes.
+	 */
+	public override async commit(
+		operations: readonly EventStoreWriteOperation[],
+	): Promise<void> {
+		if (this.commitDelayMs > 0) {
+			await new Promise<void>((resolve) =>
+				setTimeout(resolve, this.commitDelayMs),
+			);
+		}
+		await super.commit(operations);
+	}
+}
 
 interface SyntheticSocketHandlers {
 	onopen: ((event: Event) => void) | null;
@@ -171,11 +203,187 @@ async function waitForRawDrain(session: QuerySocketSession): Promise<void> {
 }
 
 /**
+ * Replays concurrent file-ingestion streams without query acknowledgements.
+ * @param options Ingestion workload, storage delay, and raw-limit configuration.
+ * @returns Promise settled after terminal diagnostics are published.
+ */
+async function runIngestionReplay(
+	options: RendererQueryReplayStartOptions,
+): Promise<void> {
+	cancelled = false;
+	const sources = getRendererQueryReplaySources(options);
+	const summaries = new Map<string, QuerySourceSummaryEvent>();
+	const completed = new Set<string>();
+	let failure: QueryStreamFailureEvent | null = null;
+	let emittedEvents = 0;
+	let settleReady = (): void => undefined;
+	const ready = new Promise<void>((resolve) => {
+		settleReady = resolve;
+	});
+	const callbacks: QueryTransportCallbacks = {
+		onSocketState: (state) => {
+			if (state === "ready") settleReady();
+		},
+		onSocketOpen: () => undefined,
+		onSocketClose: () => undefined,
+		onSocketError: () => undefined,
+		onForwardMessage: () => undefined,
+		onStreamStateChange: (change) => {
+			if (change.state === "completed") completed.add(change.descriptor.requestId);
+		},
+		onSourceSummary: (event) => {
+			summaries.set(event.summary.sourceId, event);
+			postEvent({ type: "SOURCE_SUMMARY", event });
+		},
+		onIngestionProgress: () => undefined,
+		onStreamFailure: (event) => {
+			failure ??= event;
+		},
+		onProtocolError: (details) => {
+			throw new Error(details.message);
+		},
+	};
+	const session = new QuerySocketSession(
+		{
+			socketUrl: "ws://renderer-ingestion-replay.invalid",
+			token: "renderer-ingestion-replay",
+			wsId: "renderer-ingestion-replay",
+			cacheNamespaceId: options.cacheNamespaceId,
+		},
+		callbacks,
+		() => {
+			const socket = new SyntheticReplaySocket();
+			activeSocket = socket;
+			socket.open();
+			return socket as unknown as WebSocket;
+		},
+		{
+			rawGlobalByteLimit: options.rawGlobalByteLimit ?? 4 * 1024 ** 2,
+			rawStreamByteLimit: options.rawStreamByteLimit ?? 1024 ** 2,
+			createOperationStore: (namespace) => {
+				const backend = new DelayedIndexedDbEventStoreBackend(
+					namespace,
+					options.commitDelayMs ?? 10,
+				);
+				return {
+					backend,
+					repository: new EventStoreRepository(backend),
+				};
+			},
+			createRevisionBus: () => ({
+				publish: () => undefined,
+				close: () => undefined,
+			}),
+		},
+	);
+	activeSession = session;
+	session.connect();
+	await ready;
+	for (const source of sources) {
+		await session.registerDocumentStream({
+			requestId: source.requestId,
+			operationId: options.operationId,
+			operationEpoch: options.operationEpoch,
+			owner: "persist",
+			kind: "ingestion-build",
+			completionMode: "explicit",
+			sourceIds: [],
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+	}
+	session.resetQueryDiagnostics();
+
+	const concurrency = Math.max(
+		1,
+		Math.min(sources.length, options.ingestionConcurrency ?? 5),
+	);
+	for (
+		let batchStart = 0;
+		batchStart < sources.length && !cancelled && !failure;
+		batchStart += concurrency
+	) {
+		const batch = sources.slice(batchStart, batchStart + concurrency);
+		const nextChunkByRequest = new Map(
+			batch.map((source) => [source.requestId, 0]),
+		);
+		let pendingSources = [...batch];
+		while (pendingSources.length > 0 && !cancelled && !failure) {
+			const continuing: typeof sources = [];
+			for (const source of pendingSources) {
+				const chunkIndex = nextChunkByRequest.get(source.requestId) ?? 0;
+				const chunk = buildChunk(
+					{
+						...options,
+						sourceId: source.sourceId,
+						targetEvents: source.count,
+					},
+					chunkIndex,
+					source.offset,
+					source.requestId,
+				);
+				activeSocket?.deliver(chunk.raw);
+				emittedEvents += chunk.documentCount;
+				nextChunkByRequest.set(source.requestId, chunkIndex + 1);
+				if (!chunk.last) continuing.push(source);
+			}
+			pendingSources = continuing;
+			postEvent({
+				type: "PROGRESS",
+				progress: {
+					processedEvents: emittedEvents,
+					totalEvents: options.targetEvents,
+					diagnostics: session.getQueryDiagnostics(),
+				},
+			});
+			await yieldToWorker();
+		}
+		if (!cancelled && !failure) {
+			await Promise.all(
+				batch.map((source) =>
+					session.completeDocumentStream(source.requestId),
+				),
+			);
+		}
+	}
+	if (!cancelled && !failure) await waitForRawDrain(session);
+	const sourceSummaries = [...summaries.values()];
+	const terminalFailure = failure as QueryStreamFailureEvent | null;
+	postEvent({
+		type: "COMPLETE",
+		result: {
+			status: cancelled
+				? "cancelled"
+				: terminalFailure
+					? "failed"
+					: completed.size === sources.length
+						? "complete"
+						: "failed",
+			processedEvents: emittedEvents,
+			targetEvents: options.targetEvents,
+			queryDoneReceived: false,
+			streamCompleted: completed.size === sources.length,
+			sourceSummaries,
+			expectedPages: sources.reduce(
+				(total, source) => total + Math.ceil(source.count / EVENT_PAGE_SIZE),
+				0,
+			),
+			latestSummary: sourceSummaries.at(-1) ?? null,
+			failure: terminalFailure,
+			diagnostics: session.getQueryDiagnostics(),
+		},
+	});
+}
+
+/**
  * Executes one real QuerySocketSession replay against IndexedDB.
- * @param options Steady or burst replay options.
+ * @param options Steady, burst, or ingestion replay options.
  */
 async function runReplay(options: RendererQueryReplayStartOptions): Promise<void> {
 	if (options.profile === "steady") return runTimelineReplay(options);
+	if (options.profile === "ingestion") return runIngestionReplay(options);
 	cancelled = false;
 	let latestSummary: QuerySourceSummaryEvent | null = null;
 	let failure: QueryStreamFailureEvent | null = null;

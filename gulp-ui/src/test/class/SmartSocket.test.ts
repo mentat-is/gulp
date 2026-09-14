@@ -1,5 +1,7 @@
 import { SmartSocket } from "@/class/SmartSocket";
 import type {
+	DocumentStreamStateChange,
+	QuerySourceSummaryEvent,
 	QueryRenderWindowDescriptor,
 	QueryWorkerInitialization,
 } from "@/event-stream";
@@ -11,6 +13,7 @@ import { renderWindowProjectionBus } from "@/render-worker/RenderWindowProjectio
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 import { EVENT_STORE_LOD_ROLLBACK_KEY } from "@/event-store/EventStore.rollout";
 import type { User } from "@/entities/User";
+import type { Request } from "@/entities/Request";
 import { TextDecoder, TextEncoder } from "util";
 
 Object.defineProperties(globalThis, {
@@ -211,6 +214,80 @@ describe("SmartSocket lifecycle", () => {
 		const second = new SmartSocket.Class("detached-two");
 		expect(second).not.toBe(first);
 		expect(SmartSocket.Class.instance).toBe(second);
+	});
+
+	it("routes request-scoped summaries and stream states without global fan-out", () => {
+		const socket = new SmartSocket.Class("request-routing");
+		const summarySubscribers = Array.from({ length: 200 }, () => jest.fn());
+		const stateSubscribers = Array.from({ length: 200 }, () => jest.fn());
+		const cleanups = summarySubscribers.flatMap((summarySubscriber, index) => {
+			const requestId = `request-${index}` as Request.Id;
+			return [
+				socket.subscribeSourceSummariesForRequest(
+					requestId,
+					summarySubscriber,
+				),
+				socket.subscribeDocumentStreamStatesForRequest(
+					requestId,
+					stateSubscribers[index],
+				),
+			];
+		});
+		const publisher = socket as unknown as {
+			publishSourceSummary(event: QuerySourceSummaryEvent): void;
+			publishStreamState(change: DocumentStreamStateChange): void;
+		};
+		publisher.publishSourceSummary({
+			requestId: "request-137",
+		} as QuerySourceSummaryEvent);
+		publisher.publishStreamState({
+			descriptor: { requestId: "request-137" },
+			state: "streaming",
+		} as DocumentStreamStateChange);
+
+		expect(summarySubscribers[137]).toHaveBeenCalledTimes(1);
+		expect(stateSubscribers[137]).toHaveBeenCalledTimes(1);
+		expect(
+			summarySubscribers.filter((subscriber) => subscriber.mock.calls.length > 0),
+		).toHaveLength(1);
+		expect(
+			stateSubscribers.filter((subscriber) => subscriber.mock.calls.length > 0),
+		).toHaveLength(1);
+
+		for (const cleanup of cleanups) {
+			cleanup();
+			cleanup();
+		}
+		publisher.publishSourceSummary({
+			requestId: "request-137",
+		} as QuerySourceSummaryEvent);
+		publisher.publishStreamState({
+			descriptor: { requestId: "request-137" },
+			state: "completed",
+		} as DocumentStreamStateChange);
+		expect(summarySubscribers[137]).toHaveBeenCalledTimes(1);
+		expect(stateSubscribers[137]).toHaveBeenCalledTimes(1);
+
+		const destroyedSummarySubscriber = jest.fn();
+		const destroyedStateSubscriber = jest.fn();
+		socket.subscribeSourceSummariesForRequest(
+			"destroyed-request" as Request.Id,
+			destroyedSummarySubscriber,
+		);
+		socket.subscribeDocumentStreamStatesForRequest(
+			"destroyed-request" as Request.Id,
+			destroyedStateSubscriber,
+		);
+		socket.destroy();
+		publisher.publishSourceSummary({
+			requestId: "destroyed-request",
+		} as QuerySourceSummaryEvent);
+		publisher.publishStreamState({
+			descriptor: { requestId: "destroyed-request" },
+			state: "completed",
+		} as DocumentStreamStateChange);
+		expect(destroyedSummarySubscriber).not.toHaveBeenCalled();
+		expect(destroyedStateSubscriber).not.toHaveBeenCalled();
 	});
 
 	it("rotates the worker singleton when the authenticated user changes", () => {

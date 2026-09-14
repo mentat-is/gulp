@@ -1,6 +1,7 @@
 import type { Doc } from "@/entities/Doc";
 import type { QueryCacheProvenance } from "@/entities/QueryCache";
 import type { Source } from "@/entities/Source";
+import type { EventStoreWriteOperation } from "@/event-store/EventStore.backend";
 import { EventStoreRepository } from "@/event-store/EventStore.repository";
 import {
 	EVENT_PAGE_LOD_RECORD_KIND,
@@ -37,6 +38,57 @@ const SOURCE_ONE = "source-one" as Source.Id;
 const SOURCE_TWO = "source-two" as Source.Id;
 const SOURCE_THREE = "source-three" as Source.Id;
 const SOURCE_FOUR = "source-four" as Source.Id;
+
+class DeferredJournalBackend extends MemoryEventStoreBackend {
+	private journalResolvers: Array<() => void> = [];
+	private journalWritesReleased = false;
+
+	/**
+	 * Defers journal puts while preserving normal in-memory commits.
+	 * @param operations Atomic EventStore write set.
+	 * @returns Promise settled after the test releases journal work.
+	 */
+	public override async commit(
+		operations: readonly EventStoreWriteOperation[],
+	): Promise<void> {
+		if (
+			!this.journalWritesReleased &&
+			operations.some(
+				(operation) =>
+					operation.type === "put" && operation.store === "stream_journal",
+			)
+		) {
+			await new Promise<void>((resolve) => this.journalResolvers.push(resolve));
+		}
+		await super.commit(operations);
+	}
+
+	/**
+	 * Releases every journal write currently blocked by the test.
+	 * @returns Nothing.
+	 */
+	public releaseJournalWrites(): void {
+		this.journalWritesReleased = true;
+		for (const resolve of this.journalResolvers.splice(0)) resolve();
+	}
+}
+
+class RejectingJournalBackend extends MemoryEventStoreBackend {
+	/** Rejects journal writes while leaving every other store available. */
+	public override async commit(
+		operations: readonly EventStoreWriteOperation[],
+	): Promise<void> {
+		if (
+			operations.some(
+				(operation) =>
+					operation.type === "put" && operation.store === "stream_journal",
+			)
+		) {
+			throw new Error("deterministic journal failure");
+		}
+		await super.commit(operations);
+	}
+}
 
 /** Creates one deterministic origin-wide lock manager shared by logical workers. */
 function createCrossRealmLockManager(): Pick<LockManager, "request"> {
@@ -80,17 +132,23 @@ interface PersistenceHarness {
 	acknowledgements: DocumentChunkAcknowledgement[];
 }
 
+interface PersistenceHarnessOptions
+	extends Pick<
+		QueryPersistenceCoordinatorOptions,
+		"rawGlobalByteLimit" | "rawStreamByteLimit"
+	> {
+	createBackend?: () => MemoryEventStoreBackend;
+}
+
 /**
  * Creates one isolated coordinator backed by deterministic in-memory storage.
- * @param limits Optional raw backlog limits for boundary tests.
+ * @param options Optional raw backlog limits and storage factory for boundary tests.
  * @returns Coordinator harness and captured lifecycle events.
  */
 function createHarness(
-	limits: Pick<
-		QueryPersistenceCoordinatorOptions,
-		"rawGlobalByteLimit" | "rawStreamByteLimit"
-	> = {},
+	options: PersistenceHarnessOptions = {},
 ): PersistenceHarness {
+	const { createBackend = () => new MemoryEventStoreBackend(), ...limits } = options;
 	const backends = new Map<string, MemoryEventStoreBackend>();
 	const repositories = new Map<string, EventStoreRepository>();
 	const summaries: QuerySourceSummaryEvent[] = [];
@@ -118,7 +176,7 @@ function createHarness(
 			...limits,
 			createOperationStore: (namespace: EventStoreNamespace) => {
 				const operationId = namespace.operationId as string;
-				const backend = new MemoryEventStoreBackend();
+				const backend = createBackend();
 				const repository = new EventStoreRepository(backend);
 				backends.set(operationId, backend);
 				repositories.set(operationId, repository);
@@ -1427,6 +1485,136 @@ describe("QueryPersistenceCoordinator", () => {
 		expect(await backend?.getAll("stream_journal")).toEqual([]);
 		expect(chunk.message.payload?.docs).toEqual([]);
 		expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+		harness.coordinator.destroy();
+	});
+
+	it("reports concurrent journal write gauges and resets only cumulative values", async () => {
+		const backend = new DeferredJournalBackend();
+		const harness = createHarness({
+			rawGlobalByteLimit: 1,
+			rawStreamByteLimit: 1,
+			createBackend: () => backend,
+		});
+		const descriptor = createDescriptor("journal-diagnostics", {
+			kind: "ingestion-build",
+			sourceIds: [],
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		await harness.coordinator.register(descriptor);
+		const chunks: DocumentChunkReady[] = [];
+		for (let index = 0; index < 3; index++) {
+			const chunk = createChunk(
+				descriptor,
+				[createRawDocument(`journal-${index}`)],
+				index === 2,
+				index,
+				2,
+			);
+			chunk.rawText = JSON.stringify(chunk.message);
+			chunks.push(chunk);
+			harness.coordinator.handleDocumentChunk(chunk);
+		}
+		await waitFor(
+			() =>
+				harness.coordinator.getDiagnostics({
+					started: 0,
+					completed: 0,
+					superseded: 0,
+					retries: 0,
+				}).journalWrites.active === 2,
+		);
+		expect(chunks.every((chunk) => chunk.message.payload?.docs?.length === 0)).toBe(
+			true,
+		);
+
+		let diagnostics = harness.coordinator.getDiagnostics({
+			started: 0,
+			completed: 0,
+			superseded: 0,
+			retries: 0,
+		});
+		expect(diagnostics.journalWrites).toEqual({
+			active: 2,
+			maximumActive: 2,
+			completed: 0,
+			currentBytes: 4,
+			maximumBytes: 4,
+		});
+		harness.coordinator.resetDiagnostics();
+		diagnostics = harness.coordinator.getDiagnostics({
+			started: 0,
+			completed: 0,
+			superseded: 0,
+			retries: 0,
+		});
+		expect(diagnostics.journalWrites.maximumActive).toBe(2);
+		expect(diagnostics.journalWrites.completed).toBe(0);
+		expect(diagnostics.journalWrites.maximumBytes).toBe(4);
+
+		backend.releaseJournalWrites();
+		await waitFor(() => harness.completed.includes(descriptor.requestId));
+		diagnostics = harness.coordinator.getDiagnostics({
+			started: 0,
+			completed: 0,
+			superseded: 0,
+			retries: 0,
+		});
+		expect(diagnostics.journalWrites).toEqual({
+			active: 0,
+			maximumActive: 2,
+			completed: 3,
+			currentBytes: 0,
+			maximumBytes: 4,
+		});
+		expect(await backend.getAll("stream_journal")).toEqual([]);
+		harness.coordinator.destroy();
+	});
+
+	it("releases journal gauges and payloads when a journal commit fails", async () => {
+		const backend = new RejectingJournalBackend();
+		const harness = createHarness({
+			rawGlobalByteLimit: 1,
+			rawStreamByteLimit: 1,
+			createBackend: () => backend,
+		});
+		const descriptor = createDescriptor("journal-failure", {
+			kind: "ingestion-build",
+			sourceIds: [],
+			defaultSourceSettings: {
+				field: "gulp.event_code",
+				hash_function: "fnv1a",
+			},
+		});
+		await harness.coordinator.register(descriptor);
+		const chunk = createChunk(
+			descriptor,
+			[createRawDocument("journal-failure")],
+			true,
+			0,
+			2,
+		);
+		harness.coordinator.handleDocumentChunk(chunk);
+		await waitFor(() => harness.failures.length === 1);
+
+		const diagnostics = harness.coordinator.getDiagnostics({
+			started: 0,
+			completed: 0,
+			superseded: 0,
+			retries: 0,
+		});
+		expect(diagnostics.journalWrites).toEqual({
+			active: 0,
+			maximumActive: 1,
+			completed: 1,
+			currentBytes: 0,
+			maximumBytes: 2,
+		});
+		expect(diagnostics.rawBacklog.currentBytes).toBe(0);
+		expect(chunk.message.payload?.docs).toEqual([]);
+		expect(await backend.getAll("stream_journal")).toEqual([]);
 		harness.coordinator.destroy();
 	});
 

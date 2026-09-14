@@ -35,6 +35,7 @@ import {
 } from "@/entities/QueryCache";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import { isQuerySocketMessage } from "@/event-stream";
 import type {
 	DocumentChunkReady,
 	DocumentChunkAcknowledgement,
@@ -213,7 +214,7 @@ interface NormalizedDocumentChunk {
 interface IngestionStreamJournalEntry {
 	requestId: string;
 	journalId: number;
-	documents: readonly unknown[];
+	rawMessage: string;
 	createdAt: number;
 }
 
@@ -283,6 +284,11 @@ export class QueryPersistenceCoordinator {
 	private currentPendingRawChunkBytes = 0;
 	private maximumPendingRawChunkBytes = 0;
 	private maximumStreamPendingRawChunkBytes = 0;
+	private currentJournalWriteCount = 0;
+	private maximumJournalWriteCount = 0;
+	private completedJournalWriteCount = 0;
+	private currentJournalWriteBytes = 0;
+	private maximumJournalWriteBytes = 0;
 	private currentCommitCount = 0;
 	private maximumCommitCount = 0;
 	private completedCommitCount = 0;
@@ -440,6 +446,13 @@ export class QueryPersistenceCoordinator {
 				maximumBytes: this.maximumPendingRawChunkBytes,
 				maximumStreamBytes: this.maximumStreamPendingRawChunkBytes,
 			},
+			journalWrites: {
+				active: this.currentJournalWriteCount,
+				maximumActive: this.maximumJournalWriteCount,
+				completed: this.completedJournalWriteCount,
+				currentBytes: this.currentJournalWriteBytes,
+				maximumBytes: this.maximumJournalWriteBytes,
+			},
 			normalizedBacklog: {
 				currentDocuments: this.pendingDocumentCount,
 				maximumDocuments: this.maximumPendingDocuments,
@@ -480,6 +493,9 @@ export class QueryPersistenceCoordinator {
 				(context) => context.pendingRawChunkBytes,
 			),
 		);
+		this.maximumJournalWriteCount = this.currentJournalWriteCount;
+		this.completedJournalWriteCount = 0;
+		this.maximumJournalWriteBytes = this.currentJournalWriteBytes;
 		this.maximumCommitCount = this.currentCommitCount;
 		this.completedCommitCount = 0;
 		this.totalCommitLatencyMs = 0;
@@ -924,7 +940,7 @@ export class QueryPersistenceCoordinator {
 	public handleDocumentChunk(chunk: DocumentChunkReady): void {
 		const context = this.streams.get(chunk.descriptor.requestId);
 		if (!context || context.failed || context.completed || !context.accepting) return;
-		const rawDocuments = chunk.message.payload?.docs ?? [];
+		let rawDocuments = chunk.message.payload?.docs ?? [];
 		if (!Array.isArray(rawDocuments)) {
 			this.beginFailure(
 				context,
@@ -947,6 +963,7 @@ export class QueryPersistenceCoordinator {
 			return;
 		}
 		if (spillToJournal) this.recordRawChunkBytes(context, rawByteLength);
+		else chunk.rawText = undefined;
 		const chunkLast = chunk.message.payload?.last === true;
 		const requestLast = chunk.message.payload?.request_last === true;
 		const completesOnLast =
@@ -957,10 +974,10 @@ export class QueryPersistenceCoordinator {
 			? this.writeRawChunkToJournal(
 					context,
 					chunk,
-					rawDocuments,
 					rawByteLength,
 				)
 			: null;
+		if (journalWrite) rawDocuments = [];
 		const normalization = context.normalizationChain.then(async () => {
 			if (journalWrite) {
 				const journalId = await journalWrite;
@@ -1000,33 +1017,59 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Durably spills one ingestion frame that crossed the in-memory raw limit. The
-	 * backend producer is never acknowledged or throttled; the original object graph
-	 * is released as soon as IndexedDB has cloned it.
+	 * Durably spills one ingestion frame that crossed the in-memory raw limit.
+	 * Parsed documents are released before the bounded IndexedDB transaction starts;
+	 * the compact original frame remains queued until the journal commit completes.
 	 */
 	private async writeRawChunkToJournal(
 		context: PersistenceStreamContext,
 		chunk: DocumentChunkReady,
-		documents: readonly unknown[],
 		rawByteLength: number,
 	): Promise<number> {
 		const journalId = context.nextJournalId++;
 		context.journalIds.add(journalId);
-		const entry: IngestionStreamJournalEntry = {
-			requestId: context.descriptor.requestId,
-			journalId,
-			documents,
-			createdAt: this.now(),
-		};
 		try {
-			await context.operation.backend.commit([
-				{
-					type: "put",
-					store: "stream_journal",
-					key: [context.descriptor.requestId, journalId],
-					value: entry,
-				},
-			]);
+			const rawMessage = chunk.rawText ?? JSON.stringify(chunk.message);
+			chunk.rawText = undefined;
+			if (chunk.message.payload) chunk.message.payload.docs = [];
+			const entry: IngestionStreamJournalEntry = {
+				requestId: context.descriptor.requestId,
+				journalId,
+				rawMessage,
+				createdAt: this.now(),
+			};
+			await this.withCommitSlot(async () => {
+				this.currentJournalWriteCount += 1;
+				this.maximumJournalWriteCount = Math.max(
+					this.maximumJournalWriteCount,
+					this.currentJournalWriteCount,
+				);
+				this.currentJournalWriteBytes += rawByteLength;
+				this.maximumJournalWriteBytes = Math.max(
+					this.maximumJournalWriteBytes,
+					this.currentJournalWriteBytes,
+				);
+				try {
+					await context.operation.backend.commit([
+						{
+							type: "put",
+							store: "stream_journal",
+							key: [context.descriptor.requestId, journalId],
+							value: entry,
+						},
+					]);
+				} finally {
+					this.currentJournalWriteCount = Math.max(
+						0,
+						this.currentJournalWriteCount - 1,
+					);
+					this.completedJournalWriteCount += 1;
+					this.currentJournalWriteBytes = Math.max(
+						0,
+						this.currentJournalWriteBytes - rawByteLength,
+					);
+				}
+			});
 			return journalId;
 		} catch (error) {
 			context.journalIds.delete(journalId);
@@ -1060,7 +1103,7 @@ export class QueryPersistenceCoordinator {
 		const normalized = await this.normalizeDocumentChunk(
 			context,
 			chunk,
-			entry.documents,
+			() => this.parseJournalDocuments(entry.rawMessage),
 			0,
 			documentCount,
 			chunkLast,
@@ -1072,6 +1115,30 @@ export class QueryPersistenceCoordinator {
 		}
 		normalized.journalId = journalId;
 		return normalized;
+	}
+
+	/**
+	 * Restores documents from one compact journal frame after memory credit is held.
+	 * @param rawMessage Original WebSocket text persisted in the journal.
+	 * @returns Parsed document payload.
+	 */
+	private parseJournalDocuments(rawMessage: string): readonly unknown[] {
+		let message: unknown;
+		try {
+			message = JSON.parse(rawMessage) as unknown;
+		} catch (error) {
+			throw new QueryPersistenceError(
+				"storage",
+				error instanceof Error ? error.message : String(error),
+			);
+		}
+		if (!isQuerySocketMessage(message) || !Array.isArray(message.payload?.docs)) {
+			throw new QueryPersistenceError(
+				"storage",
+				"Ingestion journal entry does not contain a document payload.",
+			);
+		}
+		return message.payload.docs;
 	}
 
 	/** Deletes one consumed spill record without affecting durable event pages. */
@@ -1114,7 +1181,7 @@ export class QueryPersistenceCoordinator {
 	 * Normalizes one raw chunk independently from prior IndexedDB commits.
 	 * @param context Stream owning memory credits and failure state.
 	 * @param chunk Router-owned chunk metadata.
-	 * @param rawDocuments Parsed JSON documents to release after normalization.
+	 * @param rawDocumentsInput Parsed documents or a lazy journal parser.
 	 * @param rawByteLength Reserved raw backlog bytes.
 	 * @param documentCount Number of normalized-memory credits to acquire.
 	 * @param chunkLast Whether this is the last chunk of one child query.
@@ -1124,7 +1191,7 @@ export class QueryPersistenceCoordinator {
 	private async normalizeDocumentChunk(
 		context: PersistenceStreamContext,
 		chunk: DocumentChunkReady,
-		rawDocuments: readonly unknown[],
+		rawDocumentsInput: readonly unknown[] | (() => readonly unknown[]),
 		rawByteLength: number,
 		documentCount: number,
 		chunkLast: boolean,
@@ -1142,6 +1209,10 @@ export class QueryPersistenceCoordinator {
 				return null;
 			}
 			documentCredit = documentCount;
+			const rawDocuments =
+				typeof rawDocumentsInput === "function"
+					? rawDocumentsInput()
+					: rawDocumentsInput;
 			let grouped: Map<Source.Id, Doc.Type[]>;
 			try {
 				grouped = await normalizeQueryDocumentsCooperatively(

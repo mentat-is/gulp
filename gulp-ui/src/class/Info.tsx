@@ -5129,6 +5129,7 @@ export class Info implements InfoProps {
 	 * @param operationId Operation that owns the ingestion.
 	 * @param operationEpoch Datastore generation captured when ingestion started.
 	 * @param filename Optional uploaded filename used to correlate source creation.
+	 * @param onReleased Optional upload-admission release callback.
 	 * @returns Idempotent listener cleanup.
 	 */
 	private _register_streaming_listeners = (
@@ -5136,6 +5137,7 @@ export class Info implements InfoProps {
 		operationId: Operation.Id,
 		operationEpoch: number,
 		filename?: string,
+		onReleased?: () => void,
 	): (() => void) => {
 		const bufferedEvents: Doc.Type[] = [];
 		const sourceIds = new Set<Source.Id>();
@@ -5303,6 +5305,7 @@ export class Info implements InfoProps {
 				SmartSocket.Message.Type.STATS_UPDATE,
 				statsListenerId,
 			);
+			onReleased?.();
 		});
 		return releaseSocketListeners;
 	};
@@ -5387,6 +5390,7 @@ export class Info implements InfoProps {
 	 * @param operationId Operation that owns the ingestion.
 	 * @param operationEpoch Datastore generation captured before registration.
 	 * @param filename Optional uploaded filename used to correlate source creation.
+	 * @param onReleased Optional upload-admission release callback.
 	 * @returns Idempotent listener cleanup.
 	 */
 	private _register_persisted_ingestion_listeners = (
@@ -5394,6 +5398,7 @@ export class Info implements InfoProps {
 		operationId: Operation.Id,
 		operationEpoch: number,
 		filename?: string,
+		onReleased?: () => void,
 	): (() => void) => {
 		const sourceIds = new Set<Source.Id>();
 		const summaries = new Map<Source.Id, EventSourceSummary>();
@@ -5464,9 +5469,8 @@ export class Info implements InfoProps {
 			},
 		);
 		const unsubscribeSummaries =
-			SmartSocket.Class.instance.subscribeSourceSummaries((event) => {
+			SmartSocket.Class.instance.subscribeSourceSummariesForRequest(id, (event) => {
 				if (
-					event.requestId !== id ||
 					event.operationId !== operationId ||
 					event.operationEpoch !== operationEpoch
 				) {
@@ -5485,8 +5489,7 @@ export class Info implements InfoProps {
 				if (documentsComplete) finalizeSource(sourceId);
 			});
 		const unsubscribeStates =
-			SmartSocket.Class.instance.subscribeDocumentStreamStates((change) => {
-				if (change.descriptor.requestId !== id) return;
+			SmartSocket.Class.instance.subscribeDocumentStreamStatesForRequest(id, (change) => {
 				if (change.state === "completed") {
 					documentsComplete = true;
 					if (
@@ -5596,6 +5599,7 @@ export class Info implements InfoProps {
 			);
 			unsubscribeSummaries();
 			unsubscribeStates();
+			onReleased?.();
 		});
 		return releaseSocketListeners;
 	};
@@ -5639,6 +5643,10 @@ export class Info implements InfoProps {
 			},
 		});
 		if (!registered) return;
+		let releaseIngestionSlot = (): void => undefined;
+		const ingestionTerminal = new Promise<void>((resolve) => {
+			releaseIngestionSlot = resolve;
+		});
 
 		let releaseStreamingListeners = (): void => undefined;
 		const callbacks = this._ingest_orchestrator(
@@ -5659,6 +5667,7 @@ export class Info implements InfoProps {
 					operation.id,
 					operationEpoch,
 					file.name,
+					releaseIngestionSlot,
 				);
 		} else {
 			releaseStreamingListeners = this._register_streaming_listeners(
@@ -5666,6 +5675,7 @@ export class Info implements InfoProps {
 				operation.id,
 				operationEpoch,
 				file.name,
+				releaseIngestionSlot,
 			);
 		}
 
@@ -5680,6 +5690,7 @@ export class Info implements InfoProps {
 			server: Internal.Settings.server,
 			token: Internal.Settings.token,
 			frame,
+			releaseWhen: ingestionTerminal,
 			...callbacks,
 		});
 	};

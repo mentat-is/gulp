@@ -100,6 +100,10 @@ export namespace SmartSocket {
 		private readonly sourceSummarySubscribers = new Set<
 			(event: QuerySourceSummaryEvent) => void
 		>();
+		private readonly requestSourceSummarySubscribers = new Map<
+			Request.Id,
+			Set<(event: QuerySourceSummaryEvent) => void>
+		>();
 		private readonly ingestionProgressSubscribers = new Set<
 			(event: QueryIngestionProgressEvent) => void
 		>();
@@ -111,6 +115,10 @@ export namespace SmartSocket {
 		>();
 		private readonly streamStateSubscribers = new Set<
 			(change: DocumentStreamStateChange) => void
+		>();
+		private readonly requestStreamStateSubscribers = new Map<
+			Request.Id,
+			Set<(change: DocumentStreamStateChange) => void>
 		>();
 		private counter = 0;
 
@@ -223,6 +231,10 @@ export namespace SmartSocket {
 		 */
 		private publishStreamState(change: DocumentStreamStateChange): void {
 			for (const subscriber of this.streamStateSubscribers) subscriber(change);
+			const requestId = change.descriptor.requestId as Request.Id;
+			for (const subscriber of this.requestStreamStateSubscribers.get(requestId) ?? []) {
+				subscriber(change);
+			}
 		}
 
 		/**
@@ -231,6 +243,10 @@ export namespace SmartSocket {
 		 */
 		private publishSourceSummary(event: QuerySourceSummaryEvent): void {
 			for (const subscriber of this.sourceSummarySubscribers) subscriber(event);
+			const requestId = event.requestId as Request.Id;
+			for (const subscriber of this.requestSourceSummarySubscribers.get(requestId) ?? []) {
+				subscriber(event);
+			}
 		}
 
 		/**
@@ -601,6 +617,30 @@ export namespace SmartSocket {
 		}
 
 		/**
+		 * Subscribes to compact source summaries for one request without global fan-out.
+		 * @param requestId Request whose summaries should be delivered.
+		 * @param subscriber Matching summary handler.
+		 * @returns Idempotent cleanup callback removing the request bucket when empty.
+		 */
+		public subscribeSourceSummariesForRequest(
+			requestId: Request.Id,
+			subscriber: (event: QuerySourceSummaryEvent) => void,
+		): () => void {
+			const subscribers =
+				this.requestSourceSummarySubscribers.get(requestId) ?? new Set();
+			subscribers.add(subscriber);
+			this.requestSourceSummarySubscribers.set(requestId, subscribers);
+			return () => {
+				const current = this.requestSourceSummarySubscribers.get(requestId);
+				if (!current) return;
+				current.delete(subscriber);
+				if (current.size === 0) {
+					this.requestSourceSummarySubscribers.delete(requestId);
+				}
+			};
+		}
+
+		/**
 		 * Subscribes to source-exact progress from worker-owned ingestion streams.
 		 * @param subscriber Handler receiving compact cumulative source counts.
 		 * @returns Cleanup callback removing the subscription.
@@ -649,6 +689,30 @@ export namespace SmartSocket {
 		}
 
 		/**
+		 * Subscribes to lifecycle changes for one request without global fan-out.
+		 * @param requestId Request whose state transitions should be delivered.
+		 * @param subscriber Matching lifecycle handler.
+		 * @returns Idempotent cleanup callback removing the request bucket when empty.
+		 */
+		public subscribeDocumentStreamStatesForRequest(
+			requestId: Request.Id,
+			subscriber: (change: DocumentStreamStateChange) => void,
+		): () => void {
+			const subscribers =
+				this.requestStreamStateSubscribers.get(requestId) ?? new Set();
+			subscribers.add(subscriber);
+			this.requestStreamStateSubscribers.set(requestId, subscribers);
+			return () => {
+				const current = this.requestStreamStateSubscribers.get(requestId);
+				if (!current) return;
+				current.delete(subscriber);
+				if (current.size === 0) {
+					this.requestStreamStateSubscribers.delete(requestId);
+				}
+			};
+		}
+
+		/**
 		 * Sends one payload through the selected WebSocket transport.
 		 * @param data Serializable application payload.
 		 */
@@ -680,10 +744,12 @@ export namespace SmartSocket {
 			this.transport.destroy();
 			this.conditional.clear();
 			this.sourceSummarySubscribers.clear();
+			this.requestSourceSummarySubscribers.clear();
 			this.ingestionProgressSubscribers.clear();
 			this.projectionInvalidationSubscribers.clear();
 			this.streamFailureSubscribers.clear();
 			this.streamStateSubscribers.clear();
+			this.requestStreamStateSubscribers.clear();
 			this.removeAllListeners();
 
 			if (SmartSocket.Class.instance === this) {

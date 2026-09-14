@@ -336,12 +336,13 @@ not queued, its `payload.docs` array is cleared synchronously, and that stream
 fails with reason `backlog`. A dispatched query is then canceled. File
 ingestion is intentionally different: `ingestion-build` never feeds UI
 backpressure into the backend producer. An overflow frame is written to the
-transient `stream_journal` IndexedDB store, its original object graph is
-released after the durable clone, and normalization resumes from the journal
-in stream order. The journal record is deleted after the documents enter the
-page builder. A single chunk containing more than 32,768 documents remains a
-normalized-backlog protocol failure; the normal backend chunk size stays below
-that bound.
+transient `stream_journal` IndexedDB store as its original compact WebSocket
+text. The parsed document graph is released before the write waits for one of
+the two shared commit slots. Journal replay parses the frame only after
+normalized-document credit is held, resumes in stream order, and deletes the
+record after the documents enter the page builder. A single chunk containing
+more than 32,768 documents remains a normalized-backlog protocol failure; the
+normal backend chunk size stays below that bound.
 
 The negotiated acknowledgement window is the normal backpressure mechanism for
 the scalable query path only; ingestion sends no chunk acknowledgements. The
@@ -350,6 +351,20 @@ for an unnegotiated server, several concurrent child queries, a single oversized
 frame, or a consumer that cannot make normalization progress. For query and
 realtime streams, crossing a guard cancels only the affected request; it is not
 used as routine pacing.
+
+The browser file uploader admits at most five complete file-ingestion pipelines.
+An HTTP upload completion keeps its slot until the matching ingestion stream is
+terminal, so a large file selection cannot start hundreds of backend producers
+at once. Terminal success, terminal error, abort, and operation-scoped cleanup
+release the slot. Module workers are reused while the batch continues; after
+the queue and active count remain empty for five seconds, the idle pool is
+terminated so worker heaps and native upload resources do not survive
+indefinitely.
+
+Committed source summaries and persistence lifecycle changes also support
+request-indexed subscribers. File-ingestion listeners use these buckets instead
+of receiving every other request's notification. Operation-wide consumers keep
+the existing global subscription channel.
 
 If normalization or the IndexedDB write path fails, the worker marks the stream
 failed and reports its `req_id` and failure reason. The main thread requests
@@ -543,10 +558,13 @@ index rewrite on every append.
 
 ### `stream_journal`
 
-The ingestion-only journal uses `[requestId, journalId]` keys and contains raw
-overflow frames only until their ordered normalization resumes. It is neither
-source authority nor a query-cache generation, and normal terminal cleanup
-removes every consumed or residual entry.
+The ingestion-only journal uses `[requestId, journalId]` keys and contains the
+compact raw text of overflow frames only until their ordered normalization
+resumes. It is neither source authority nor a query-cache generation, and normal
+terminal cleanup removes every consumed or residual entry. Journal writes share
+the two-slot IndexedDB commit scheduler; their diagnostics count transactions
+that currently own a slot, while queued frame bytes remain visible in the raw
+backlog gauges.
 
 ## Initial cache reconciliation
 
@@ -805,6 +823,8 @@ but retains current gauges so active work is never hidden.
 The snapshot contains:
 
 - current/global and maximum/per-stream raw backlog bytes;
+- active and maximum concurrent ingestion-journal writes, completed journal
+  writes, and their current and maximum raw bytes;
 - current and maximum normalized documents, including page builders;
 - active and maximum concurrent commits, completed commit count, average
   latency, and maximum latency;
@@ -823,6 +843,19 @@ Canvas combines this snapshot with render diagnostics. See
 [render-worker.md](render-worker.md#diagnostics-and-performance-checks) for the
 render queue, ACK/frame, terminal-target, and drawing counters.
 
+The offline route
+`/renderer-test?queryReplay=ingestion&docs=2000000&sources=200` registers 200
+`ingestion-build` streams and feeds at most five at a time through a real browser
+IndexedDB, matching file-ingestion admission. It uses low raw limits to exercise
+`stream_journal` and defaults to a 10 ms artificial commit delay, configurable
+with `commitDelayMs`. `ingestionConcurrency=200` restores the former unbounded
+stress shape for comparisons. Terminal automation data are published through
+`window.__rendererQueryReplayDiagnostics` and the matching
+`data-renderer-query-replay-*` document attributes. A passing result requires
+exact source totals and zero active streams, raw/normalized backlog, and journal
+writes; journal high-water values are measurements rather than a pass/fail byte
+cap.
+
 ## Performance invariants
 
 The event path is expected to preserve these bounds:
@@ -835,6 +868,7 @@ The event path is expected to preserve these bounds:
   active request;
 - at most two unaccepted backend chunks per active negotiated child query;
 - no more than two concurrent IndexedDB commits;
+- at most five file upload/backend-ingestion pipelines admitted by the UI;
 - at most five reachable query caches per source;
 - at most 52 MiB of encoded viewport-projector page records across the exact,
   LOD, and HeightMap working sets;

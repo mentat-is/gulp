@@ -10,7 +10,7 @@ import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types"
 export const RENDERER_QUERY_REPLAY_TARGET_EVENTS = 14_000_000;
 export const RENDERER_QUERY_REPLAY_CHUNK_EVENTS = 10_000;
 
-export type RendererQueryReplayProfile = "steady" | "burst";
+export type RendererQueryReplayProfile = "steady" | "burst" | "ingestion";
 export type RendererQueryReplayStatus =
 	| "idle"
 	| "running"
@@ -35,6 +35,8 @@ export interface RendererQueryReplayStartOptions {
 	frameSpanMs: number;
 	rawGlobalByteLimit?: number;
 	rawStreamByteLimit?: number;
+	commitDelayMs?: number;
+	ingestionConcurrency?: number;
 }
 
 /** Terminal dedicated-worker result with no exact document payloads. */
@@ -88,6 +90,7 @@ export interface RendererQueryReplayGate {
 	terminalFrame: boolean;
 	workerHealth: boolean;
 	rawBacklog: boolean;
+	terminalDrain: boolean;
 }
 
 /**
@@ -109,41 +112,50 @@ export function evaluateRendererQueryReplayGate(
 	const expectedPages = result.expectedPages ?? Math.ceil(
 		(result.targetEvents ?? RENDERER_QUERY_REPLAY_TARGET_EVENTS) / 16_384,
 	);
+	const ingestion = profile === "ingestion";
 	const eventCount =
 		profile === "burst"
 			? result.status === "backlog" && result.failure?.reason === "backlog"
 			: result.status === "complete" &&
 				result.streamCompleted &&
-				result.queryDoneReceived &&
+				(ingestion || result.queryDoneReceived) &&
 				(result.sourceSummaries ?? (result.latestSummary ? [result.latestSummary] : [])).every((event) => event.summary.status === "complete") &&
 				(result.sourceSummaries ?? (result.latestSummary ? [result.latestSummary] : [])).reduce((sum, event) => sum + event.summary.eventCount, 0) === result.processedEvents &&
-				render.terminalProjectionEventCount === result.processedEvents;
+				(ingestion || render.terminalProjectionEventCount === result.processedEvents);
 	const pageCount =
 		profile === "burst"
 			? true
 			: result.processedEvents === (result.targetEvents ?? RENDERER_QUERY_REPLAY_TARGET_EVENTS) &&
 				(result.sourceSummaries ? result.diagnostics.pages.created >= expectedPages && result.diagnostics.pages.created <= Math.ceil(result.processedEvents / 10000) + result.sourceSummaries.length : result.diagnostics.pages.created === expectedPages);
 	const buildingCadence =
-		profile === "burst"
+		profile !== "steady"
 			? true
 			: render.buildingFrames > 0 &&
 				render.maximumVisibleProgressLatencyMs <= 2_000;
 	const terminalProjection =
-		profile === "burst" ||
+		profile !== "steady" ||
 		(render.completeSummaryToProjectionMs >= 0 &&
 			render.completeSummaryToProjectionMs <= 5_000);
 	const terminalFrame =
-		profile === "burst" ||
+		profile !== "steady" ||
 		(render.terminalAckToFrameMs >= 0 && render.terminalAckToFrameMs <= 250);
 	const workerHealth =
-		profile === "burst" ||
+		profile !== "steady" ||
 		(render.resyncCount === 0 &&
 			render.workerErrorCount === 0 &&
 			render.fallbackCount === 0 &&
 			render.maximumRenderQueueDepth <= 2);
 	const rawBacklog =
-		result.diagnostics.rawBacklog.maximumBytes <= rawGlobalByteLimit &&
-		result.diagnostics.rawBacklog.maximumStreamBytes <= rawStreamByteLimit;
+		ingestion ||
+		(result.diagnostics.rawBacklog.maximumBytes <= rawGlobalByteLimit &&
+			result.diagnostics.rawBacklog.maximumStreamBytes <= rawStreamByteLimit);
+	const terminalDrain =
+		profile === "burst" ||
+		(result.diagnostics.activeStreams === 0 &&
+			result.diagnostics.rawBacklog.currentBytes === 0 &&
+			result.diagnostics.normalizedBacklog.currentDocuments === 0 &&
+			result.diagnostics.journalWrites.active === 0 &&
+			result.diagnostics.journalWrites.currentBytes === 0);
 	return {
 		passed:
 			eventCount &&
@@ -152,7 +164,8 @@ export function evaluateRendererQueryReplayGate(
 			terminalProjection &&
 			terminalFrame &&
 			workerHealth &&
-			rawBacklog,
+			rawBacklog &&
+			terminalDrain,
 		eventCount,
 		pageCount,
 		buildingCadence,
@@ -160,6 +173,7 @@ export function evaluateRendererQueryReplayGate(
 		terminalFrame,
 		workerHealth,
 		rawBacklog,
+		terminalDrain,
 	};
 }
 
@@ -213,13 +227,20 @@ export function getRendererQueryReplayConfiguration(search: string): {
 	sourceCount: number;
 	distribution: "uniform" | "skewed";
 	cacheWarnings: boolean;
+	commitDelayMs: number;
+	ingestionConcurrency: number;
 } {
 	const params = new URLSearchParams(search);
-	const value = (params.get("docs") ?? "14000000").toLowerCase();
+	const ingestion = params.get("queryReplay") === "ingestion";
+	const value = (params.get("docs") ?? (ingestion ? "2000000" : "14000000")).toLowerCase();
 	const count = value.endsWith("m")
 		? Number(value.slice(0, -1)) * 1_000_000
 		: Number(value);
-	const sources = Number(params.get("sources") ?? "1");
+	const sources = Number(params.get("sources") ?? (ingestion ? "200" : "1"));
+	const commitDelayMs = Number(params.get("commitDelayMs") ?? (ingestion ? "10" : "0"));
+	const ingestionConcurrency = Number(
+		params.get("ingestionConcurrency") ?? (ingestion ? "5" : "1"),
+	);
 	return {
 		targetEvents:
 			Number.isSafeInteger(count) && count > 0 && count <= 30_000_000
@@ -232,6 +253,20 @@ export function getRendererQueryReplayConfiguration(search: string): {
 		distribution:
 			params.get("distribution") === "skewed" ? "skewed" : "uniform",
 		cacheWarnings: params.get("cacheWarnings") === "all",
+		commitDelayMs:
+			Number.isFinite(commitDelayMs) && commitDelayMs >= 0 && commitDelayMs <= 1_000
+				? commitDelayMs
+				: ingestion
+					? 10
+					: 0,
+		ingestionConcurrency:
+			Number.isSafeInteger(ingestionConcurrency) &&
+			ingestionConcurrency > 0 &&
+			ingestionConcurrency <= 200
+				? ingestionConcurrency
+				: ingestion
+					? 5
+					: 1,
 	};
 }
 
@@ -260,7 +295,9 @@ export function getRendererQueryReplayProfile(
 	search: string,
 ): RendererQueryReplayProfile | null {
 	const value = new URLSearchParams(search).get("queryReplay");
-	return value === "steady" || value === "burst" ? value : null;
+	return value === "steady" || value === "burst" || value === "ingestion"
+		? value
+		: null;
 }
 
 /** Main-thread correlated facade for the dedicated synthetic replay worker. */

@@ -130,6 +130,8 @@ export interface DocumentChunkReady {
 	sequence?: number;
 	/** Conservative UTF-16 size of the original WebSocket frame. */
 	rawByteLength: number;
+	/** Original frame retained only when ingestion must spill before normalization. */
+	rawText?: string;
 }
 
 /** Durable or accepted progress sent back to the query producer for flow control. */
@@ -250,6 +252,13 @@ export interface QueryWorkerDiagnostics {
 		currentBytes: number;
 		maximumBytes: number;
 		maximumStreamBytes: number;
+	};
+	journalWrites: {
+		active: number;
+		maximumActive: number;
+		completed: number;
+		currentBytes: number;
+		maximumBytes: number;
 	};
 	normalizedBacklog: {
 		currentDocuments: number;
