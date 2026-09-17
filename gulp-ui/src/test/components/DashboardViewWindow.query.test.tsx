@@ -181,7 +181,7 @@ jest.mock("@/components/QueryBuilder", () => ({
 	OpenSearchQueryBuilder: {
 		Query: {
 			String: (): null => null,
-			Add: (): null => null,
+			Add: () => <div data-dashboard-filter-add />,
 			Filters: (): null => null,
 		},
 	},
@@ -190,8 +190,20 @@ jest.mock("@/components/Table", () => ({
 	Table: (): null => null,
 }));
 
-jest.mock("@/ui/Banner", () => ({ Banner: (): null => null }));
-jest.mock("@/ui/Button", () => ({ Button: (): null => null }));
+jest.mock("@/ui/Banner", () => ({
+	Banner: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+}));
+jest.mock("@/ui/Button", () => ({
+	Button: ({
+		children,
+		icon,
+		variant,
+		...props
+	}: ButtonHTMLAttributes<HTMLButtonElement> & {
+		icon?: string;
+		variant?: string;
+	}) => <button {...props}>{children ?? icon}</button>,
+}));
 jest.mock("@/ui/Input", () => ({ Input: (): null => null }));
 jest.mock("@/ui/Icon", () => ({ Icon: (): null => null }));
 jest.mock("@/ui/Stack", () => ({ Stack: (): null => null }));
@@ -214,7 +226,9 @@ jest.mock("@/ui/Select", () => ({
 jest.mock("@/ui/Tooltip", () => ({
 	Tooltip: (): null => null,
 	TooltipContent: (): null => null,
-	TooltipProvider: (): null => null,
+	TooltipProvider: ({ children }: { children?: ReactNode }) => (
+		<div data-tooltip-provider>{children}</div>
+	),
 	TooltipTrigger: (): null => null,
 }));
 jest.mock("@/ui/utils", () => ({
@@ -287,5 +301,47 @@ describe("DashboardViewWindow query stability", () => {
 
 		expect(mockEventKeysCalls).toBe(2);
 		expect(mockAggregationCalls).toBe(1);
+	});
+
+	it("passes loaded field metadata to the generic filter editor", async () => {
+		act(() => {
+			root.render(<DashboardViewWindow />);
+		});
+		await flushRequests();
+
+		const filterButton = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent === "common.filters",
+		);
+		act(() => filterButton?.click());
+
+		expect(
+			(
+				mockSpawnedBanner as ReactElement<{
+					fieldOptions: Record<string, string>;
+				}>
+			)?.props.fieldOptions,
+		).toEqual({ "event.code": "keyword" });
+	});
+
+	it("provides tooltip context to the dashboard filter editor", async () => {
+		act(() => {
+			root.render(<DashboardViewWindow />);
+		});
+		await flushRequests();
+
+		const filterButton = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent === "common.filters",
+		);
+		act(() => filterButton?.click());
+
+		act(() => {
+			root.render(mockSpawnedBanner);
+		});
+
+		expect(
+			container.querySelector(
+				"[data-tooltip-provider] [data-dashboard-filter-add]",
+			),
+		).not.toBeNull();
 	});
 });

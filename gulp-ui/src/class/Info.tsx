@@ -3476,33 +3476,36 @@ export class Info implements InfoProps {
 		if (this._mappingFileListPromise) return this._mappingFileListPromise;
 
 		this._mappingFileListPromise = (async () => {
-			const shit = await api<Mapping.Raw[]>("/mapping_file_list");
+			const mapping_file_list = await api<Mapping.Raw[]>("/mapping_file_list");
 
-			const parsed_shit = Mapping.Entity.parse(shit);
+			const parsed_mapping_files = Mapping.Entity.parse(mapping_file_list);
 
-			const another_parsed_shit = await this.plugin_list().then((p) =>
+			const parsed_mapping_ingest_file = await this.plugin_list().then((p) =>
 				p.filter((p) => p.type.includes("ingestion")),
 			);
 
-			another_parsed_shit.forEach((shit) => {
-				const found_shit = parsed_shit.find((ps) => ps.name === shit.filename);
-				if (found_shit) {
-					return;
-				} else {
-					parsed_shit.push({
-						name: shit.filename,
-						methods: [],
-					});
-				}
-			});
+			if (parsed_mapping_ingest_file) {
+				parsed_mapping_ingest_file.forEach((file) => {
+					var found = parsed_mapping_files.find((ps) => ps.name === file.filename);
+					if (found) {
+						return;
+					} else {
+						parsed_mapping_files.push({
+							name: file.filename,
+							methods: [],
+						});
+					}
+				});
+			}
+			
 
-			const sorted_parsed_shit = parsed_shit.sort((a, b) =>
+			const sorted_parsed = parsed_mapping_files.sort((a, b) =>
 				a.name.localeCompare(b.name),
 			);
 
-			this.setInfoByKey(sorted_parsed_shit, "target", "mappings");
+			this.setInfoByKey(sorted_parsed, "target", "mappings");
 
-			return sorted_parsed_shit;
+			return sorted_parsed;
 		})();
 
 		const result = await this._mappingFileListPromise;
