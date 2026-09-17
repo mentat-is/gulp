@@ -2,6 +2,7 @@ node_modules
 dist
 build
 src/version.ts
+public/version
 **/plugins/*
 !**/plugins/coconut.*
 .DS_Store
