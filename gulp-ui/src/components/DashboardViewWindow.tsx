@@ -1134,15 +1134,17 @@ function DashboardFilterBanner({
 				</Button>
 			}
 		>
-			<DashboardFilterEditor
-				filterState={draftFilterState}
-				setFilterState={setDraftFilterState}
-				fieldKeys={fieldKeys}
-				container={container}
-				availableSources={availableSources}
-				inheritedSourceIds={inheritedSourceIds}
-				showSourceSelector={showSourceSelector}
-			/>
+			<TooltipProvider>
+				<DashboardFilterEditor
+					filterState={draftFilterState}
+					setFilterState={setDraftFilterState}
+					fieldOptions={fieldOptions}
+					container={container}
+					availableSources={availableSources}
+					inheritedSourceIds={inheritedSourceIds}
+					showSourceSelector={showSourceSelector}
+				/>
+			</TooltipProvider>
 		</Banner>
 	);
 }
