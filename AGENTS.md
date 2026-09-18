@@ -30,7 +30,11 @@ object storage.
 - `gulp-sdk/` and `gulp-cli/`: Python SDK and CLI maintained with affected
   backend interfaces.
 - `gulp-ui/`: separate React and TypeScript project; do not include it in
-  backend change coordination.
+  backend change coordination. See `gulp-ui/AGENTS.md`.
+- `gulp-collector/`: separate project; see `gulp-collector/AGENTS.md`.
+- `gulp-licensing/`: separate project; see `gulp-licensing/AGENTS.md`.
+- `gulp-paid-plugins/`: paid plugin implementations, maintained like
+  `src/gulp/plugins/`.
 
 ## Working rules
 
