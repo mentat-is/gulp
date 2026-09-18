@@ -1,4 +1,4 @@
-import { App } from "./App"
+import type { App } from "./App"
 
 export namespace Mapping {
   export namespace Type {
@@ -22,30 +22,106 @@ export namespace Mapping {
   }
 
   export class Entity {
-    public static parse(raw: Mapping.Raw[]): Mapping.Type.Plugin[] {
+    /**
+     * Converts the mapping-file API payload into the plugin-oriented UI model.
+     * Invalid files are reported and skipped without discarding valid files.
+     *
+     * @param raw - Untrusted mapping-file list returned by the backend.
+     * @returns Valid mappings grouped by every plugin declared by each file.
+     */
+    public static parse(raw: unknown): Mapping.Type.Plugin[] {
       const plugins: Mapping.Type.Plugin[] = []
 
-      raw.forEach((r) => {
-        const isPluginExist = plugins.find((p) => p.name === r.metadata.plugin[0])
+      if (!Array.isArray(raw)) {
+        console.error(
+          "[Mapping.parse] Failed to parse the mapping file list.",
+          new TypeError("Expected the mapping file response to be an array."),
+        )
+        return plugins
+      }
 
-        if (!isPluginExist) {
-          plugins.push({
-            name: r.metadata.plugin[0],
-            methods: [],
+      raw.forEach((value, index) => {
+        const mappingFileName = Entity.mappingFileName(value, index)
+
+        try {
+          if (typeof value !== "object" || value === null) {
+            throw new TypeError("Expected a mapping file object.")
+          }
+
+          const mappingFile = value as Record<string, unknown>
+          const metadata = mappingFile.metadata
+          if (typeof metadata !== "object" || metadata === null) {
+            throw new TypeError("Missing mapping metadata.")
+          }
+
+          const pluginNames = (metadata as Record<string, unknown>).plugin
+          if (
+            !Array.isArray(pluginNames) ||
+            pluginNames.length === 0 ||
+            !pluginNames.every(
+              (pluginName) =>
+                typeof pluginName === "string" && pluginName.trim().length > 0,
+            )
+          ) {
+            throw new TypeError("Expected metadata.plugin to contain plugin filenames.")
+          }
+
+          const filename = mappingFile.filename
+          if (typeof filename !== "string" || filename.trim().length === 0) {
+            throw new TypeError("Missing mapping filename.")
+          }
+
+          const mappingIds = mappingFile.mapping_ids
+          if (
+            !Array.isArray(mappingIds) ||
+            !mappingIds.every((mappingId) => typeof mappingId === "string")
+          ) {
+            throw new TypeError("Expected mapping_ids to be an array of strings.")
+          }
+
+          new Set(pluginNames).forEach((pluginName) => {
+            let plugin = plugins.find((candidate) => candidate.name === pluginName)
+
+            if (!plugin) {
+              plugin = {
+                name: pluginName,
+                methods: [],
+              }
+              plugins.push(plugin)
+            }
+
+            plugin.methods.push({
+              name: filename,
+              mappings: [...mappingIds],
+            })
           })
+        } catch (error) {
+          console.error(
+            `[Mapping.parse] Failed to parse mapping file "${mappingFileName}".`,
+            error,
+          )
         }
-
-        const shit = plugins.find(
-          (p) => p.name === r.metadata.plugin[0],
-        ) as Mapping.Type.Plugin
-
-        shit.methods.push({
-          name: r.filename,
-          mappings: r.mapping_ids,
-        })
       })
 
       return plugins
+    }
+
+    /**
+     * Resolves a stable mapping-file label for validation errors.
+     *
+     * @param value - Untrusted mapping-file entry.
+     * @param index - Entry position in the backend response.
+     * @returns The mapping filename or a positional fallback label.
+     */
+    private static mappingFileName(value: unknown, index: number): string {
+      if (typeof value === "object" && value !== null) {
+        const filename = (value as Record<string, unknown>).filename
+        if (typeof filename === "string" && filename.trim().length > 0) {
+          return filename
+        }
+      }
+
+      return `entry #${index + 1}`
     }
 
     public static plugins = (app: App.Type): Mapping.Type.Plugin['name'][] =>

@@ -291,6 +291,7 @@ export namespace GulpDataset {
 
 	export namespace PluginList {
 		export type Type = "ingestion" | "enrichment" | "external" | "extension";
+		export type TypeValue = Type | Type[];
 
 		export namespace SigmaSupport {
 			export type Type = "backends" | "pipelines" | "output_formats";
@@ -307,7 +308,7 @@ export namespace GulpDataset {
 
 		export interface Interface {
 			display_name: string;
-			type: Type[];
+			type: TypeValue;
 			desc: string;
 			path: string;
 			data: {};
@@ -4717,45 +4718,111 @@ export class Info implements InfoProps {
 	};
 
 	private _mappingFileListPromise: Promise<Mapping.Type.Plugin[]> | null = null;
+	/**
+	 * Refreshes mapping choices while isolating malformed mapping and plugin files.
+	 * The last usable mapping state is retained when an endpoint-level failure occurs.
+	 *
+	 * @returns The sorted mapping choices available to ingestion controls.
+	 */
 	mapping_file_list = async (): Promise<Mapping.Type.Plugin[]> => {
 		if (this._mappingFileListPromise) return this._mappingFileListPromise;
 
 		this._mappingFileListPromise = (async () => {
-			const mapping_file_list = await api<Mapping.Raw[]>("/mapping_file_list");
+			try {
+				let parsedMappingFiles: Mapping.Type.Plugin[];
 
-			const parsed_mapping_files = Mapping.Entity.parse(mapping_file_list);
-
-			const parsed_mapping_ingest_file = await this.plugin_list().then((p) =>
-				p.filter((p) => p.type.includes("ingestion")),
-			);
-
-			if (parsed_mapping_ingest_file) {
-				parsed_mapping_ingest_file.forEach((file) => {
-					var found = parsed_mapping_files.find((ps) => ps.name === file.filename);
-					if (found) {
-						return;
-					} else {
-						parsed_mapping_files.push({
-							name: file.filename,
-							methods: [],
-						});
+				try {
+					const mappingFileList = await api<Mapping.Raw[]>("/mapping_file_list");
+					if (!Array.isArray(mappingFileList)) {
+						throw new TypeError("Expected /mapping_file_list to return an array.");
 					}
-				});
+					parsedMappingFiles = Mapping.Entity.parse(mappingFileList);
+				} catch (error) {
+					console.error(
+						"[Info.mapping_file_list] Failed to load the mapping file list; retaining the previous mappings.",
+						error,
+					);
+					parsedMappingFiles = [...this.app.target.mappings];
+				}
+
+				try {
+					const pluginFiles = await this.plugin_list();
+					if (!Array.isArray(pluginFiles)) {
+						throw new TypeError("Expected plugin_list to return an array.");
+					}
+
+					pluginFiles.forEach((pluginFile, index) => {
+						const pluginFileName =
+							typeof pluginFile?.filename === "string" &&
+							pluginFile.filename.trim().length > 0
+								? pluginFile.filename
+								: `entry #${index + 1}`;
+
+						try {
+							const pluginType = pluginFile?.type as unknown;
+							let pluginTypes: string[] | null = null;
+							if (typeof pluginType === "string") {
+								pluginTypes = [pluginType];
+							} else if (
+								Array.isArray(pluginType) &&
+								pluginType.every((type) => typeof type === "string")
+							) {
+								pluginTypes = pluginType;
+							}
+							if (!pluginTypes) {
+								throw new TypeError(
+									"Expected the plugin type to be a string or an array of strings.",
+								);
+							}
+							if (!pluginTypes.includes("ingestion")) return;
+							if (
+								typeof pluginFile.filename !== "string" ||
+								pluginFile.filename.trim().length === 0
+							) {
+								throw new TypeError("Missing plugin filename.");
+							}
+
+							const pluginExists = parsedMappingFiles.some(
+								(plugin) => plugin.name === pluginFile.filename,
+							);
+							if (!pluginExists) {
+								parsedMappingFiles.push({
+									name: pluginFile.filename,
+									methods: [],
+								});
+							}
+						} catch (error) {
+							console.error(
+								`[Info.mapping_file_list] Failed to process plugin file "${pluginFileName}".`,
+								error,
+							);
+						}
+					});
+				} catch (error) {
+					console.error(
+						"[Info.mapping_file_list] Failed to load the plugin list; mapping files remain available.",
+						error,
+					);
+				}
+
+				const sortedMappings = parsedMappingFiles.sort((first, second) =>
+					first.name.localeCompare(second.name),
+				);
+
+				this.setInfoByKey(sortedMappings, "target", "mappings");
+				return sortedMappings;
+			} catch (error) {
+				console.error(
+					"[Info.mapping_file_list] Unexpected failure while refreshing mapping files.",
+					error,
+				);
+				return this.app.target.mappings;
+			} finally {
+				this._mappingFileListPromise = null;
 			}
-			
-
-			const sorted_parsed = parsed_mapping_files.sort((a, b) =>
-				a.name.localeCompare(b.name),
-			);
-
-			this.setInfoByKey(sorted_parsed, "target", "mappings");
-
-			return sorted_parsed;
 		})();
 
-		const result = await this._mappingFileListPromise;
-		this._mappingFileListPromise = null;
-		return result;
+		return this._mappingFileListPromise;
 	};
 
 	/**
