@@ -3,11 +3,11 @@
   "version": "0.3.0",
   "private": true,
   "scripts": {
-    "prestart": "node ./scripts/copy_paid_plugins.js",
+    "predev": "node ./scripts/copy_paid_plugins.js",
     "prebuild": "node ./scripts/copy_paid_plugins.js && node scripts/write-version.js",
     "check:locales": "node ./scripts/check-locale-fallback.mjs",
     "build": "react-app-rewired build",
-    "start": "react-app-rewired start",
+    "dev": "react-app-rewired start",
     "test": "react-scripts test --watchAll=false",
     "server": "serve -s build"
   },

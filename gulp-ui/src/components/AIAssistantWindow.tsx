@@ -20,9 +20,11 @@ export function AIAssistantWindow({
 }: AIAssistantWindowProps) {
 	return (
 		<div className={s.main}>
-			<div className={s.header}>
-				<h2>{title}</h2>
-			</div>
+			{pluginFilename ? null : (
+				<div className={s.header}>
+					<h2>{title}</h2>
+				</div>
+			)}
 			<div className={s.content}>
 				{pluginFilename ? (
 					<Extension.Component name={pluginFilename} />

@@ -45,6 +45,12 @@ remains blank. There is no default EVTX fallback.
 After a plugin is detected or selected, the UI also preselects the mapping file
 and mapping ID when each has only one valid option.
 
+Mapping and plugin discovery is fault-isolated. A malformed mapping file or
+plugin entry is omitted while the remaining choices stay available, and the
+browser error log identifies the offending filename. If either list cannot be
+loaded, the UI retains the last usable mapping choices so application startup
+and operation synchronization can continue.
+
 Common file settings:
 
 - **Timestamp offset**: shifts timestamps by positive or negative milliseconds

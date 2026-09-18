@@ -110,7 +110,7 @@ function createInfo(mappings: Mapping.Type.Plugin[] = []): Info {
 /** Creates one complete plugin-list fixture. */
 function createPlugin(
 	filename: string,
-	type: GulpDataset.PluginList.Type[],
+	type: GulpDataset.PluginList.TypeValue,
 ): GulpDataset.PluginList.Interface {
 	return {
 		display_name: filename,
@@ -153,10 +153,10 @@ describe("Info.mapping_file_list", () => {
 			},
 		]) as unknown as typeof globalThis.api;
 		info.plugin_list = async () => [
-			createPlugin("standalone.py", ["ingestion"]),
+			createPlugin("standalone.py", "ingestion"),
 			{
 				...createPlugin("broken.py", ["ingestion"]),
-				type: undefined,
+				type: 42,
 			} as unknown as GulpDataset.PluginList.Interface,
 		];
 
@@ -179,6 +179,7 @@ describe("Info.mapping_file_list", () => {
 			'[Info.mapping_file_list] Failed to process plugin file "broken.py".',
 		);
 		expect(pluginError?.[1]).toBeInstanceOf(TypeError);
+		expect(errorSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it("retains existing mappings after failure and allows a later retry", async () => {
