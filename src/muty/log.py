@@ -141,6 +141,10 @@ class MutyLogger(logging.Logger):
         level = level or logging.DEBUG
         l.setLevel(level)
         l.handlers = []
+        # This logger owns its stdout and optional file/syslog handlers. Do not
+        # duplicate its records through root handlers installed by libraries
+        # such as FastMCP/Rich.
+        l.propagate = False
 
         # configure a default log format, including thread id
         log_format = (

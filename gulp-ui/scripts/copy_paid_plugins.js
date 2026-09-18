@@ -3,7 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const src_path = path.resolve(__dirname, '..', '..', '..', 'gulp-paid-plugins', 'src', 'gulp-paid-plugins', 'plugins', 'ui');
+
+const src_path = path.resolve(__dirname, '..', '..', 'gulp-paid-plugins', 'src', 'gulp-paid-plugins', 'plugins', 'ui');
 const dest_root = path.resolve(__dirname, '..', 'src', 'plugins');
 
 // check existence of a path
