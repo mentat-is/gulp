@@ -4718,18 +4718,53 @@ export class Info implements InfoProps {
 	};
 
 	private _mappingFileListPromise: Promise<Mapping.Type.Plugin[]> | null = null;
+	private _mappingFileListPromiseKey: string | null = null;
+	private _mappingFileListCache: {
+		key: string;
+		mappings: Mapping.Type.Plugin[];
+	} | null = null;
+	private _mappingFileListCacheRevision = 0;
+
 	/**
-	 * Refreshes mapping choices while isolating malformed mapping and plugin files.
+	 * Builds the in-memory mapping discovery key for the current server session.
+	 * @returns Cache key that changes after explicit invalidation or a server change.
+	 */
+	private getMappingFileListCacheKey = (): string =>
+		`${Internal.Settings.server}:${this._mappingFileListCacheRevision}`;
+
+	/**
+	 * Invalidates session-scoped mapping discovery without persisting stale data.
+	 * @returns Nothing.
+	 */
+	private invalidateMappingFileListCache = (): void => {
+		this._mappingFileListCacheRevision += 1;
+		this._mappingFileListCache = null;
+	};
+
+	/**
+	 * Loads mapping choices once per UI session while isolating malformed mapping
+	 * and plugin files.
 	 * The last usable mapping state is retained when an endpoint-level failure occurs.
 	 *
 	 * @returns The sorted mapping choices available to ingestion controls.
 	 */
 	mapping_file_list = async (): Promise<Mapping.Type.Plugin[]> => {
-		if (this._mappingFileListPromise) return this._mappingFileListPromise;
+		const cacheKey = this.getMappingFileListCacheKey();
+		if (this._mappingFileListCache?.key === cacheKey) {
+			return this._mappingFileListCache.mappings;
+		}
+		if (
+			this._mappingFileListPromise &&
+			this._mappingFileListPromiseKey === cacheKey
+		) {
+			return this._mappingFileListPromise;
+		}
 
-		this._mappingFileListPromise = (async () => {
+		const request = (async () => {
 			try {
 				let parsedMappingFiles: Mapping.Type.Plugin[];
+				let mappingFilesLoaded = false;
+				let pluginFilesLoaded = false;
 
 				try {
 					const mappingFileList = await api<Mapping.Raw[]>("/mapping_file_list");
@@ -4737,6 +4772,7 @@ export class Info implements InfoProps {
 						throw new TypeError("Expected /mapping_file_list to return an array.");
 					}
 					parsedMappingFiles = Mapping.Entity.parse(mappingFileList);
+					mappingFilesLoaded = true;
 				} catch (error) {
 					console.error(
 						"[Info.mapping_file_list] Failed to load the mapping file list; retaining the previous mappings.",
@@ -4798,6 +4834,7 @@ export class Info implements InfoProps {
 							);
 						}
 					});
+					pluginFilesLoaded = true;
 				} catch (error) {
 					console.error(
 						"[Info.mapping_file_list] Failed to load the plugin list; mapping files remain available.",
@@ -4809,7 +4846,15 @@ export class Info implements InfoProps {
 					first.name.localeCompare(second.name),
 				);
 
-				this.setInfoByKey(sortedMappings, "target", "mappings");
+				if (this.getMappingFileListCacheKey() === cacheKey) {
+					this.setInfoByKey(sortedMappings, "target", "mappings");
+					if (mappingFilesLoaded && pluginFilesLoaded) {
+						this._mappingFileListCache = {
+							key: cacheKey,
+							mappings: sortedMappings,
+						};
+					}
+				}
 				return sortedMappings;
 			} catch (error) {
 				console.error(
@@ -4817,12 +4862,19 @@ export class Info implements InfoProps {
 					error,
 				);
 				return this.app.target.mappings;
-			} finally {
-				this._mappingFileListPromise = null;
 			}
 		})();
 
-		return this._mappingFileListPromise;
+		this._mappingFileListPromise = request;
+		this._mappingFileListPromiseKey = cacheKey;
+		try {
+			return await request;
+		} finally {
+			if (this._mappingFileListPromise === request) {
+				this._mappingFileListPromise = null;
+				this._mappingFileListPromiseKey = null;
+			}
+		}
 	};
 
 	/**
@@ -4863,6 +4915,7 @@ export class Info implements InfoProps {
 			throw new Error("Mapping file upload failed");
 		}
 
+		this.invalidateMappingFileListCache();
 		await this.mapping_file_list();
 	};
 
@@ -7831,6 +7884,7 @@ export class Info implements InfoProps {
 		}
 
 		Internal.Settings.token = user.token;
+		this.invalidateMappingFileListCache();
 		localStorage.setItem("__user_id", user.id);
 		const fullUserProfile = await this.user_get_by_id(user.id).catch(
 			() => null,
@@ -7913,6 +7967,7 @@ export class Info implements InfoProps {
 		}
 
 		Internal.Settings.token = "";
+		this.invalidateMappingFileListCache();
 		localStorage.removeItem("__user_id");
 		this.workspaceSessionRepository.close();
 		this.synchronizeTimelineScaleFromState(App.Base.timeline.scale);

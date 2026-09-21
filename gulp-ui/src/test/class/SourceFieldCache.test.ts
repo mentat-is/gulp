@@ -151,6 +151,37 @@ describe("SourceFieldCache", () => {
 		expect(await cache.get(SERVER, source)).toBeNull();
 		expect(storage.entries.has(key)).toBe(false);
 	});
+
+	it("does not persist empty field maps and removes an existing entry", async () => {
+		const storage = new MemorySourceFieldCacheStorage();
+		const cache = new SourceFieldCache(storage, 1000, () => 100);
+		const source = createSource();
+		const key = getSourceFieldCacheKey(SERVER, source);
+
+		await cache.set(SERVER, source, { "event.code": "long" });
+		expect(storage.entries.has(key)).toBe(true);
+
+		await cache.set(SERVER, source, {});
+
+		expect(storage.entries.has(key)).toBe(false);
+		expect(await cache.get(SERVER, source)).toBeNull();
+	});
+
+	it("discards empty field maps persisted by older clients", async () => {
+		const storage = new MemorySourceFieldCacheStorage();
+		const cache = new SourceFieldCache(storage, 1000, () => 100);
+		const source = createSource();
+		const key = getSourceFieldCacheKey(SERVER, source);
+		storage.entries.set(key, {
+			fields: {},
+			source_updated_at: source.time_updated,
+			source_fingerprint: "legacy",
+			cached_at: 100,
+		} satisfies SourceFieldCacheEntry);
+
+		expect(await cache.get(SERVER, source)).toBeNull();
+		expect(storage.entries.has(key)).toBe(false);
+	});
 });
 
 describe("SourceFieldResolver", () => {
@@ -226,5 +257,34 @@ describe("SourceFieldResolver", () => {
 		expect(await resolver.getFields(SERVER, source, fetchFields)).toEqual(fields);
 		expect(fetchFields).toHaveBeenCalledTimes(0);
 		expect(cache.set).toHaveBeenCalledTimes(0);
+	});
+
+	it("retries after an empty response and caches the later completed catalog", async () => {
+		const source = createSource();
+		const completedFields: Filter.Options = { "event.code": "long" };
+		const cache = {
+			get: jest.fn<Promise<Filter.Options | null>, [string, Source.Type]>(
+				async () => null,
+			),
+			set: jest.fn<Promise<void>, [string, Source.Type, Filter.Options]>(
+				async () => undefined,
+			),
+		};
+		let fetchCount = 0;
+		const fetchFields = jest.fn<Promise<Filter.Options>, [Source.Type]>(
+			async () => {
+				fetchCount += 1;
+				return fetchCount === 1 ? {} : completedFields;
+			},
+		);
+		const resolver = new SourceFieldResolver(cache);
+
+		expect(await resolver.getFields(SERVER, source, fetchFields)).toEqual({});
+		expect(await resolver.getFields(SERVER, source, fetchFields)).toEqual(
+			completedFields,
+		);
+		expect(fetchFields).toHaveBeenCalledTimes(2);
+		expect(cache.set).toHaveBeenCalledTimes(1);
+		expect(cache.set).toHaveBeenCalledWith(SERVER, source, completedFields);
 	});
 });

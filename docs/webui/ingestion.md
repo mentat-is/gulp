@@ -49,7 +49,11 @@ Mapping and plugin discovery is fault-isolated. A malformed mapping file or
 plugin entry is omitted while the remaining choices stay available, and the
 browser error log identifies the offending filename. If either list cannot be
 loaded, the UI retains the last usable mapping choices so application startup
-and operation synchronization can continue.
+and operation synchronization can continue. A successful discovery is reused
+for the authenticated UI session instead of being downloaded during every
+operation synchronization. Uploading a mapping file refreshes the catalog;
+logout, a new login, or a server change starts a new session-scoped discovery.
+Failed discovery requests are not cached and can be retried.
 
 Common file settings:
 

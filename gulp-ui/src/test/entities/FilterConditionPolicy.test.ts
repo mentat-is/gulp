@@ -52,7 +52,8 @@ describe("filter condition policy", () => {
 		["ip", ["eq", "range", "LTE", "GTE"]],
 		["boolean", ["eq"]],
 		["object", ["eq"]],
-		[undefined, ["eq"]],
+		[undefined, ["regexp", "wildcard", "range", "LTE", "GTE", "eq"]],
+		["unknown_type", ["regexp", "wildcard", "range", "LTE", "GTE", "eq"]],
 	];
 
 	conditionCases.forEach(([fieldType, expected]) => {
@@ -118,9 +119,44 @@ describe("filter condition policy", () => {
 			type: "eq",
 		});
 	});
+
+	it("preserves conditions when field metadata is unavailable", () => {
+		const filter = createFilter({
+			type: "regexp",
+			field: "custom.dynamic_field",
+			value: "fail(ed|ure)",
+		});
+
+		expect(Filter.Entity.assignField(filter, filter.field, {})).toMatchObject({
+			field: "custom.dynamic_field",
+			type: "regexp",
+		});
+		const normalized = Filter.Entity.normalizeConditions([filter], {});
+		expect(normalized[0]).toBe(filter);
+	});
 });
 
 describe("filter clause generation", () => {
+	it("preserves operators when field metadata is unavailable", () => {
+		expect(
+			Filter.Entity.buildItemClause(
+				createFilter({
+					type: "regexp",
+					field: "custom.dynamic_field",
+					value: "fail(ed|ure)",
+				}),
+				{},
+			),
+		).toEqual({
+			regexp: {
+				"custom.dynamic_field": {
+					value: "fail(ed|ure)",
+					flags: "ALL",
+				},
+			},
+		});
+	});
+
 	it("preserves wildcard queries for compatible mapped fields", () => {
 		expect(
 			Filter.Entity.buildItemClause(

@@ -67,13 +67,20 @@ conditions that are not valid for the selected field type:
 | `keyword`, `wildcard` | Equality, wildcard, regular expression, range, less-than-or-equal, and greater-than-or-equal |
 | `text` | Equality and wildcard |
 | Numeric types, `date`, `date_nanos`, `ip` | Equality, range, less-than-or-equal, and greater-than-or-equal |
-| `boolean`, unknown type, or unavailable metadata | Equality only |
+| `boolean` and known non-scalar types | Equality only |
+| Unknown type or unavailable metadata | Equality, wildcard, regular expression, range, less-than-or-equal, and greater-than-or-equal |
 
 Selecting or typing a different field immediately resets an incompatible
 condition to equality. This behavior also applies inside nested condition groups
 and when reopening saved filters. Query generation performs the same validation
 so incompatible filters received from history or external data are safely
-handled as equality conditions.
+handled as equality conditions. When field metadata is not available, the UI
+preserves the selected condition and leaves validation to OpenSearch instead of
+silently rewriting it to equality.
+
+An empty source-field response means the backend catalog is still pending. The
+UI does not persist that empty response, so opening or refreshing the filter can
+request the completed catalog later.
 
 The field dropdown has an independent search input. It starts empty every time
 the dropdown opens, and typing or clearing a search does not change the selected

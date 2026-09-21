@@ -64,6 +64,15 @@ function isFieldOptions(value: unknown): value is Filter.Options {
 }
 
 /**
+ * Checks whether a field map contains usable source metadata.
+ * @param fields Field map returned by the backend or cache.
+ * @returns True when at least one field is available.
+ */
+function hasFieldOptions(fields: Filter.Options): boolean {
+	return Object.keys(fields).length > 0;
+}
+
+/**
  * Checks whether a value is a valid source field cache entry.
  * @param value Value read from IndexedDB.
  * @returns True when the value has the persisted entry shape.
@@ -182,6 +191,11 @@ export class SourceFieldCache {
 				return null;
 			}
 
+			if (!hasFieldOptions(entry.fields)) {
+				await this.delete(key);
+				return null;
+			}
+
 			return entry.fields;
 		} catch {
 			return null;
@@ -201,6 +215,11 @@ export class SourceFieldCache {
 		fields: Filter.Options,
 	): Promise<void> {
 		const key = getSourceFieldCacheKey(server, source);
+		if (!hasFieldOptions(fields)) {
+			await this.delete(key);
+			return;
+		}
+
 		const entry: SourceFieldCacheEntry = {
 			fields,
 			source_updated_at: getSourceUpdatedAt(source.time_updated),
@@ -312,12 +331,14 @@ export class SourceFieldResolver {
 		fetchFields: SourceFieldFetcher,
 	): Promise<Filter.Options> {
 		const cachedFields = await this.cache.get(server, source);
-		if (cachedFields) {
+		if (cachedFields && hasFieldOptions(cachedFields)) {
 			return cachedFields;
 		}
 
 		const fields = (await fetchFields(source)) ?? {};
-		await this.cache.set(server, source, fields);
+		if (hasFieldOptions(fields)) {
+			await this.cache.set(server, source, fields);
+		}
 		return fields;
 	}
 }

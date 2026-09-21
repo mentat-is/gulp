@@ -1,5 +1,8 @@
 # v2.0.0
 
+- cached successful Web UI ingestion mapping discovery for the authenticated
+  session, stopped persisting pending empty source-field catalogs, and preserved
+  all structured query operators when field type metadata is unavailable.
 - made Navigator event search the default, with an icon-driven Text/Regex
   selector embedded in the shared Input component; its reusable API also
   supports multi-selection through a `ListChecks` trigger, while searches apply

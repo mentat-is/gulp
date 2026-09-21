@@ -1,5 +1,6 @@
 import { Info, type GulpDataset } from "@/class/Info";
 import type { App } from "@/entities/App";
+import { Internal } from "@/entities/addon/Internal";
 import type { Mapping } from "@/entities/Mapping";
 
 jest.mock("@/class/IndexedDB", () => ({
@@ -209,5 +210,85 @@ describe("Info.mapping_file_list", () => {
 			},
 		]);
 		expect(requestCount).toBe(2);
+	});
+
+	it("reuses a successful mapping discovery for the UI session", async () => {
+		const info = createInfo();
+		const apiMock = jest.fn(async () => [
+			{
+				metadata: { plugin: ["json.py"] },
+				filename: "json.json",
+				mapping_ids: ["default"],
+			},
+		]);
+		globalThis.api = apiMock as unknown as typeof globalThis.api;
+		info.plugin_list = async () => [];
+
+		const first = await info.mapping_file_list();
+		const second = await info.mapping_file_list();
+
+		expect(second).toBe(first);
+		expect(apiMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("starts a new mapping discovery after a backend server change", async () => {
+		const originalServer = Internal.Settings.server;
+		const info = createInfo();
+		const apiMock = jest.fn(async () => [
+			{
+				metadata: { plugin: ["json.py"] },
+				filename: "json.json",
+				mapping_ids: ["default"],
+			},
+		]);
+		globalThis.api = apiMock as unknown as typeof globalThis.api;
+		info.plugin_list = async () => [];
+
+		try {
+			Internal.Settings.server = "http://server-a:8080";
+			await info.mapping_file_list();
+			Internal.Settings.server = "http://server-b:8080";
+			await info.mapping_file_list();
+		} finally {
+			Internal.Settings.server = originalServer;
+		}
+
+		expect(apiMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("invalidates mapping discovery after a mapping file upload", async () => {
+		const info = createInfo();
+		let mappingListRequestCount = 0;
+		globalThis.api = (async (path: string) => {
+			if (path === "/mapping_file_upload") {
+				return { status: "success" };
+			}
+			if (path === "/mapping_file_list") {
+				mappingListRequestCount += 1;
+				return [
+					{
+						metadata: { plugin: ["json.py"] },
+						filename: `json-${mappingListRequestCount}.json`,
+						mapping_ids: ["default"],
+					},
+				];
+			}
+			throw new Error(`Unexpected API path: ${path}`);
+		}) as unknown as typeof globalThis.api;
+		info.plugin_list = async () => [];
+
+		await info.mapping_file_list();
+		await info.mapping_file_upload({
+			metadata: { plugin: ["json.py"] },
+			mappings: { default: {} },
+		});
+
+		expect(mappingListRequestCount).toBe(2);
+		expect(await info.mapping_file_list()).toEqual([
+			{
+				name: "json.py",
+				methods: [{ name: "json-2.json", mappings: ["default"] }],
+			},
+		]);
 	});
 });

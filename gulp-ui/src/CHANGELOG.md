@@ -2,6 +2,13 @@
 
 ## Advanced Filtering and Querying
 
+- `Filter metadata fallback`: Unknown or unavailable source field types now keep
+  every structured operator enabled and preserve the selected query condition.
+  Pending empty source-field catalogs are no longer cached, allowing a later
+  request to retrieve the completed backend catalog.
+- `Mapping discovery cache`: Successful ingestion mapping/plugin discovery is
+  reused for the authenticated UI session and explicitly refreshed after mapping
+  upload, login, logout, or backend server changes.
 - `Navigator event search modes`: Made event search the default and embedded an
   icon-driven Text/Regex selector in the search input. The shared Input API also
   supports multi-selection with a `ListChecks` trigger. Text searches wrap each

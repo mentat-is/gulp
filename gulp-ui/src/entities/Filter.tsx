@@ -98,6 +98,15 @@ export namespace Filter {
 			"scaled_float",
 		]);
 
+		private static readonly equalityOnlyFieldTypes = new Set<string>([
+			"boolean",
+			"object",
+			"nested",
+			"flat_object",
+			"geo_point",
+			"geo_shape",
+		]);
+
 		/**
 		 * Creates a structured leaf condition with the application-wide defaults.
 		 * @param id Stable identifier assigned by the caller.
@@ -121,12 +130,16 @@ export namespace Filter {
 		/**
 		 * Returns the structured conditions supported by an OpenSearch field type.
 		 * @param fieldType OpenSearch mapping type, or undefined when metadata is unavailable.
-		 * @returns Conditions allowed for the field type; unknown types allow equality only.
+		 * @returns Conditions allowed for the field type; unavailable or unknown types
+		 * allow every condition so missing metadata does not rewrite the query.
 		 */
 		public static getAllowedConditions = (
 			fieldType?: string,
 		): readonly Filter.Condition[] => {
 			const normalizedType = fieldType?.trim().toLowerCase();
+			if (!normalizedType) {
+				return Filter.Entity.allConditions;
+			}
 			if (normalizedType === "keyword" || normalizedType === "wildcard") {
 				return Filter.Entity.allConditions;
 			}
@@ -141,7 +154,10 @@ export namespace Filter {
 			) {
 				return ["eq", "range", "LTE", "GTE"];
 			}
-			return ["eq"];
+			if (Filter.Entity.equalityOnlyFieldTypes.has(normalizedType)) {
+				return ["eq"];
+			}
+			return Filter.Entity.allConditions;
 		};
 
 		/**

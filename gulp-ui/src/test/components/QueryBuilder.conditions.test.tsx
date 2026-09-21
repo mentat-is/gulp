@@ -287,6 +287,34 @@ describe("OpenSearchQueryBuilder condition policy", () => {
 		).toBe(true);
 	});
 
+	it("enables every condition when the selected field has no metadata", () => {
+		const filter = Filter.Entity.createCondition("unknown-filter" as Filter.Id, {
+			type: "regexp",
+			field: "custom.dynamic_field",
+			value: "fail(ed|ure)",
+		});
+		act(() => root.render(<QueryBuilderHarness initialFilters={[filter]} />));
+
+		for (const condition of [
+			"regexp",
+			"wildcard",
+			"range",
+			"LTE",
+			"GTE",
+			"eq",
+		]) {
+			expect(
+				container.querySelector<HTMLButtonElement>(
+					`button[data-select-item="${condition}"]`,
+				)?.disabled,
+			).toBe(false);
+		}
+		expect(readFilters(container)[0]).toMatchObject({
+			field: "custom.dynamic_field",
+			type: "regexp",
+		});
+	});
+
 	it("resets wildcard to eq immediately when the field becomes numeric", () => {
 		const filter = Filter.Entity.createCondition("wildcard-filter" as Filter.Id, {
 			type: "wildcard",
