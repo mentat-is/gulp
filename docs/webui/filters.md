@@ -18,13 +18,13 @@ triggers a timeline render.
 ## Navigator Event Search
 
 The Navigator search starts in event mode and targets `event.original` on every
-source selected in the timeline. Its dropdown provides two mutually exclusive
-search strategies:
+source selected in the timeline. The search input embeds an icon selector with
+two mutually exclusive strategies:
 
 - **Text** is the default. It collapses whitespace and surrounds every word with
   wildcard characters, so `failed login` becomes `*failed* *login*` in one
   case-insensitive wildcard condition;
-- **Regexp** sends the trimmed input as a regular-expression condition without
+- **Regex** sends the trimmed input as a regular-expression condition without
   escaping or adding anchors.
 
 Search runs from the Search button or Enter. Repeating a search replaces the
@@ -32,6 +32,11 @@ previous Navigator condition while preserving every other source filter. An
 empty search removes only the Navigator condition. The mode icon switches to
 source/context filtering; doing so removes the active Navigator event condition
 and hides the event-search strategy dropdown.
+
+The embedded selector is a reusable `Input` capability. Callers provide
+`key`/`label`/`icon` values and controlled selection state. It is single-select
+by default and displays the selected value's icon; optional multi-select mode
+allows independent choices and displays `ListChecks` in the input trigger.
 
 Navigator conditions are stored with each source query. Opening Apply Filters
 for one source therefore shows the same `event.original` wildcard or regular

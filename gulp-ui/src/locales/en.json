@@ -580,7 +580,7 @@
     "queryBuilder.condition.gte": "Gte",
     "queryBuilder.condition.lte": "Lte",
     "queryBuilder.condition.range": "Range",
-    "queryBuilder.condition.regexp": "Regexp",
+    "queryBuilder.condition.regexp": "Regex",
     "queryBuilder.condition.wildcard": "Wildcard",
     "queryBuilder.conditions": "Query conditions",
     "queryBuilder.fieldName": "Field name",

@@ -131,6 +131,85 @@
   padding-inline-end: 0;
 }
 
+.hasSelector input {
+  padding-inline-end: 0;
+}
+
+.selectorTrigger {
+  display: flex;
+  flex: 0 0 76px;
+  width: 76px;
+  height: calc(100% - 8px);
+  margin: 4px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--gray-alpha-200);
+  color: var(--second);
+  cursor: pointer;
+  transition: background 0.125s var(--transition), color 0.125s var(--transition);
+}
+
+.selectorTrigger:hover,
+.selectorTrigger[aria-expanded='true'] {
+  background: var(--gray-alpha-300);
+  color: var(--accent);
+}
+
+.selectorTrigger:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.selectorTrigger:disabled {
+  cursor: default;
+}
+
+.selectorContent {
+  min-width: 176px;
+  padding: 4px;
+}
+
+.selectorOption {
+  display: grid;
+  grid-template-columns: 18px 18px minmax(0, 1fr);
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 8px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--second);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: start;
+}
+
+.selectorOption:hover,
+.selectorOption:focus-visible,
+.selectorOptionSelected {
+  background: var(--gray-alpha-200);
+  color: var(--accent);
+  outline: none;
+}
+
+.selectorOption svg {
+  width: 16px;
+  height: 16px;
+}
+
+.selectorCheck {
+  display: flex;
+  width: 18px;
+  align-items: center;
+  justify-content: center;
+}
+
 .endIcon,
 .endIconButton {
   border-inline-start: 1px solid var(--gray-400);

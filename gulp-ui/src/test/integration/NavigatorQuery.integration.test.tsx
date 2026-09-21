@@ -13,16 +13,25 @@ import type { Source } from "@/entities/Source";
 	.IS_REACT_ACT_ENVIRONMENT = true;
 
 type SourceFixture = { id: Source.Id; appliedQuery: Query.Type };
+interface NavigatorSelectorValue {
+	key: string;
+	label: string;
+	icon: string;
+}
+
 type NavigatorInputProps = InputHTMLAttributes<HTMLInputElement> & {
 	icon?: string;
 	iconTitle?: string;
 	onIconClick?: () => void;
+	selector?: {
+		values: NavigatorSelectorValue[];
+		selected: string;
+		onSelectedChange: (selected: string) => void;
+	};
 };
 
 let mockInput: NavigatorInputProps;
 let mockSources: SourceFixture[] = [];
-let mockSelectValue = "";
-let mockSelectOnValueChange: ((value: string) => void) | undefined;
 const mockRefetch = jest.fn(
 	(_options: {
 		ids: Source.Id[];
@@ -105,60 +114,28 @@ jest.mock("@/ui/Input", () => ({
 		(props: NavigatorInputProps) => {
 			mockInput = props;
 			return (
-				<input
-					readOnly
-					value={props.value}
-					placeholder={props.placeholder}
-				/>
+				<div>
+					<input
+						readOnly
+						value={props.value}
+						placeholder={props.placeholder}
+					/>
+					{props.selector?.values.map((value) => (
+						<button
+							key={value.key}
+							data-input-selector-value={value.key}
+							data-input-selector-icon={value.icon}
+							aria-pressed={props.selector?.selected === value.key}
+							onClick={() => props.selector?.onSelectedChange(value.key)}
+						>
+							{value.label}
+						</button>
+					))}
+				</div>
 			);
 		},
 		{ Timestamp: () => null },
 	),
-}));
-jest.mock("@/ui/Select", () => ({
-	Select: {
-		Root: ({
-			children,
-			value,
-			onValueChange,
-		}: {
-			children?: ReactNode;
-			value: string;
-			onValueChange: (value: string) => void;
-		}) => {
-			mockSelectValue = value;
-			mockSelectOnValueChange = onValueChange;
-			return <div data-select-value={value}>{children}</div>;
-		},
-		Trigger: ({
-			title,
-			"aria-label": ariaLabel,
-		}: {
-			title?: string;
-			"aria-label"?: string;
-		}) => (
-			<button
-				title={title}
-				aria-label={ariaLabel}
-			/>
-		),
-		Content: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-		Item: ({
-			children,
-			value,
-		}: {
-			children?: ReactNode;
-			value: string;
-		}) => (
-			<button
-				data-select-item={value}
-				aria-pressed={mockSelectValue === value}
-				onClick={() => mockSelectOnValueChange?.(value)}
-			>
-				{children}
-			</button>
-		),
-	},
 }));
 jest.mock("@/ui/Popover", () => ({
 	Popover: {
@@ -194,8 +171,6 @@ describe("Navigator query submission", () => {
 	beforeEach(() => {
 		mockSources = [];
 		mockApp.timeline.filter = "";
-		mockSelectValue = "";
-		mockSelectOnValueChange = undefined;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -239,7 +214,15 @@ describe("Navigator query submission", () => {
 		expect(mockInput.placeholder).toBe("navigator.filterEventsPlaceholder");
 		expect(mockInput.icon).toBe("Activity");
 		expect(mockInput.value).toBe("");
-		expect(mockSelectValue).toBe("text");
+		expect(mockInput.selector?.selected).toBe("text");
+		expect(mockInput.selector?.values).toEqual([
+			{ key: "text", label: "common.text", icon: "ALargeSmall" },
+			{
+				key: "regexp",
+				label: "queryBuilder.condition.regexp",
+				icon: "Regex",
+			},
+		]);
 		expect(mockSetTimelineFilter).toHaveBeenCalledWith("");
 
 		await act(async () => {
@@ -286,10 +269,12 @@ describe("Navigator query submission", () => {
 
 		await act(async () => {
 			container
-				.querySelector<HTMLButtonElement>('button[data-select-item="regexp"]')
+				.querySelector<HTMLButtonElement>(
+					'button[data-input-selector-value="regexp"]',
+				)
 				?.click();
 		});
-		expect(mockSelectValue).toBe("regexp");
+		expect(mockInput.selector?.selected).toBe("regexp");
 
 		const regexp = String.raw`fail(ed|ure)\s+login`;
 		await act(async () => {
@@ -366,7 +351,7 @@ describe("Navigator query submission", () => {
 		expect(mockInput.placeholder).toBe("navigator.filterFilesPlaceholder");
 		expect(mockInput.icon).toBe("Filter");
 		expect(
-			container.querySelector('button[data-select-item="text"]'),
+			container.querySelector('button[data-input-selector-value="text"]'),
 		).toBeNull();
 		const submitted = mockRefetch.mock.calls[0][0] as {
 			queriesBySourceId: Record<Source.Id, Query.Type>;

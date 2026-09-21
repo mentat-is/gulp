@@ -23,7 +23,6 @@ import { Label } from "@/ui/Label";
 import { Stack } from "@/ui/Stack";
 import { Button } from "@/ui/Button";
 import { Input } from "@/ui/Input";
-import { Select } from "@/ui/Select";
 import { Context } from "@/entities/Context";
 import { App } from "@/entities/App";
 import { Extension } from "@/context/Extension.context";
@@ -548,37 +547,27 @@ export function Navigator({
 						? t("navigator.switchToEventFiltering")
 						: t("navigator.switchToFileFiltering")
 				}
-			/>			
-			{filterMode === "events" && (
-				<Select.Root
-					value={eventSearchType}
-					onValueChange={handleEventSearchTypeChange}
-				>
-					<Select.Trigger
-						data-no-icon
-						className={s.eventSearchType}
-						title={
-							eventSearchType === "text"
-								? t("common.text")
-								: t("queryBuilder.condition.regexp")
-						}
-						aria-label={
-							eventSearchType === "text"
-								? t("common.text")
-								: t("queryBuilder.condition.regexp")
-						}
-					/>
-					<Select.Content
-						position="popper"
-						align="end"
-					>
-						<Select.Item value="text">{t("common.text")}</Select.Item>
-						<Select.Item value="regexp">
-							{t("queryBuilder.condition.regexp")}
-						</Select.Item>
-					</Select.Content>
-				</Select.Root>
-			)}
+				selector={
+					filterMode === "events"
+						? {
+								values: [
+									{
+										key: "text",
+										label: t("common.text"),
+										icon: "ALargeSmall",
+									},
+									{
+										key: "regexp",
+										label: t("queryBuilder.condition.regexp"),
+										icon: "Regex",
+									},
+								],
+								selected: eventSearchType,
+								onSelectedChange: handleEventSearchTypeChange,
+							}
+						: undefined
+				}
+			/>
 			<Button
 				variant="tertiary"
 				title={t("common.search")}
