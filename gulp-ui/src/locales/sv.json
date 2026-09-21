@@ -418,6 +418,7 @@
     "home.groups.empty": "Inga grupper hittades.",
     "home.groups.loading": "Laddar grupper...",
     "home.operation.deleteAria": "Ta bort operation {name}",
+    "home.operation.goTo": "Gå till operation",
     "home.operation.goToAria": "Gå till operation {name}",
     "home.operations.deleteSelected": "Ta bort markerade åtgärder ({count})",
     "home.operations.empty": "Inga operationer hittades.",

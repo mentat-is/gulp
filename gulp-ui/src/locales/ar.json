@@ -418,6 +418,7 @@
     "home.groups.empty": "لم يتم العثور على مجموعات.",
     "home.groups.loading": "جاري تحميل المجموعات...",
     "home.operation.deleteAria": "حذف العملية {name}",
+    "home.operation.goTo": "انتقل إلى العملية",
     "home.operation.goToAria": "انتقل إلى العملية {name}",
     "home.operations.deleteSelected": "حذف العمليات المحددة ({count})",
     "home.operations.empty": "لم يتم العثور على أي عمليات.",

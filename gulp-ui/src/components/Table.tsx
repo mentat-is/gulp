@@ -152,9 +152,9 @@ export namespace Table {
 	 * The parent component manages the callback logic.
 	 */
 	export interface Action<T extends Object> {
-		/** Icon name from the icon library. */
-		icon: Icon.Name;
-		/** Accessible label, rendered as a tooltip on hover. */
+		/** Optional icon name. When omitted, the label is rendered in the button. */
+		icon?: Icon.Name;
+		/** Accessible action label, also rendered for text-only actions. */
 		label: string;
 		/** Callback executed when this action is triggered. */
 		onClick: (
@@ -215,6 +215,8 @@ export namespace Table {
 		// --- Row Click Selection ---
 		/** Callback fired when a row is clicked. Parent manages the active state. When provided, enables row hover effect. */
 		onRowClick?: (value: T, index: number) => void;
+		/** Callback fired when a row is double-clicked. The parent owns the resulting action. */
+		onRowDoubleClick?: (value: T, index: number) => void;
 		/** Index of the currently active/selected row. Receives distinct visual styling. */
 		activeRowIndex?: number;
 
@@ -278,6 +280,31 @@ export namespace Table {
 }
 
 const EMPTY_ACTIONS: Table.Action<Object>[] = [];
+const ACTION_COLUMN_PADDING = 16;
+const ICON_ACTION_WIDTH = 32;
+const TEXT_ACTION_CHARACTER_WIDTH = 7;
+const TEXT_ACTION_HORIZONTAL_PADDING = 24;
+
+/**
+ * Estimates the fixed table width required by row action buttons.
+ *
+ * @param actions - Resolved actions rendered in the sticky action column.
+ * @returns Width in pixels for icon-only and localized text actions.
+ */
+function getActionsColumnWidth<T extends Object>(
+	actions: Table.Action<T>[],
+): number {
+	return actions.reduce((width, action) => {
+		const actionWidth = action.icon
+			? ICON_ACTION_WIDTH
+			: Math.max(
+				ICON_ACTION_WIDTH,
+				action.label.length * TEXT_ACTION_CHARACTER_WIDTH +
+					TEXT_ACTION_HORIZONTAL_PADDING,
+			);
+		return width + actionWidth;
+	}, ACTION_COLUMN_PADDING);
+}
 
 interface ColumnModel<T extends Object> {
 	/** Source rows used by the table body. Explicit-column tables keep raw rows. */
@@ -837,6 +864,7 @@ export function Table<T extends Object>({
 	onrowselect,
 	onSelectAll,
 	onRowClick,
+	onRowDoubleClick,
 	activeRowIndex,
 	onrowaction,
 	iconAction,
@@ -1030,8 +1058,8 @@ export function Table<T extends Object>({
 		return rows.length > 0 && selectedrows.size === rows.length;
 	}, [selectable, selectedrows, rows.length]);
 
-	/** Whether the table body has clickable rows (enables hover). */
-	const isClickable = !!onRowClick;
+	/** Whether the table body has interactive rows (enables hover). */
+	const isClickable = !!onRowClick || !!onRowDoubleClick;
 
 	// ─── Column Visibility (Phase 4) ───────────────────────────────────
 	const {
@@ -1283,7 +1311,7 @@ export function Table<T extends Object>({
 			}
 		});
 		if (resolvedActions.length > 0) {
-			width += resolvedActions.length * 32 + 16;
+			width += getActionsColumnWidth(resolvedActions);
 		}
 		return hasFlexibleColumnWidth ? "100%" : width;
 	}, [
@@ -1594,6 +1622,7 @@ export function Table<T extends Object>({
 					onRowSelect={onrowselect}
 					actions={resolvedActions}
 					onRowClick={onRowClick}
+					onRowDoubleClick={onRowDoubleClick}
 					isActive={activeRowIndex === rowIndex}
 					highlighted={!!(highlightedId && record._id === highlightedId)}
 					renderCell={renderCell}
@@ -1613,6 +1642,7 @@ export function Table<T extends Object>({
 			onrowselect,
 			resolvedActions,
 			onRowClick,
+			onRowDoubleClick,
 			activeRowIndex,
 			highlightedId,
 			renderCell,
@@ -1652,7 +1682,7 @@ export function Table<T extends Object>({
 					<col style={{ width: rightColumnSpacerWidth }} />
 				)}
 				{resolvedActions.length > 0 && (
-					<col style={{ width: resolvedActions.length * 32 + 16 }} />
+					<col style={{ width: getActionsColumnWidth(resolvedActions) }} />
 				)}
 			</colgroup>
 			<thead>
@@ -2006,6 +2036,8 @@ namespace Item {
 		actions: Table.Action<T>[];
 		/** Callback when the row itself is clicked (click-selection). */
 		onRowClick?: (value: T, index: number) => void;
+		/** Callback when the row itself is double-clicked. */
+		onRowDoubleClick?: (value: T, index: number) => void;
 		/** Whether this row is the active/click-selected row. */
 		isActive: boolean;
 		/** Whether this row is highlighted by external ID match. */
@@ -2015,6 +2047,19 @@ namespace Item {
 		/** Per-column custom cell renderers. */
 		renderMap?: Table.RenderMap<T>;
 	}
+}
+
+/**
+ * Checks whether a row pointer event originated from an interactive control.
+ *
+ * @param event - Mouse event emitted by the table row.
+ * @returns True when row-level click handlers must ignore the event.
+ */
+function isInteractiveRowTarget(
+	event: React.MouseEvent<HTMLTableRowElement>,
+): boolean {
+	const target = event.target as HTMLElement;
+	return Boolean(target.closest('button, input, [role="checkbox"]'));
 }
 
 /**
@@ -2034,6 +2079,7 @@ const Item = React.memo(
 		onRowSelect,
 		actions,
 		onRowClick,
+		onRowDoubleClick,
 		isActive,
 		highlighted,
 		renderCell,
@@ -2050,13 +2096,26 @@ const Item = React.memo(
 		 * Prevents triggering row click when clicking on interactive elements (checkbox, button).
 		 */
 		const handleRowClick = useCallback(
-			(e: React.MouseEvent) => {
+			(event: React.MouseEvent<HTMLTableRowElement>) => {
 				if (!onRowClick) return;
-				const target = e.target as HTMLElement;
-				if (target.closest('button, input, [role="checkbox"]')) return;
+				if (isInteractiveRowTarget(event)) return;
 				onRowClick(renderRow, index);
 			},
 			[onRowClick, renderRow, index],
+		);
+
+		/**
+		 * Handles the optional view-owned row double-click action.
+		 *
+		 * @param event - Double-click event emitted by the table row.
+		 */
+		const handleRowDoubleClick = useCallback(
+			(event: React.MouseEvent<HTMLTableRowElement>) => {
+				if (!onRowDoubleClick) return;
+				if (isInteractiveRowTarget(event)) return;
+				onRowDoubleClick(renderRow, index);
+			},
+			[onRowDoubleClick, renderRow, index],
 		);
 
 		return (
@@ -2067,6 +2126,7 @@ const Item = React.memo(
 					highlighted && s.highlighted,
 				)}
 				onClick={handleRowClick}
+				onDoubleClick={handleRowDoubleClick}
 				{...props}
 			>
 				{selectable && (
@@ -2150,13 +2210,16 @@ const Item = React.memo(
 								>
 									<TooltipTrigger asChild>
 										<Button
-											className={s.Button_Icon}
+											className={action.icon ? s.Button_Icon : undefined}
 											icon={action.icon}
 											variant={action.variant || "tertiary"}
+											aria-label={action.label}
 											onClick={(event) =>
 												action.onClick(renderRow, index, event)
 											}
-										/>
+										>
+											{action.icon ? null : action.label}
+										</Button>
 									</TooltipTrigger>
 									<TooltipContent sideOffset={4}>{action.label}</TooltipContent>
 								</Tooltip>
@@ -2188,6 +2251,7 @@ const Item = React.memo(
 		}
 		if (prevProps.actions !== nextProps.actions) return false;
 		if (prevProps.onRowClick !== nextProps.onRowClick) return false;
+		if (prevProps.onRowDoubleClick !== nextProps.onRowDoubleClick) return false;
 		if (prevProps.onRowSelect !== nextProps.onRowSelect) return false;
 		if (prevProps.renderCell !== nextProps.renderCell) return false;
 		if (prevProps.renderMap !== nextProps.renderMap) return false;

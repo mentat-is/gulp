@@ -6,6 +6,7 @@ import { Menu, MenuItem } from "@/components/menu";
 import { Session } from "@/banners/Session.banner";
 import { Settings } from "@/banners/Settings.banner";
 import s from "./styles/Home.module.css";
+import { Button } from "@/ui/Button";
 import { Stack } from "@/ui/Stack";
 import { Resizer } from "@/ui/Resizer";
 import { Locale } from "@/locales";
@@ -53,6 +54,8 @@ export namespace Home {
 		const location = useLocation();
 		const dialogRef = useRef<HTMLDivElement>(null);
 		const [loading, setLoading] = useState(true);
+		const [contentLoading, setContentLoading] = useState(false);
+		const [reloadToken, setReloadToken] = useState(0);
 		const userPermissions = app.general.user?.permission ?? EmptyPermissions;
 		const accessibleHomeSectionMounts = useMemo(
 			() =>
@@ -168,6 +171,22 @@ export namespace Home {
 		const shouldShowBackButton = location.pathname !== "/";
 
 		/**
+		 * Reports loading state from the active built-in or custom Home list.
+		 *
+		 * @param isLoading - Whether the active list is currently loading data.
+		 */
+		const handleContentLoadingChange = useCallback((isLoading: boolean) => {
+			setContentLoading(isLoading);
+		}, []);
+
+		/** Requests one reload from the currently mounted Home list. */
+		const handleReload = useCallback(() => {
+			if (loading || contentLoading) return;
+			setContentLoading(true);
+			setReloadToken((currentToken) => currentToken + 1);
+		}, [contentLoading, loading]);
+
+		/**
 		 * Resolves the active Home section content without remounting the list on
 		 * unrelated parent re-renders such as banner or dialog state changes.
 		 */
@@ -178,14 +197,26 @@ export namespace Home {
 					props={{
 						slot: Extension.Slot.HomeSection,
 						target: activeHomeSectionMount.target,
+						reloadToken,
+						onLoadingChange: handleContentLoadingChange,
 					}}
 				/>
 			) : section === "users" ? (
-				<UsersList />
+				<UsersList
+					reloadToken={reloadToken}
+					onLoadingChange={handleContentLoadingChange}
+				/>
 			) : section === "groups" ? (
-				<GroupsList />
+				<GroupsList
+					reloadToken={reloadToken}
+					onLoadingChange={handleContentLoadingChange}
+				/>
 			) : (
-				<OperationsList loading={loading} />
+				<OperationsList
+					loading={loading || contentLoading}
+					reloadToken={reloadToken}
+					onLoadingChange={handleContentLoadingChange}
+				/>
 			);
 
 		/**
@@ -290,6 +321,17 @@ export namespace Home {
 						<div className={s.pageTitleGroup}>
 							{shouldShowBackButton ? <BackButton /> : null}
 							<p className={s.pageTitle}>{pageTitle}</p>
+							<Button
+								variant="secondary"
+								size="sm"
+								icon="RefreshCw"
+								loading={loading || contentLoading}
+								disabled={loading || contentLoading}
+								aria-label={t("common.refresh")}
+								onClick={handleReload}
+							>
+								{t("common.refresh")}
+							</Button>
 						</div>
 						<div className={s.pageActions}>
 							{activeHomeSectionMount ? null : (

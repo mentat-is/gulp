@@ -168,11 +168,18 @@ The component default export receives the selected slot and normalized target:
 interface HomeSectionPluginProps {
   slot: "home-section";
   target: Extension.HomeSectionTarget;
+  reloadToken: number;
+  onLoadingChange: (loading: boolean) => void;
 }
 ```
 
 The component owns the main section body. The Home shell owns the surrounding
 menu, localized heading, back navigation, and optional docked dialog area.
+It also owns the shared Refresh button. The component loads its list when it is
+mounted and whenever `reloadToken` changes, without remounting the section.
+Every load must call `onLoadingChange(true)` before its request and
+`onLoadingChange(false)` in `finally`; this drives the button spinner and
+prevents concurrent manual refreshes.
 
 ## Send Data Plugin Contract
 

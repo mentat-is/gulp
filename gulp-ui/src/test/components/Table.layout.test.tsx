@@ -142,6 +142,12 @@ jest.mock("@/ui/Button", () => ({
 	),
 }));
 
+jest.mock("@/ui/Input", () => ({
+	Input: (props: import("react").InputHTMLAttributes<HTMLInputElement>) => (
+		<input {...props} />
+	),
+}));
+
 jest.mock("@/ui/Tooltip", () => ({
 	TooltipProvider: ({ children }: MockChildrenProps) => <>{children}</>,
 	Tooltip: ({ children }: MockChildrenProps) => <>{children}</>,
@@ -227,6 +233,67 @@ describe("Table layout and value resolution", () => {
 		expect(
 			container.querySelectorAll('[data-sticky-column="actions"]'),
 		).toHaveLength(2);
+	});
+
+	it("delegates row double clicks while ignoring interactive controls", () => {
+		const values = [{ name: "first" }, { name: "second" }];
+		const onRowClick = jest.fn<void, [typeof values[number], number]>();
+		const onRowDoubleClick = jest.fn<
+			void,
+			[typeof values[number], number]
+		>();
+		const onAction = jest.fn();
+
+		act(() => {
+			root.render(
+				<Table
+					values={values}
+					columns={["name"]}
+					includeIndex={false}
+					selectable
+					onRowClick={onRowClick}
+					onRowDoubleClick={onRowDoubleClick}
+					actions={[
+						{
+							label: "Open row",
+							onClick: onAction,
+						},
+					]}
+				/>,
+			);
+		});
+
+		const rows = container.querySelectorAll("tbody tr");
+		const secondValueCell = rows[1]?.querySelectorAll("td")[1];
+		act(() => {
+			secondValueCell?.dispatchEvent(
+				new MouseEvent("click", { bubbles: true }),
+			);
+			secondValueCell?.dispatchEvent(
+				new MouseEvent("dblclick", { bubbles: true }),
+			);
+		});
+
+		expect(onRowClick).toHaveBeenCalledWith(values[1], 1);
+		expect(onRowDoubleClick).toHaveBeenCalledWith(values[1], 1);
+		expect(container.querySelector("tbody")?.dataset.clickable).toBe("true");
+
+		const textAction = rows[0]?.querySelector<HTMLButtonElement>(
+			'button[aria-label="Open row"]',
+		);
+		expect(textAction?.textContent).toBe("Open row");
+
+		act(() => {
+			textAction?.click();
+			textAction?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+			rows[0]
+				?.querySelector<HTMLButtonElement>('[role="checkbox"]')
+				?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+		});
+
+		expect(onAction).toHaveBeenCalledTimes(1);
+		expect(onRowClick).toHaveBeenCalledTimes(1);
+		expect(onRowDoubleClick).toHaveBeenCalledTimes(1);
 	});
 
 	it("resolves literal, nested, hybrid dotted, and array field paths", () => {

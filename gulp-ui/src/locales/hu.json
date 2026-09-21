@@ -418,6 +418,7 @@
     "home.groups.empty": "Nem található csoport.",
     "home.groups.loading": "Csoportok betöltése...",
     "home.operation.deleteAria": "Művelet törlése {name}",
+    "home.operation.goTo": "Ugrás a művelethez",
     "home.operation.goToAria": "Ugrás a {name} művelethez",
     "home.operations.deleteSelected": "Kijelölt műveletek törlése ({count})",
     "home.operations.empty": "Nem található művelet.",

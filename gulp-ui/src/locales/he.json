@@ -418,6 +418,7 @@
     "home.groups.empty": "לא נמצאו קבוצות.",
     "home.groups.loading": "טוען קבוצות...",
     "home.operation.deleteAria": "מחק את הפעולה {name}",
+    "home.operation.goTo": "עבור אל הפעולה",
     "home.operation.goToAria": "עבור אל הפעולה {name}",
     "home.operations.deleteSelected": "מחק את הפעולות שנבחרו ({count})",
     "home.operations.empty": "לא נמצאו פעולות.",

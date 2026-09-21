@@ -35,7 +35,14 @@ export namespace HomeContent {
 		| "users"
 		| "groups";
 
-	export interface OperationsListProps {
+	export interface ReloadableListProps {
+		/** Incrementing value requesting that the active list reload its data. */
+		reloadToken: number;
+		/** Reports list loading state to the shared Home header control. */
+		onLoadingChange: (loading: boolean) => void;
+	}
+
+	export interface OperationsListProps extends ReloadableListProps {
 		/** Whether the application is still loading the initial operation list. */
 		loading: boolean;
 	}
@@ -278,11 +285,36 @@ export function BackButton() {
  * @param props - Loading state supplied by the Home page initializer.
  * @returns The operation table, loading state, or empty state.
  */
-export function OperationsList({ loading }: HomeContent.OperationsListProps) {
+export function OperationsList({
+	loading,
+	reloadToken,
+	onLoadingChange,
+}: HomeContent.OperationsListProps) {
 	const { Info, app, spawnBanner, spawnDialog } = Application.use();
 	const { t } = Locale.use();
 	const navigate = useNavigate();
 	const [selectedIds, setSelectedIds] = useState<Set<Operation.Id>>(new Set());
+
+	/**
+	 * Reloads operations into shared application state for a Home refresh request.
+	 *
+	 * @returns A promise that settles after the operation synchronization attempt.
+	 */
+	const reloadOperations = useCallback(async (): Promise<void> => {
+		onLoadingChange(true);
+		try {
+			await Info.sync();
+		} catch {
+			// The shared API layer owns request error feedback.
+		} finally {
+			onLoadingChange(false);
+		}
+	}, [Info, onLoadingChange]);
+
+	useEffect(() => {
+		if (reloadToken === 0) return;
+		void reloadOperations();
+	}, [reloadOperations, reloadToken]);
 
 	/**
 	 * Selects an operation in global state and navigates to the operation view.
@@ -399,8 +431,7 @@ export function OperationsList({ loading }: HomeContent.OperationsListProps) {
 	const actions = useMemo<Table.Action<Operation.Type>[]>(
 		() => [
 			{
-				icon: "ArrowRight",
-				label: t("common.goTo"),
+				label: t("home.operation.goTo"),
 				variant: "secondary",
 				onClick: handleOpenOperation,
 			},
@@ -431,6 +462,7 @@ export function OperationsList({ loading }: HomeContent.OperationsListProps) {
 				}}
 				onSelectAll={handleSelectAll}
 				onRowClick={handleDisplayOperationDetails}
+				onRowDoubleClick={handleOpenOperation}
 				includeIndex={false}
 				persistId="home-operations-table"
 				actions={actions}
@@ -470,7 +502,10 @@ export function OperationsList({ loading }: HomeContent.OperationsListProps) {
  *
  * @returns The users table, loading state, or empty state.
  */
-export function UsersList() {
+export function UsersList({
+	reloadToken,
+	onLoadingChange,
+}: HomeContent.ReloadableListProps) {
 	const { Info, app, spawnBanner, spawnDialog } = Application.use();
 	const { t } = Locale.use();
 	const [loading, setLoading] = useState<boolean>(true);
@@ -484,6 +519,7 @@ export function UsersList() {
 	 */
 	const reloadUsers = useCallback(async () => {
 		setLoading(true);
+		onLoadingChange(true);
 		try {
 			const response: unknown = await Info.user_list({
 				suppressMissingPermissionRedirect: true,
@@ -506,12 +542,13 @@ export function UsersList() {
 			setSelectedIds(new Set());
 		} finally {
 			setLoading(false);
+			onLoadingChange(false);
 		}
-	}, [Info, t]);
+	}, [Info, onLoadingChange, t]);
 
 	useEffect(() => {
-		reloadUsers();
-	}, [reloadUsers]);
+		void reloadUsers();
+	}, [reloadToken, reloadUsers]);
 
 	useEffect(() => {
 		/**
@@ -706,7 +743,10 @@ export function UsersList() {
  *
  * @returns The groups table, loading state, or empty state.
  */
-export function GroupsList() {
+export function GroupsList({
+	reloadToken,
+	onLoadingChange,
+}: HomeContent.ReloadableListProps) {
 	const { spawnBanner, spawnDialog } = Application.use();
 	const { t } = Locale.use();
 	const [loading, setLoading] = useState<boolean>(true);
@@ -720,6 +760,7 @@ export function GroupsList() {
 	 */
 	const reloadGroups = useCallback(async () => {
 		setLoading(true);
+		onLoadingChange(true);
 		try {
 			const response: unknown = await Permissions.Users.Groups.list({
 				suppressMissingPermissionRedirect: true,
@@ -742,12 +783,13 @@ export function GroupsList() {
 			setSelectedIds(new Set());
 		} finally {
 			setLoading(false);
+			onLoadingChange(false);
 		}
-	}, [t]);
+	}, [onLoadingChange, t]);
 
 	useEffect(() => {
-		reloadGroups();
-	}, [reloadGroups]);
+		void reloadGroups();
+	}, [reloadGroups, reloadToken]);
 
 	useEffect(() => {
 		/**

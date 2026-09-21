@@ -418,6 +418,7 @@
     "home.groups.empty": "Nie znaleziono żadnych grup.",
     "home.groups.loading": "Ładowanie grup...",
     "home.operation.deleteAria": "Usuń operację {name}",
+    "home.operation.goTo": "Przejdź do operacji",
     "home.operation.goToAria": "Przejdź do operacji {name}",
     "home.operations.deleteSelected": "Usuń wybrane operacje ({count})",
     "home.operations.empty": "Nie znaleziono żadnych operacji.",

@@ -418,6 +418,7 @@
     "home.groups.empty": "Группы не найдены.",
     "home.groups.loading": "Загрузка групп...",
     "home.operation.deleteAria": "Удалить операцию {name}",
+    "home.operation.goTo": "Перейти к операции",
     "home.operation.goToAria": "Перейти к операции {name}",
     "home.operations.deleteSelected": "Удалить выбранные операции ({count})",
     "home.operations.empty": "Операций не найдено.",

@@ -421,6 +421,7 @@
     "home.groups.empty": "No groups found.",
     "home.groups.loading": "Loading groups...",
     "home.operation.deleteAria": "Delete operation {name}",
+    "home.operation.goTo": "Go to operation",
     "home.operation.goToAria": "Go to operation {name}",
     "home.operations.deleteSelected": "Delete selected operations ({count})",
     "home.operations.empty": "No operations found.",

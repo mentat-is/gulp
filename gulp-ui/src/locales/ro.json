@@ -418,6 +418,7 @@
     "home.groups.empty": "Nu s-au găsit grupuri.",
     "home.groups.loading": "Se încarcă grupurile...",
     "home.operation.deleteAria": "Ștergeți operațiunea {name}",
+    "home.operation.goTo": "Treceți la operațiune",
     "home.operation.goToAria": "Treceți la operațiunea {name}",
     "home.operations.deleteSelected": "Ștergeți operațiunile selectate ({count})",
     "home.operations.empty": "Nu s-au găsit operațiuni.",

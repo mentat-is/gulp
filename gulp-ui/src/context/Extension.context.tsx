@@ -222,6 +222,18 @@ export namespace Extension {
 		target: HomeSectionTarget;
 	}
 
+	/** Props supplied by the Home shell to every home-section component. */
+	export interface HomeSectionComponentProps {
+		/** Slot selected by the host for this plugin mount. */
+		slot: typeof Slot.HomeSection;
+		/** Manifest target selected by the Home route resolver. */
+		target: HomeSectionTarget;
+		/** Incrementing value requesting that the component reload its data. */
+		reloadToken: number;
+		/** Reports list loading state to the shared Home header control. */
+		onLoadingChange: (loading: boolean) => void;
+	}
+
 	export interface Payload {
 		display_name: string;
 		plugin: string;

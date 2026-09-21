@@ -27,6 +27,13 @@ interface MockHomeMount {
 	target: MockHomeTarget;
 }
 
+interface MockHomeComponentProps {
+	slot: string;
+	target: MockHomeTarget;
+	reloadToken: number;
+	onLoadingChange: (loading: boolean) => void;
+}
+
 interface MockUser {
 	permission: string[];
 }
@@ -47,6 +54,7 @@ const PluginConfigurationMount: MockHomeMount = {
 
 let mockExtensionReady = true;
 let mockHomeMounts: MockHomeMount[] = [PluginConfigurationMount];
+let mockHomeComponentProps: MockHomeComponentProps | null = null;
 let mockApplication: {
 	target: { operations: unknown[] };
 	general: { user: MockUser | null };
@@ -100,14 +108,18 @@ jest.mock("@/context/Extension.context", () => ({
 			props,
 		}: {
 			name: string;
-			props: { slot: string; target: MockHomeTarget };
-		}) => (
-			<div
-				data-extension={name}
-				data-slot={props.slot}
-				data-route={props.target.route}
-			/>
-		),
+			props: MockHomeComponentProps;
+		}) => {
+			mockHomeComponentProps = props;
+			return (
+				<div
+					data-extension={name}
+					data-slot={props.slot}
+					data-route={props.target.route}
+					data-reload-token={props.reloadToken}
+				/>
+			);
+		},
 	},
 }));
 
@@ -151,6 +163,22 @@ jest.mock("@/locales", () => ({
 }));
 
 jest.mock("@/ui/Resizer", () => ({ Resizer: (): null => null }));
+
+jest.mock("@/ui/Button", () => ({
+	Button: ({
+		children,
+		loading: _loading,
+		icon: _icon,
+		variant: _variant,
+		size: _size,
+		...props
+	}: import("react").ButtonHTMLAttributes<HTMLButtonElement> & {
+		loading?: boolean;
+		icon?: string;
+		variant?: string;
+		size?: string;
+	}) => <button {...props}>{children}</button>,
+}));
 
 jest.mock("@/ui/Stack", () => ({
 	Stack: (require("react") as typeof import("react")).forwardRef(
@@ -201,6 +229,7 @@ describe("Home extension shell", () => {
 		localStorage.clear();
 		mockExtensionReady = true;
 		mockHomeMounts = [PluginConfigurationMount];
+		mockHomeComponentProps = null;
 		mockApplication = {
 			target: { operations: [{}] },
 			general: { user: { permission: ["admin"] } },
@@ -312,6 +341,39 @@ describe("Home extension shell", () => {
 		});
 
 		expect(container.querySelector("[data-extension]")).not.toBeNull();
+	});
+
+	it("requests one custom-list reload and waits for its loading callback", async () => {
+		await renderHome("/plugin-configurations");
+
+		const reloadButton = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="localized:common.refresh"]',
+		);
+		expect(reloadButton?.disabled).toBe(false);
+		expect(
+			container.querySelector("[data-extension]")?.getAttribute(
+				"data-reload-token",
+			),
+		).toBe("0");
+
+		await act(async () => {
+			reloadButton?.click();
+			await Promise.resolve();
+		});
+
+		expect(
+			container.querySelector("[data-extension]")?.getAttribute(
+				"data-reload-token",
+			),
+		).toBe("1");
+		expect(reloadButton?.disabled).toBe(true);
+
+		await act(async () => {
+			mockHomeComponentProps?.onLoadingChange(false);
+			await Promise.resolve();
+		});
+
+		expect(reloadButton?.disabled).toBe(false);
 	});
 
 	it("waits for user restoration before applying permissions", async () => {

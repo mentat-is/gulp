@@ -418,6 +418,7 @@
     "home.groups.empty": "कोई समूह नहीं मिला।",
     "home.groups.loading": "समूह लोड हो रहे हैं...",
     "home.operation.deleteAria": "ऑपरेशन {name} हटाएं",
+    "home.operation.goTo": "ऑपरेशन पर जाएँ",
     "home.operation.goToAria": "ऑपरेशन {name} पर जाएँ",
     "home.operations.deleteSelected": "चयनित परिचालन हटाएं ({count})",
     "home.operations.empty": "कोई संचालन नहीं मिला.",

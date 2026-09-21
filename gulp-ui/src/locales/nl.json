@@ -418,6 +418,7 @@
     "home.groups.empty": "Geen groepen gevonden.",
     "home.groups.loading": "Groepen laden...",
     "home.operation.deleteAria": "Bewerking {name} verwijderen",
+    "home.operation.goTo": "Ga naar operatie",
     "home.operation.goToAria": "Ga naar operatie {name}",
     "home.operations.deleteSelected": "Geselecteerde bewerkingen verwijderen ({count})",
     "home.operations.empty": "Geen bewerkingen gevonden.",

@@ -418,6 +418,7 @@
     "home.groups.empty": "找不到群組。",
     "home.groups.loading": "正在載入群組...",
     "home.operation.deleteAria": "刪除操作{name}",
+    "home.operation.goTo": "轉到操作",
     "home.operation.goToAria": "轉到操作 {name}",
     "home.operations.deleteSelected": "刪除選取的操作 ({count})",
     "home.operations.empty": "沒有找到任何操作。",

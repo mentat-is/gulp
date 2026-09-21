@@ -418,6 +418,7 @@
     "home.groups.empty": "Keine Gruppen gefunden.",
     "home.groups.loading": "Gruppen werden geladen...",
     "home.operation.deleteAria": "Vorgang {name} löschen",
+    "home.operation.goTo": "Zum Vorgang",
     "home.operation.goToAria": "Gehen Sie zu Vorgang {name}",
     "home.operations.deleteSelected": "Ausgewählte Vorgänge löschen ({count})",
     "home.operations.empty": "Keine Vorgänge gefunden.",

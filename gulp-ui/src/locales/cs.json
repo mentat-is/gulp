@@ -418,6 +418,7 @@
     "home.groups.empty": "Nebyly nalezeny žádné skupiny.",
     "home.groups.loading": "Načítání skupin...",
     "home.operation.deleteAria": "Smazat operaci {name}",
+    "home.operation.goTo": "Přejít na operaci",
     "home.operation.goToAria": "Přejít na operaci {name}",
     "home.operations.deleteSelected": "Smazat vybrané operace ({count})",
     "home.operations.empty": "Nebyly nalezeny žádné operace.",
