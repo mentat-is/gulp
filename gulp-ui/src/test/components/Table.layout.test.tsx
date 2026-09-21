@@ -1,7 +1,6 @@
-import { act } from "react";
+import { act, forwardRef as mockForwardRef } from "react";
 import type {
 	ButtonHTMLAttributes,
-	HTMLAttributes,
 	ReactNode,
 } from "react";
 import { createRoot } from "react-dom/client";
@@ -15,14 +14,71 @@ interface MockChildrenProps {
 	children?: ReactNode;
 }
 
-interface MockContextMenuProps extends MockChildrenProps {
-	onOpenChange?: (open: boolean) => void;
+interface MockButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+	icon?: string;
+	variant?: string;
+	size?: string;
+}
+
+interface MockVirtualAnchor {
+	getBoundingClientRect: () => DOMRect;
 }
 
 const mockCopiedValues: string[] = [];
 const mockToggledColumns: string[] = [];
+const mockColumnVisibilityActions: string[] = [];
+const mockMovedColumns: Array<[string, string]> = [];
+let mockHiddenColumns = new Set<string>();
+let mockOrderedColumns: string[] | null = null;
+let mockPopoverOpenChange: ((open: boolean) => void) | undefined;
+let mockPopoverAnchorRef:
+	| { current: MockVirtualAnchor | null }
+	| undefined;
+let mockDndContextProps: {
+	autoScroll?: boolean;
+	sensors?: unknown[];
+	onDragStart?: (event: { active: { id: string } }) => void;
+	onDragEnd?: (event: {
+		active: { id: string };
+		over: { id: string } | null;
+	}) => void;
+} | null = null;
 let mockHorizontalStartIndex = 0;
 let mockColumnMenuStartIndex = 0;
+
+jest.mock("@dnd-kit/core", () => ({
+	DndContext: ({
+		children,
+		...props
+	}: MockChildrenProps & Record<string, unknown>) => {
+		mockDndContextProps = props as typeof mockDndContextProps;
+		return <>{children}</>;
+	},
+	DragOverlay: ({ children }: MockChildrenProps) => <>{children}</>,
+	KeyboardSensor: (): null => null,
+	PointerSensor: (): null => null,
+	closestCenter: (): null => null,
+	useSensor: (...values: unknown[]) => values,
+	useSensors: (...values: unknown[]) => values,
+}));
+
+jest.mock("@dnd-kit/sortable", () => ({
+	SortableContext: ({ children }: MockChildrenProps) => <>{children}</>,
+	sortableKeyboardCoordinates: (): null => null,
+	verticalListSortingStrategy: (): null => null,
+	useSortable: () => ({
+		attributes: {},
+		listeners: {},
+		setNodeRef: () => undefined,
+		transform: null,
+		transition: undefined,
+		isDragging: false,
+	}),
+}));
+
+jest.mock("@dnd-kit/utilities", () => ({
+	CSS: { Transform: { toString: () => undefined } },
+}));
 
 jest.mock("@tanstack/react-virtual", () => ({
 	useVirtualizer: (options: {
@@ -92,10 +148,18 @@ jest.mock("@tanstack/react-virtual", () => ({
 }));
 
 jest.mock("@/hooks/useTableConfig", () => ({
-	useTableConfig: () => ({
-		hiddenColumns: new Set<string>(),
+	useTableConfig: (
+		_persistId: string | undefined,
+		columns: string[],
+	) => ({
+		hiddenColumns: mockHiddenColumns,
+		orderedColumns: mockOrderedColumns ?? columns,
 		toggleColumn: (column: string) => mockToggledColumns.push(column),
-		resetConfig: () => undefined,
+		selectAllColumns: () => mockColumnVisibilityActions.push("select-all"),
+		deselectAllColumns: () =>
+			mockColumnVisibilityActions.push("deselect-all"),
+		moveColumn: (activeColumn: string, overColumn: string) =>
+			mockMovedColumns.push([activeColumn, overColumn]),
 		isLoaded: true,
 	}),
 }));
@@ -137,8 +201,13 @@ jest.mock("@/ui/Checkbox", () => ({
 }));
 
 jest.mock("@/ui/Button", () => ({
-	Button: (props: ButtonHTMLAttributes<HTMLButtonElement>) => (
-		<button {...props} />
+	Button: mockForwardRef<HTMLButtonElement, MockButtonProps>(
+		({ icon: _icon, variant: _variant, size: _size, ...props }, ref) => (
+			<button
+				ref={ref}
+				{...props}
+			/>
+		),
 	),
 }));
 
@@ -155,37 +224,45 @@ jest.mock("@/ui/Tooltip", () => ({
 	TooltipContent: ({ children }: MockChildrenProps) => <>{children}</>,
 }));
 
-jest.mock("@/ui/ContextMenu", () => ({
-	ContextMenu: ({ children, onOpenChange }: MockContextMenuProps) => (
-		<div onContextMenu={() => onOpenChange?.(true)}>{children}</div>
-	),
-	ContextMenuTrigger: ({ children }: MockChildrenProps) => <>{children}</>,
-	ContextMenuContent: ({ children, ...props }: HTMLAttributes<HTMLDivElement>) => (
-		<div {...props}>{children}</div>
-	),
-	ContextMenuCheckboxItem: ({
-		children,
-		checked,
-		onCheckedChange,
-		onSelect: _onSelect,
-		...props
-	}: MockChildrenProps & {
-		checked?: boolean;
-		onCheckedChange?: (checked: boolean) => void;
-		onSelect?: (event: Event) => void;
-		[key: string]: unknown;
-	}) => (
-		<button
-			{...(props as ButtonHTMLAttributes<HTMLButtonElement>)}
-			role="menuitemcheckbox"
-			aria-checked={checked}
-			onClick={() => onCheckedChange?.(!checked)}
-		>
-			{children}
-		</button>
-	),
-	ContextMenuLabel: ({ children }: MockChildrenProps) => <div>{children}</div>,
-	ContextMenuSeparator: () => <hr />,
+jest.mock("@/ui/Popover", () => ({
+	Popover: {
+		Anchor: ({
+			virtualRef,
+		}: {
+			virtualRef?: { current: MockVirtualAnchor | null };
+		}) => {
+			mockPopoverAnchorRef = virtualRef;
+			return null;
+		},
+		Root: ({
+			children,
+			onOpenChange,
+		}: MockChildrenProps & { onOpenChange?: (open: boolean) => void }) => {
+			mockPopoverOpenChange = onOpenChange;
+			return <>{children}</>;
+		},
+		Trigger: ({ children }: MockChildrenProps) => (
+			<span onClick={() => mockPopoverOpenChange?.(true)}>{children}</span>
+		),
+		Content: ({
+			children,
+			container: _container,
+			align: _align,
+			sideOffset: _sideOffset,
+			...props
+		}: MockChildrenProps & {
+			container?: HTMLElement | null;
+			align?: string;
+			sideOffset?: number;
+			className?: string;
+			style?: { maxHeight?: number };
+			"data-column-visibility-menu"?: string;
+		}) => (
+			<div {...props}>
+				{children}
+			</div>
+		),
+	},
 }));
 
 describe("Table layout and value resolution", () => {
@@ -195,6 +272,13 @@ describe("Table layout and value resolution", () => {
 	beforeEach(() => {
 		mockCopiedValues.length = 0;
 		mockToggledColumns.length = 0;
+		mockColumnVisibilityActions.length = 0;
+		mockMovedColumns.length = 0;
+		mockHiddenColumns = new Set<string>();
+		mockOrderedColumns = null;
+		mockPopoverOpenChange = undefined;
+		mockPopoverAnchorRef = undefined;
+		mockDndContextProps = null;
 		mockHorizontalStartIndex = 0;
 		mockColumnMenuStartIndex = 0;
 		container = document.createElement("div");
@@ -233,6 +317,90 @@ describe("Table layout and value resolution", () => {
 		expect(
 			container.querySelectorAll('[data-sticky-column="actions"]'),
 		).toHaveLength(2);
+	});
+
+	it("renders the Action column for actions or visibility and opens only from its trigger", () => {
+		const renderTable = (
+			columnVisibility: boolean,
+			withAction: boolean,
+		): void => {
+			act(() => {
+				root.render(
+					<Table
+						values={[{ name: "row" }]}
+						columns={["name"]}
+						includeIndex={false}
+						columnVisibility={columnVisibility}
+						actions={
+							withAction
+								? [{ label: "Inspect", onClick: () => undefined }]
+								: undefined
+						}
+					/>,
+				);
+			});
+		};
+
+		renderTable(false, false);
+		expect(
+			container.querySelectorAll('[data-sticky-column="actions"]'),
+		).toHaveLength(0);
+
+		renderTable(false, true);
+		expect(
+			container.querySelectorAll('[data-sticky-column="actions"]'),
+		).toHaveLength(2);
+		expect(
+			container.querySelector('[data-column-visibility-trigger="true"]'),
+		).toBeNull();
+
+		renderTable(true, false);
+		expect(
+			container.querySelectorAll('[data-sticky-column="actions"]'),
+		).toHaveLength(2);
+		expect(container.querySelector("tbody td:last-child")?.textContent).toBe("");
+
+		const columnMenuTrigger = container.querySelector<HTMLButtonElement>(
+			'[data-column-visibility-trigger="true"]',
+		);
+		if (!columnMenuTrigger) {
+			throw new Error("Expected the column visibility trigger");
+		}
+		columnMenuTrigger.getBoundingClientRect = () =>
+			({
+				x: 600,
+				y: 20,
+				left: 600,
+				top: 20,
+				right: 624,
+				bottom: 44,
+				width: 24,
+				height: 24,
+				toJSON: () => undefined,
+			}) as DOMRect;
+
+		act(() => {
+			container.querySelector("th")?.dispatchEvent(
+				new MouseEvent("contextmenu", { bubbles: true }),
+			);
+		});
+		expect(
+			document.querySelector('[data-column-visibility-menu="true"]'),
+		).toBeNull();
+
+		act(() => columnMenuTrigger.click());
+		expect(
+			document.querySelector('[data-column-visibility-menu="true"]'),
+		).not.toBeNull();
+		expect(
+			mockPopoverAnchorRef?.current?.getBoundingClientRect().left,
+		).toBe(600);
+
+		columnMenuTrigger.getBoundingClientRect = () =>
+			({ left: 100 } as DOMRect);
+		expect(
+			mockPopoverAnchorRef?.current?.getBoundingClientRect().left,
+		).toBe(600);
 	});
 
 	it("delegates row double clicks while ignoring interactive controls", () => {
@@ -411,7 +579,7 @@ describe("Table layout and value resolution", () => {
 		expect(container.textContent).not.toContain("field.0000");
 	});
 
-	it("limits the column menu to the current table viewport height", () => {
+	it("limits the column menu to the available viewport height", () => {
 		act(() => {
 			root.render(
 				<Table
@@ -423,31 +591,50 @@ describe("Table layout and value resolution", () => {
 			);
 		});
 
-		const table = container.querySelector("table");
 		const tableViewport = container.firstElementChild;
-		if (!table || !tableViewport) {
+		if (!tableViewport) {
 			throw new Error("Table viewport was not rendered");
 		}
 
 		Object.defineProperty(tableViewport, "clientHeight", {
 			configurable: true,
-			value: 240,
+			value: 500,
 		});
+		Object.defineProperty(window, "innerHeight", {
+			configurable: true,
+			value: 300,
+		});
+		const trigger = container.querySelector<HTMLButtonElement>(
+			'[data-column-visibility-trigger="true"]',
+		);
+		if (!trigger) throw new Error("Column visibility trigger was not rendered");
+		trigger.getBoundingClientRect = () =>
+			({
+				top: 20,
+				bottom: 44,
+				left: 260,
+				right: 284,
+				width: 24,
+				height: 24,
+				x: 260,
+				y: 20,
+				toJSON: () => undefined,
+			}) as DOMRect;
 
 		act(() => {
-			table.dispatchEvent(
-				new MouseEvent("contextmenu", {
-					bubbles: true,
-					clientX: 20,
-					clientY: 20,
-				}),
-			);
+			trigger.click();
 		});
 
 		const columnMenu = document.querySelector<HTMLElement>(
 			'[data-column-visibility-menu="true"]',
 		);
-		expect(columnMenu?.style.maxHeight).toBe("240px");
+		expect(
+			columnMenu?.style.getPropertyValue("--table-column-menu-max-height"),
+		).toBe("244px");
+		expect(
+			document.querySelector<HTMLElement>("[data-column-menu-count]")?.style
+				.height,
+		).toBe("84px");
 	});
 
 	it("virtualizes every column menu match while search keeps fields reachable", () => {
@@ -466,9 +653,12 @@ describe("Table layout and value resolution", () => {
 			);
 		});
 
-		const table = container.querySelector("table");
 		act(() => {
-			table?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+			container
+				.querySelector<HTMLButtonElement>(
+					'[data-column-visibility-trigger="true"]',
+				)
+				?.click();
 		});
 		expect(
 			document
@@ -514,8 +704,157 @@ describe("Table layout and value resolution", () => {
 		expect(matchingOptions[0].dataset.columnMenuOption).toBe(
 			"wide-field-1999",
 		);
-		act(() => matchingOptions[0].click());
+		act(() =>
+			matchingOptions[0]
+				.querySelector<HTMLButtonElement>('button[role="checkbox"]')
+				?.click(),
+		);
 		expect(mockToggledColumns).toEqual(["wide-field-1999"]);
+	});
+
+	it("keeps select-all controls visible with reciprocal disabled states", () => {
+		const renderTable = () => {
+			act(() => {
+				root.render(
+					<Table
+						values={[{ name: "Ada", email: "ada@example.test" }]}
+						columns={["name", "email"]}
+						includeIndex={false}
+						columnVisibility
+					/>,
+				);
+			});
+		};
+
+		renderTable();
+		act(() => {
+			container
+				.querySelector<HTMLButtonElement>(
+					'[data-column-visibility-trigger="true"]',
+				)
+				?.click();
+		});
+
+		const getDeselectAll = () =>
+			document.querySelector<HTMLButtonElement>(
+				'[data-column-visibility-action="deselect-all"]',
+			);
+		const getSelectAll = () =>
+			document.querySelector<HTMLButtonElement>(
+				'[data-column-visibility-action="select-all"]',
+			);
+
+		expect(getDeselectAll()?.textContent).toBe("table.deselectAllColumns");
+		expect(getDeselectAll()?.disabled).toBe(false);
+		expect(getSelectAll()?.textContent).toBe("table.selectAllColumns");
+		expect(getSelectAll()?.disabled).toBe(true);
+
+		act(() => getDeselectAll()?.click());
+		expect(mockColumnVisibilityActions).toEqual(["deselect-all"]);
+
+		mockHiddenColumns = new Set(["email"]);
+		renderTable();
+		expect(getDeselectAll()?.disabled).toBe(false);
+		expect(getSelectAll()?.disabled).toBe(false);
+
+		mockHiddenColumns = new Set(["name", "email"]);
+		renderTable();
+		expect(getDeselectAll()?.disabled).toBe(true);
+		expect(getSelectAll()?.disabled).toBe(false);
+		expect(
+			container.querySelector('[data-column-visibility-trigger="true"]'),
+		).not.toBeNull();
+		expect(container.querySelectorAll("thead th")).toHaveLength(1);
+
+		act(() => getSelectAll()?.click());
+		expect(mockColumnVisibilityActions).toEqual([
+			"deselect-all",
+			"select-all",
+		]);
+	});
+
+	it("separates selected columns, reorders them, and disables drag during search", () => {
+		mockHiddenColumns = new Set(["email"]);
+		mockOrderedColumns = ["name", "email", "team"];
+		act(() => {
+			root.render(
+				<Table
+					values={[{ name: "Ada", email: "ada@example.test", team: "Blue" }]}
+					columns={["name", "email", "team"]}
+					includeIndex={false}
+					columnVisibility
+				/>,
+			);
+		});
+		act(() => {
+			container
+				.querySelector<HTMLButtonElement>(
+					'[data-column-visibility-trigger="true"]',
+				)
+				?.click();
+		});
+
+		const selectedList = document.querySelector<HTMLElement>(
+			'[data-column-menu-list="selected"]',
+		);
+		const unselectedList = document.querySelector<HTMLElement>(
+			'[data-column-menu-list="unselected"]',
+		);
+		expect(
+			Array.from(
+				selectedList?.querySelectorAll<HTMLElement>(
+					"[data-column-menu-option]",
+				) ?? [],
+			).map((option) => option.dataset.columnMenuOption),
+		).toEqual(["name", "team"]);
+		expect(
+			Array.from(
+				unselectedList?.querySelectorAll<HTMLElement>(
+					"[data-column-menu-option]",
+				) ?? [],
+			).map((option) => option.dataset.columnMenuOption),
+		).toEqual(["email"]);
+		expect(mockDndContextProps?.sensors).toHaveLength(2);
+		expect(mockDndContextProps?.autoScroll).toBe(true);
+
+		act(() => {
+			mockDndContextProps?.onDragStart?.({ active: { id: "team" } });
+		});
+		const dragOverlay = document.querySelector<HTMLElement>(
+			'[data-column-drag-overlay="true"]',
+		);
+		expect(dragOverlay).not.toBeNull();
+		expect(
+			document
+				.querySelector('[data-column-visibility-menu="true"]')
+				?.contains(dragOverlay ?? null),
+		).toBe(false);
+
+		act(() => {
+			mockDndContextProps?.onDragEnd?.({
+				active: { id: "team" },
+				over: { id: "name" },
+			});
+		});
+		expect(mockMovedColumns).toEqual([["team", "name"]]);
+
+		const searchInput = document.querySelector<HTMLInputElement>(
+			'input[aria-label="common.search"]',
+		);
+		if (!searchInput) throw new Error("Expected the column search input");
+		act(() => {
+			const valueSetter = Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)?.set;
+			valueSetter?.call(searchInput, "name");
+			searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+
+		const filteredDragHandle = document.querySelector<HTMLButtonElement>(
+			'button[title="table.columnReorderSearchDisabled"]',
+		);
+		expect(filteredDragHandle?.disabled).toBe(true);
 	});
 
 	it("places an interactive overflow tooltip in the roomier viewport direction", () => {

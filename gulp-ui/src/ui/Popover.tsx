@@ -7,6 +7,8 @@ import { Application } from '@/context/Application.context'
 export namespace Popover {
   export const Root = PopoverPrimitive.Root
 
+  export const Anchor = PopoverPrimitive.Anchor
+
   export const Trigger = PopoverPrimitive.Trigger
 
   export const Content = React.forwardRef<

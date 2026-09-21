@@ -118,13 +118,31 @@ repeat the event query. The logical `timestamp` sort value remains stable while
 its displayed field changes to the backend `@timestamp` name, so asynchronous
 metadata updates do not clear the sorting selector or repeat the initial query.
 
-The column-visibility context menu is limited to the table viewport height and
-virtualizes the complete matching field list. Scrolling therefore reaches every
-column without mounting the entire schema, while its search box filters the
-same complete catalog. Visibility choices and “show all columns” keep their
-normal persisted behavior. Dotted columns resolve flat, nested, and hybrid
-event shapes, including values stored below literal `gulp.unmapped` or
-`gulp.enriched` object keys.
+The column-visibility menu opens from the menu button in the fixed Action
+header; right-clicking a data header has no special behavior. The Action column
+remains available even when no row action exists, so the visibility menu stays
+reachable after every data column has been hidden. Once opened, the menu keeps
+its viewport position while fields are shown or hidden instead of following the
+moving Action column. The menu is limited by both the table height and the
+available viewport space around its trigger. Its selected and unselected field
+lists shrink independently and remain scrollable through their final item while
+virtualizing their contents. Scrolling therefore reaches every column without
+mounting the entire schema, while its search box filters both lists from the
+complete catalog.
+
+Selected fields can be reordered from their drag handle with a pointer or the
+keyboard. Its drag preview is rendered against the current window viewport so
+it remains aligned with the pointer in both main and detached windows.
+Reordering is disabled while search text is present because a filtered subset
+does not provide an unambiguous full-table order. Visibility and the complete
+field order, including hidden fields, are stored in IndexedDB; showing a hidden
+field restores it to its preserved position. Always-visible controls select or
+deselect the full column catalog, disable the action that already matches the
+current state, and preserve the saved order. Column entries highlight on hover
+so the field about to change remains clear. Dotted columns resolve flat, nested,
+and hybrid event shapes, including values stored below literal `gulp.unmapped`
+or `gulp.enriched` object keys. Highlighted rows keep opaque frozen selection
+and action cells so horizontally scrolling values never show through them.
 
 ## Dashboard
 

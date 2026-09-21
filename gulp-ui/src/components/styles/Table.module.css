@@ -177,7 +177,7 @@
 	background: color-mix(
 		in srgb,
 		var(--highlight-color) 30%,
-		transparent
+		var(--background-100)
 	) !important;
 	outline: 1px solid var(--highlight-color);
 	outline-offset: -1px;
@@ -236,9 +236,38 @@
 
 /* ─── Column visibility menu ─── */
 .columnVisibilityMenu.columnVisibilityMenu {
+	z-index: 1500;
+	display: flex;
+	flex-direction: column;
+	width: min(320px, calc(100vw - 16px));
+	min-height: 0;
+	max-height: min(
+		var(--table-column-menu-max-height, calc(100vh - 16px)),
+		var(--radix-popover-content-available-height, calc(100vh - 16px))
+	);
 	overflow-x: hidden;
 	overflow-y: hidden;
 	overscroll-behavior: contain;
+}
+
+.columnVisibilityTrigger.columnVisibilityTrigger {
+	display: flex;
+	margin-inline: auto;
+}
+
+.columnVisibilityLabel {
+	padding: 4px 6px;
+	font-size: 0.875rem;
+	font-weight: 600;
+	color: var(--accent);
+}
+
+.columnVisibilitySeparator {
+	flex: 0 0 auto;
+	width: 100%;
+	height: 1px;
+	margin: 4px 0;
+	background: var(--gray-400);
 }
 
 .columnVisibilitySearch {
@@ -246,7 +275,56 @@
 	background: var(--background-100);
 }
 
+.columnVisibilityActions {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 4px 8px;
+	background: var(--background-100);
+}
+
+.columnVisibilityAction.columnVisibilityAction {
+	width: 100%;
+}
+
+.columnVisibilityLists {
+	display: flex;
+	flex: 0 1 auto;
+	flex-direction: column;
+	gap: 6px;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.columnVisibilitySection {
+	display: flex;
+	flex: 1 1 0;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+	border: 1px solid var(--gray-400);
+	border-radius: 4px;
+}
+
+.columnVisibilitySection[data-empty="true"] {
+	flex: 0 0 30px;
+	min-height: 30px;
+}
+
+.columnVisibilitySectionLabel {
+	flex: 0 0 auto;
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--gray-400);
+	color: var(--second);
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+}
+
 .columnVisibilityOptions {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
 	overflow-x: hidden;
 	overflow-y: auto;
 	overscroll-behavior: contain;
@@ -257,15 +335,121 @@
 	width: 100%;
 }
 
-.columnVisibilityOption.columnVisibilityOption {
+.columnVisibilityVirtualItem {
 	position: absolute;
 	top: 0;
 	left: 0;
 	width: 100%;
 	box-sizing: border-box;
+	padding: 1px 2px;
+}
+
+.columnVisibilityOption.columnVisibilityOption {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	height: 100%;
+	box-sizing: border-box;
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
+	border-radius: 4px;
+	transition: background-color 0.15s, color 0.15s;
+}
+
+.columnVisibilityOption.columnVisibilityOption:hover,
+.columnVisibilityOption.columnVisibilityOption:focus-within {
+	background-color: var(--gray-alpha-200);
+	color: var(--accent);
+}
+
+.columnVisibilityOptionDragging {
+	opacity: 0.35;
+}
+
+.columnVisibilityToggle {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	align-self: stretch;
+	min-width: 0;
+	padding: 0 6px;
+	overflow: hidden;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	text-align: left;
+}
+
+.columnVisibilityIndicator {
+	display: inline-flex;
+	flex: 0 0 16px;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	margin-right: 6px;
+}
+
+.columnVisibilityOptionLabel {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.columnVisibilityDragHandle {
+	display: inline-flex;
+	flex: 0 0 28px;
+	align-items: center;
+	align-self: stretch;
+	justify-content: center;
+	width: 28px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--second);
+	cursor: grab;
+	touch-action: none;
+}
+
+.columnVisibilityDragHandle:hover,
+.columnVisibilityDragHandle:focus-visible {
+	color: var(--accent);
+}
+
+.columnVisibilityDragHandle:active {
+	cursor: grabbing;
+}
+
+.columnVisibilityDragHandle:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+	touch-action: auto;
+}
+
+.columnVisibilityEmpty {
+	padding: 7px 8px;
+	color: var(--second);
+	font-size: 11px;
+}
+
+.columnVisibilityDragOverlay {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: 100%;
+	min-width: 0;
+	height: 28px;
+	padding: 0 8px 0 28px;
+	border: 1px solid var(--gray-400);
+	border-radius: 4px;
+	background: var(--background-100);
+	color: var(--accent);
+	box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
 }
 
 .headerStack {
