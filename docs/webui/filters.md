@@ -15,6 +15,13 @@ When filters are applied, the frontend caches the current source events for undo
 stores the query against each selected source, refetches those sources, and
 triggers a timeline render.
 
+Applying another filter first removes pending queries for the affected sources,
+then cancels their active streams before queuing the replacements. Navigator
+applies this replacement to every source selected in the timeline; Apply Filters
+uses only the sources selected in its multi-select. Work belonging exclusively
+to other sources continues unchanged, and the replacement batch retains visible
+source priority.
+
 ## Navigator Event Search
 
 The Navigator search starts in event mode and targets `event.original` on every

@@ -541,6 +541,76 @@ describe("Info timeline-frame refetch", () => {
 		expect(info.events_reset_in_file).toHaveBeenCalledTimes(1);
 	});
 
+	it("removes legacy pending replacements before active cleanup can pump them", async () => {
+		localStorage.setItem("gulp:event-store-lod-enabled", "false");
+		const source = createSource();
+		const { info, queryFile } = createInfoHarness(source);
+		const obsoleteQuery = createCacheQuery(
+			source,
+			"obsolete pending query",
+			"*obsolete*",
+		);
+		const replacementQuery = createCacheQuery(
+			source,
+			"replacement query",
+			"*replacement*",
+		);
+		const requestCancel = jest.fn(async () => undefined);
+		info.request_cancel = requestCancel as typeof info.request_cancel;
+
+		const internals = info as unknown as {
+			registerQueryStream: (
+				requestId: Request.Id,
+				sourceIds: Source.Id[],
+				operationId: Operation.Id,
+				operationEpoch: number,
+				abortController: AbortController | undefined,
+				queuePriority: "visible" | "background",
+			) => unknown;
+			refetchQueue: Array<{
+				sourceId: Source.Id;
+				operationId: Operation.Id;
+				query: Query.Type;
+				options: {
+					id: Source.Id;
+					operationId: Operation.Id;
+					preview: false;
+				};
+				sequence: number;
+			}>;
+			activeQueuedQueryCount: number;
+		};
+		const obsoleteRequestId = "obsolete-active-query" as Request.Id;
+		internals.registerQueryStream(
+			obsoleteRequestId,
+			[source.id],
+			source.operation_id as Operation.Id,
+			DataStore.getRenderOperationEpoch(),
+			undefined,
+			"visible",
+		);
+		internals.activeQueuedQueryCount = 1;
+		internals.refetchQueue = [
+			{
+				sourceId: source.id,
+				operationId: source.operation_id as Operation.Id,
+				query: obsoleteQuery,
+				options: {
+					id: source.id,
+					operationId: source.operation_id as Operation.Id,
+					preview: false,
+				},
+				sequence: 0,
+			},
+		];
+
+		await info.refetch({ ids: source.id, query: replacementQuery });
+
+		expect(requestCancel).toHaveBeenCalledWith(obsoleteRequestId);
+		expect(queryFile).toHaveBeenCalledTimes(1);
+		expect(queryFile.mock.calls[0][0].text_filter).toBe("*replacement*");
+	});
+
 	it("updates loading state without invalidating canonical document data", () => {
 		const source = createSource();
 		const { info } = createInfoHarness(source);

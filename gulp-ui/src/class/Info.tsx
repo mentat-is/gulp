@@ -2675,11 +2675,11 @@ export class Info implements InfoProps {
 			this.highlights_reload();
 		}
 
-		await this.cancelQueryStreamsForSources(
-			files.map((file) => file.id),
-			true,
-		);
-		this.removeQueuedRefetchesForSources(files.map((file) => file.id));
+		const sourceIds = files.map((file) => file.id);
+		// Remove pending work before active stream cleanup releases concurrency slots
+		// and gives the queue pump an opportunity to dispatch obsolete queries.
+		this.removeQueuedRefetchesForSources(sourceIds);
+		await this.cancelQueryStreamsForSources(sourceIds, true);
 		if (!this.isOperationContextCurrent(refetchEpoch, files[0].operation_id)) return;
 
 		if (isEventStoreLodEnabled()) {

@@ -213,6 +213,11 @@ The HTTP slot remains occupied until completion, cancellation, or failure of the
 document stream. Request IDs, operation epochs, and source ownership fence late
 responses. Replacements cancel preceding source work and preserve its committed
 rollback state, including when several unfinished queries follow each other.
+An obsolete job that has not reached backend dispatch is removed locally. When
+the previous `/query_raw` request was dispatched, QueryWorker also sends
+`PATCH /request_cancel` with its request ID; no retry loop is added, and the
+local terminal guard continues to reject late chunks independently of the
+backend response.
 Operation release and timeline start/cancel commands are ordered so a rapid
 revisit cannot reopen a context that an older release is still closing. This
 control ordering does not queue WebSocket ingestion or viewport projections.

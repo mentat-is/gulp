@@ -43,6 +43,11 @@ function harness(options: { beforeLookup?: () => Promise<void>; responseStatus?:
 	const completed = new Set<string>();
 	const fetched: string[] = [];
 	const fetchedBodies: string[] = [];
+	const httpRequests: Array<{
+		path: string;
+		method: string;
+		query: Record<string, string>;
+	}> = [];
 	const errors: string[] = [];
 	const persisted: Array<{ id: string; count: number; status: string }> = [];
 	const lookups: Array<{ sourceId: Source.Id; mode: "initial" | "reuse" }> = [];
@@ -59,6 +64,11 @@ function harness(options: { beforeLookup?: () => Promise<void>; responseStatus?:
 	}, { createOperationStore: () => ({ backend, repository }), createRevisionBus: () => ({ publish: () => undefined, close: () => undefined }) });
 	const fetcher = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = new URL(String(input));
+		httpRequests.push({
+			path: url.pathname,
+			method: init?.method ?? "GET",
+			query: Object.fromEntries(url.searchParams.entries()),
+		});
 		if (url.pathname === "/query_raw") {
 			fetched.push(url.searchParams.get("req_id")!);
 			fetchedBodies.push(String(init?.body));
@@ -80,7 +90,7 @@ function harness(options: { beforeLookup?: () => Promise<void>; responseStatus?:
 		const descriptor = descriptors.get(id)!;
 		persistence.handleDocumentChunk({ descriptor, rawByteLength: 0, sequence, message: { type: "docs_chunk", req_id: id, operation_id: "timeline", payload: { docs: Array.from({ length: count }, (_, i) => ({ _id: `${id}-${sequence}-${i}`, "gulp.source_id": descriptor.sourceIds![0], "gulp.timestamp": i, "gulp.event_code": i % 8 })), last, request_last: last, chunk_num: sequence } } });
 	};
-	return { scheduler, persistence, repository, backend, fetched, fetchedBodies, updates, completed, errors, persisted, lookups, chunk };
+	return { scheduler, persistence, repository, backend, fetched, fetchedBodies, httpRequests, updates, completed, errors, persisted, lookups, chunk };
 }
 
 describe("worker-owned timeline query integration", () => {
@@ -324,6 +334,11 @@ describe("worker-owned timeline query integration", () => {
 			const jobs = Array.from({ length: 5 }, (_, i) => request(i));
 			await h.scheduler.start(jobs); await until(() => h.fetched.length === 4);
 			await h.scheduler.cancel(jobs[4].descriptor.requestId);
+			expect(
+				h.httpRequests.filter(
+					(request) => request.path === "/request_cancel",
+				),
+			).toEqual([]);
 			h.chunk(jobs[0].descriptor.requestId, 16384, false);
 			await until(() => h.persisted.some((event) => event.id === jobs[0].sourceId && event.count === 16384));
 			expect(h.completed.has(jobs[0].descriptor.requestId)).toBe(false);
@@ -333,6 +348,68 @@ describe("worker-owned timeline query integration", () => {
 			expect(h.fetched).not.toContain(jobs[4].descriptor.requestId);
 			expect(h.errors).toEqual([]);
 		} finally { h.scheduler.destroy(); await h.persistence.destroy(); }
+	});
+
+	it("uses the backend cancellation contract only for dispatched overlapping sources", async () => {
+		const h = harness();
+		try {
+			const obsolete = request(0);
+			const unaffected = request(1);
+			await h.scheduler.start([obsolete, unaffected]);
+			await until(() => h.fetched.length === 2);
+
+			const replacement = request(0, 2);
+			await h.scheduler.start([replacement]);
+			await until(() => h.fetched.includes(replacement.descriptor.requestId));
+
+			const cancellations = h.httpRequests.filter(
+				(httpRequest) => httpRequest.path === "/request_cancel",
+			);
+			expect(cancellations).toEqual([
+				{
+					path: "/request_cancel",
+					method: "PATCH",
+					query: {
+						req_id_to_cancel: obsolete.descriptor.requestId,
+					},
+				},
+			]);
+			expect(
+				cancellations.some(
+					(httpRequest) =>
+						httpRequest.query.req_id_to_cancel ===
+						unaffected.descriptor.requestId,
+				),
+			).toBe(false);
+			const cancellationIndex = h.httpRequests.indexOf(cancellations[0]);
+			const replacementIndex = h.httpRequests.findIndex(
+				(httpRequest) =>
+					httpRequest.path === "/query_raw" &&
+					httpRequest.query.req_id === replacement.descriptor.requestId,
+			);
+			expect(cancellationIndex < replacementIndex).toBe(true);
+
+			// Persistence cancellation fences late chunks from the obsolete request.
+			h.chunk(obsolete.descriptor.requestId, 5);
+			h.chunk(unaffected.descriptor.requestId, 1);
+			h.chunk(replacement.descriptor.requestId, 2);
+			await until(
+				() =>
+					h.completed.has(unaffected.descriptor.requestId) &&
+					h.completed.has(replacement.descriptor.requestId),
+			);
+			expect(
+				h.persisted.some(
+					(event) =>
+						event.id === obsolete.sourceId &&
+						event.status === "complete" &&
+						event.count === 5,
+				),
+			).toBe(false);
+		} finally {
+			h.scheduler.destroy();
+			await h.persistence.destroy();
+		}
 	});
 
 	it("publishes cached sources while four other sources are still streaming", async () => {

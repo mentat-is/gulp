@@ -285,8 +285,8 @@ export class TimelineQueryCoordinator {
 
 	/** Best-effort backend cancellation; local persistence cleanup owns rollback. */
 	private cancelBackend(requestId: string): void {
-		void this.fetcher(this.url("request_cancel", { req_id: requestId }), {
-			method: "POST",
+		void this.fetcher(this.url("request_cancel", { req_id_to_cancel: requestId }), {
+			method: "PATCH",
 			headers: { token: this.initialization.token },
 		}).catch(() => undefined);
 	}
