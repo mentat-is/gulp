@@ -141,6 +141,26 @@ describe("filter clause generation", () => {
 		});
 	});
 
+	it("preserves regexp queries for wildcard mapped fields", () => {
+		expect(
+			Filter.Entity.buildItemClause(
+				createFilter({
+					type: "regexp",
+					field: "event.original",
+					value: "fail(ed|ure)",
+				}),
+				{ "event.original": "wildcard" },
+			),
+		).toEqual({
+			regexp: {
+				"event.original": {
+					value: "fail(ed|ure)",
+					flags: "ALL",
+				},
+			},
+		});
+	});
+
 	it("uses term queries for equality and incompatible legacy conditions", () => {
 		expect(
 			Filter.Entity.buildItemClause(

@@ -1,5 +1,8 @@
 # v2.0.0
 
+- made Navigator event search the default, with mutually exclusive text
+  wildcard and regexp modes applied to `event.original` across every selected
+  source and restored in the per-source filter banner.
 - kept Table View responsive across operations with many disjoint source fields
   through horizontal column virtualization, bounded field discovery, a complete
   virtualized column menu, compact detached payloads, and correct hybrid

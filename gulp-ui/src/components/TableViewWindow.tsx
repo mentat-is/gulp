@@ -77,7 +77,6 @@ const DEFAULT_HIDDEN_FIELDS: string[] = [
 	"gulp.context_id",
 	"gulp.operation_id",
 	"gulp.event_code",
-	"event.original",
 	"gulp.timestamp",
 	"gulp.unmapped",
 	"gulp.enrich",

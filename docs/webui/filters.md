@@ -15,6 +15,28 @@ When filters are applied, the frontend caches the current source events for undo
 stores the query against each selected source, refetches those sources, and
 triggers a timeline render.
 
+## Navigator Event Search
+
+The Navigator search starts in event mode and targets `event.original` on every
+source selected in the timeline. Its dropdown provides two mutually exclusive
+search strategies:
+
+- **Text** is the default. It collapses whitespace and surrounds every word with
+  wildcard characters, so `failed login` becomes `*failed* *login*` in one
+  case-insensitive wildcard condition;
+- **Regexp** sends the trimmed input as a regular-expression condition without
+  escaping or adding anchors.
+
+Search runs from the Search button or Enter. Repeating a search replaces the
+previous Navigator condition while preserving every other source filter. An
+empty search removes only the Navigator condition. The mode icon switches to
+source/context filtering; doing so removes the active Navigator event condition
+and hides the event-search strategy dropdown.
+
+Navigator conditions are stored with each source query. Opening Apply Filters
+for one source therefore shows the same `event.original` wildcard or regular
+expression in Builder mode, where it can be inspected or edited.
+
 ## Builder Mode
 
 Builder mode provides:

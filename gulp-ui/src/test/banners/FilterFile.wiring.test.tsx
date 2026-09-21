@@ -245,36 +245,42 @@ describe("FilterFileBanner field catalog wiring", () => {
 		expect(mockInfo.render).not.toHaveBeenCalled();
 	});
 
-	it("restores persisted field types together with Navigator filters", async () => {
-		mockPersistedQuery = {
-			string: "event.original:*failed*",
-			filters: [
-				{
-					id: "navigator-event-filter" as Filter.Id,
-					type: "wildcard",
-					operator: "must",
-					field: "event.original",
-					value: "*failed*",
-					enabled: true,
-					case_insensitive: true,
-				},
-			],
-			fieldTypeMap: { "event.original": "wildcard" },
-		};
-		mockEventKeys = () => new Promise<Record<string, string>>(() => undefined);
+	(["wildcard", "regexp"] as const).forEach((conditionType) => {
+		it(`restores persisted field types together with Navigator ${conditionType} filters`, async () => {
+			mockPersistedQuery = {
+				string: `event.original:${conditionType}`,
+				filters: [
+					{
+						id: "navigator-event-filter" as Filter.Id,
+						type: conditionType,
+						operator: "must",
+						field: "event.original",
+						value:
+							conditionType === "wildcard"
+								? "*failed*"
+								: "fail(ed|ure)",
+						enabled: true,
+						case_insensitive: true,
+					},
+				],
+				fieldTypeMap: { "event.original": "wildcard" },
+			};
+			mockEventKeys = () =>
+				new Promise<Record<string, string>>(() => undefined);
 
-		await act(async () => {
-			root.render(<FilterFileBanner sources={[mockSource]} />);
-		});
-		await flushRequests();
+			await act(async () => {
+				root.render(<FilterFileBanner sources={[mockSource]} />);
+			});
+			await flushRequests();
 
-		expect(mockCapturedOptions).toEqual({ "event.original": "wildcard" });
-		expect(mockCapturedFilters?.[0]).toMatchObject({
-			field: "event.original",
-			type: "wildcard",
-		});
-		expect(mockSerializedQuery?.fieldTypeMap).toEqual({
-			"event.original": "wildcard",
+			expect(mockCapturedOptions).toEqual({ "event.original": "wildcard" });
+			expect(mockCapturedFilters?.[0]).toMatchObject({
+				field: "event.original",
+				type: conditionType,
+			});
+			expect(mockSerializedQuery?.fieldTypeMap).toEqual({
+				"event.original": "wildcard",
+			});
 		});
 	});
 });

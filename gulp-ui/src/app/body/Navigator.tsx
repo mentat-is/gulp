@@ -23,6 +23,7 @@ import { Label } from "@/ui/Label";
 import { Stack } from "@/ui/Stack";
 import { Button } from "@/ui/Button";
 import { Input } from "@/ui/Input";
+import { Select } from "@/ui/Select";
 import { Context } from "@/entities/Context";
 import { App } from "@/entities/App";
 import { Extension } from "@/context/Extension.context";
@@ -39,11 +40,33 @@ export namespace Navigator {
 }
 
 const BUILT_IN_ASSISTANT_KEY = "built-in-ai-assistant";
+const EVENT_FILTER_ID = "navigator-event-filter" as Filter.Id;
+const EVENT_ORIGINAL_FIELD = "event.original";
+
+type EventSearchType = "text" | "regexp";
 
 interface AssistantWindowTarget {
 	key: string;
 	title: string;
 	pluginFilename?: string;
+}
+
+/**
+ * Formats the Navigator input for the selected event-search strategy.
+ * @param value Raw value entered by the user.
+ * @param searchType Event-search strategy selected in the Navigator.
+ * @returns A trimmed regexp or one wildcard-wrapped pattern per whitespace-delimited word.
+ */
+function formatEventSearchValue(
+	value: string,
+	searchType: EventSearchType,
+): string {
+	const trimmedValue = value.trim();
+	if (!trimmedValue || searchType === "regexp") return trimmedValue;
+	return trimmedValue
+		.split(/\s+/)
+		.map((word) => `*${word}*`)
+		.join(" ");
 }
 
 /**
@@ -108,15 +131,19 @@ export function Navigator({
 
 	const isDialogPanelDetached = isDetachedWindow || !dialogsDocked;
 
-	const [filterMode, setFilterMode] = useState<"files" | "events">("files");
-	const EVENT_FILTER_ID = "navigator-event-filter" as Filter.Id;
+	const [filterMode, setFilterMode] = useState<"files" | "events">("events");
+	const [eventSearchType, setEventSearchType] =
+		useState<EventSearchType>("text");
+	const [localFilterValue, setLocalFilterValue] = useState("");
 
-	const [localFilterValue, setLocalFilterValue] = useState(app.timeline.filter);
-
-	// Sync local filter value with global app state
+	// Keep source/context filtering out of the timeline while event search is active.
 	useEffect(() => {
+		if (filterMode === "events") {
+			if (app.timeline.filter) Info.setTimelineFilter("");
+			return;
+		}
 		setLocalFilterValue(app.timeline.filter);
-	}, [app.timeline.filter]);
+	}, [app.timeline.filter, filterMode, Info]);
 
 	/**
 	 * Clears an invalid timestamp draft while retaining the invalid state.
@@ -291,15 +318,17 @@ export function Navigator({
 				const queriesBySourceId: Partial<Record<Source.Id, Query.Type>> = {};
 				const sources = Source.Entity.selected(app);
 				if (sources.length === 0) return;
+				const filterValue = formatEventSearchValue(value, eventSearchType);
+				const filterType: Filter.Condition =
+					eventSearchType === "text" ? "wildcard" : "regexp";
 
 				sources.forEach((source: Source.Type) => {
 					const query = cloneQueryForCache(Info.getQuery(source));
 					const existingFilterIndex = query.filters.findIndex(
 						(f) => f.id === EVENT_FILTER_ID,
 					);
-					const trimmedValue = value.trim();
 
-					if (trimmedValue === "") {
+					if (filterValue === "") {
 						if (existingFilterIndex !== -1) {
 							query.filters.splice(existingFilterIndex, 1);
 							queriesBySourceId[source.id] = query;
@@ -309,9 +338,10 @@ export function Navigator({
 						const newFilter = Filter.Entity.createCondition(
 							EVENT_FILTER_ID,
 							{
-								field: "event.original",
-								value: trimmedValue,
-								type: "wildcard",
+								field: EVENT_ORIGINAL_FIELD,
+								value: filterValue,
+								type: filterType,
+								case_insensitive: true,
 							},
 						);
 						if (existingFilterIndex !== -1) {
@@ -321,7 +351,7 @@ export function Navigator({
 						}
 						query.fieldTypeMap = {
 							...query.fieldTypeMap,
-							"event.original": "wildcard",
+							[EVENT_ORIGINAL_FIELD]: "wildcard",
 						};
 						queriesBySourceId[source.id] = query;
 						hasChanges = true;
@@ -329,12 +359,15 @@ export function Navigator({
 				});
 
 				if (hasChanges) {
-					void Info.refetch({ ids: sources.map((s: Source.Type) => s.id), queriesBySourceId });
+					void Info.refetch({
+						ids: sources.map((s: Source.Type) => s.id),
+						queriesBySourceId,
+					});
 					scrollStore.setScroll(0, -26);
 				}
 			}
 		},
-		[app, Info, EVENT_FILTER_ID],
+		[app, Info, eventSearchType],
 	);
 
 	/**
@@ -361,6 +394,17 @@ export function Navigator({
 	const handleKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
 		if (e.key === "Enter") {
 			triggerSearch(localFilterValue, filterMode);
+		}
+	};
+
+	/**
+	 * Stores a valid single event-search strategy selected from the dropdown.
+	 * @param value Value emitted by the shared Select component.
+	 * @returns Nothing.
+	 */
+	const handleEventSearchTypeChange = (value: string): void => {
+		if (value === "text" || value === "regexp") {
+			setEventSearchType(value);
 		}
 	};
 
@@ -394,12 +438,15 @@ export function Navigator({
 			});
 
 			if (hasChanges) {
-				void Info.refetch({ ids: sources.map((s: Source.Type) => s.id), queriesBySourceId });
+				void Info.refetch({
+					ids: sources.map((s: Source.Type) => s.id),
+					queriesBySourceId,
+				});
 			}
 		}
 
 		setFilterMode(nextMode);
-	}, [filterMode, app, Info, EVENT_FILTER_ID]);
+	}, [filterMode, app, Info]);
 
 	const { extensions } = Extension.use();
 	const assistantPlugins = useMemo(
@@ -501,7 +548,37 @@ export function Navigator({
 						? t("navigator.switchToEventFiltering")
 						: t("navigator.switchToFileFiltering")
 				}
-			/>
+			/>			
+			{filterMode === "events" && (
+				<Select.Root
+					value={eventSearchType}
+					onValueChange={handleEventSearchTypeChange}
+				>
+					<Select.Trigger
+						data-no-icon
+						className={s.eventSearchType}
+						title={
+							eventSearchType === "text"
+								? t("common.text")
+								: t("queryBuilder.condition.regexp")
+						}
+						aria-label={
+							eventSearchType === "text"
+								? t("common.text")
+								: t("queryBuilder.condition.regexp")
+						}
+					/>
+					<Select.Content
+						position="popper"
+						align="end"
+					>
+						<Select.Item value="text">{t("common.text")}</Select.Item>
+						<Select.Item value="regexp">
+							{t("queryBuilder.condition.regexp")}
+						</Select.Item>
+					</Select.Content>
+				</Select.Root>
+			)}
 			<Button
 				variant="tertiary"
 				title={t("common.search")}

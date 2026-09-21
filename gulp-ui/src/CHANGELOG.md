@@ -2,6 +2,10 @@
 
 ## Advanced Filtering and Querying
 
+- `Navigator event search modes`: Made event search the default and added a
+  single-choice Text/Regexp selector. Text searches wrap each normalized word
+  in wildcards, while both modes persist an `event.original` condition for every
+  selected source and remain editable in Apply Filters.
 - `Shared timeline queries`: FilterFile, Navigator and source selection now queue
   source batches in QueryWorker, with independent cache lookup, four concurrent
   HTTP streams, visible-source priority and cancellation fences. Only complete,
