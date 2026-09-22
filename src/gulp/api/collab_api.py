@@ -231,7 +231,7 @@ class GulpCollab:
         # hide_password=True: url embeds credentials in plaintext, never log it as-is
         Glug.get_instance().info(
             f"engine {_engine} created/initialized, "
-            f"url={make_url(url).render_as_string(hide_password=True)} ..."
+            f"url={make_url(url).render_as_string(hide_password=True)}"
         )
         return _engine
 

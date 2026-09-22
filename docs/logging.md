@@ -146,6 +146,13 @@ plus more:
 }
 ```
 
+**A second, exception-only file** sits alongside the main one —
+`gulp-main-exceptions.log` / `gulp-worker-<pid>-exceptions.log` — collecting
+the exact same records as the main file, filtered to those with `exc_info`
+set. Nothing is removed from the main file (it keeps every exception too,
+for whoever already queries it); the dedicated file is a focused stream for
+postmortem analysis without grepping the whole log.
+
 ## Using Glug in application code
 
 ```python

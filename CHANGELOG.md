@@ -499,6 +499,48 @@
   actual rendered `"→ hint:"` marker instead. Validated: `pytest tests/unit/` (564/564,
   including the fixed test) and a live restart confirming the new field renders correctly
   (e.g. `gulp.api.server_api:start:420`, `gulp.api.collab_api:_create_engine:194`).
+- audited every `Glug` call site in `src/gulp/` level by level (CRITICAL through DEBUG, ~930
+  call sites) for homogeneity, level-appropriateness, and verbosity; fixed the concrete
+  findings:
+  - two `except` blocks in `ws_api.py` used `.error(f"...: {ex}")` (dropping the traceback)
+    instead of `.exception(...)` — converted both.
+  - dead debug code in `opensearch/structs.py` was commented out with a `"""..."""` string
+    statement instead of `#` — converted to proper comments.
+  - `"creating new context/source"` (already dead/commented, left as-is) and two live
+    `WARNING`s (`"no results"` in `query_elasticsearch.py`, `"no source ids given, using all
+    sources for user {user_id}"` in `opensearch/sigma.py`) described routine fallback
+    behavior, not an actual warning condition — downgraded to `INFO`.
+  - removed trailing decorative `...` from 7 `INFO` messages across `collab_api.py`,
+    `collab/highlight.py`, `collab/note.py`, and `server/operation.py` (×4) — inconsistent
+    with the rest of `INFO`'s style, and decision 17 already bans other decorative patterns.
+  - elaborated the one `INFO` call whose entire content lived in `detail=` (dropped outside
+    `dev_mode`, so the line said nothing at all without it) — a dead `_test()` scratch snippet
+    in `server_api.py`, gave it a real message while keeping `detail=` for the full structure.
+  - removed 4 `DEBUG` "X called" function-entry traces that are now fully redundant with the
+    `funcName` just added to the console line (`process.py`'s `worker_cleanup`/
+    `_worker_finalizer`, `plugin.py`'s `_flush_and_check_thresholds`/
+    `update_final_stats_and_flush`, `server/enrich.py`'s `_update_documents_internal`/
+    `_untag_documents_internal`); simplified (rather than removed) `plugin.py`'s
+    `"unload() called for plugin: {name}"` to `"unloading plugin: {name}"` — unlike the
+    others, `funcName` alone can't distinguish *which* plugin instance since `unload()` is
+    shared across every plugin subclass.
+  - found a real credential leak while fixing a commented-out debug line in
+    `user_session.py`: `admin_session.to_dict()` includes `id`, which doubles as that
+    session's bearer token (same role as `s.id` in the oauth flow's `?token={s.id}`) — even
+    though the call was dead code and `detail=` is already `dev_mode`-only, masked it
+    unconditionally via `to_dict(exclude=["id"])` before making the line live, consistent
+    with how the oauth token payload was handled earlier in this same migration.
+- added a second, exception-only JSON-lines file alongside `Glug`'s existing per-process one
+  (`gulp-main-exceptions.log` / `gulp-worker-<pid>-exceptions.log`, same `<log-dir>/<hostname>/`
+  directory, only when `--log-dir` is given): fed the exact same records as the main file,
+  filtered at the handler level to those with `exc_info` set, via a new `_ExceptionOnlyFilter`.
+  Nothing removed from the main file — it keeps carrying every exception too, for whoever
+  already queries it from there; the dedicated file is a focused stream for postmortem
+  analysis without grepping the whole log. Console output is unchanged (short message above a
+  full traceback, as before) — this was purely a file-sink addition. Validated live with
+  `--log-dir`: main process and every worker each got their own `-exceptions.log`, containing
+  exactly the exception records (verified against the main file: same 5 records present in
+  both, main file otherwise unaffected). `pytest tests/unit/` (564/564).
 - fixed `docker-entrypoint.sh` leaving the bind-mounted working directory
   root-owned when Docker auto-creates a missing host mount path as root
   regardless of the container's own user, blocking `GULP_RUNTIME_USER` from

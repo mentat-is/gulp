@@ -475,17 +475,17 @@ class GulpDocument(GulpBasicDocument):
         ts = normalized_timestamp.iso8601
         ts_nanos = normalized_timestamp.nanos
         invalid = normalized_timestamp.invalid
-        """if ts.startswith("3300"):
-            Glug.get_instance().error(f"ts={ts}, ts_nanos={ts_nanos}, invalid={invalid}, timestamp={timestamp}, data={data}")"""
+        # if ts.startswith("3300"):
+        #     Glug.get_instance().error(f"ts={ts}, ts_nanos={ts_nanos}, invalid={invalid}, timestamp={timestamp}, data={data}")
 
         data["timestamp"] = ts
         data["gulp_timestamp"] = ts_nanos
         if invalid or ts_nanos == 0:
             # flag invalid timestamp
             data["invalid_timestamp"] = True
-        """Glug.get_instance().error(
-            f"ts={ts}, ts_nanos={ts_nanos}, invalid={invalid}, timestamp={timestamp}, data={data}"
-        )"""
+        # Glug.get_instance().error(
+        #     f"ts={ts}, ts_nanos={ts_nanos}, invalid={invalid}, timestamp={timestamp}, data={data}"
+        # )
 
         if plugin_instance._plugin_params and plugin_instance._plugin_params.store_file:
             # Use the same ingestion IDs as the upload; mappings may override a document's IDs.

@@ -283,14 +283,14 @@ async def operation_delete_handler(
 
             if delete_data:
                 Glug.get_instance().info(
-                    f"deleting data related to operation_id={operation_id} on index={index} ..."
+                    f"deleting data related to operation_id={operation_id} on index={index}"
                 )
 
                 # delete the index
                 await GulpOpenSearch.get_instance().datastream_delete(index)
 
             # delete the operation itself
-            Glug.get_instance().info(f"deleting operation_id={operation_id}, ws_id={ws_id} ...")
+            Glug.get_instance().info(f"deleting operation_id={operation_id}, ws_id={ws_id}")
             await op.delete(
                 sess,
                 ws_id=ws_id,
@@ -627,7 +627,7 @@ async def context_delete_handler(
                 # delete all data
                 Glug.get_instance().info(
                     f"deleting data related to operation_id={ctx.operation_id}, "
-                    f"context_id={context_id} on index={op.index} ..."
+                    f"context_id={context_id} on index={op.index}"
                 )
                 await GulpOpenSearch.get_instance().delete_data_by_context(
                     op.index, ctx.operation_id, context_id
@@ -1095,7 +1095,7 @@ async def source_delete_handler(
                 # delete all data
                 Glug.get_instance().info(
                     f"deleting data related to operation_id={src.operation_id}, "
-                    f"context_id={src.context_id}, source_id={source_id} on index={op.index} ..."
+                    f"context_id={src.context_id}, source_id={source_id} on index={op.index}"
                 )
                 
                 # delete data from storage (files with operation_id, context_id, source_id tags)

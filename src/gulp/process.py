@@ -112,8 +112,6 @@ class GulpProcess:
         (e.g. flushing buffers, closing connections) when a worker exits.
         this method runs in the worker's event loop, after all tasks have finished.
         """
-        Glug.get_instance().debug(f"worker_cleanup called (pid={os.getpid()})")
-
         async def _stop_glug_reconfig() -> None:
             from gulp.glug import reconfig as glug_reconfig
 
@@ -153,7 +151,6 @@ class GulpProcess:
         runs :meth:`worker_cleanup` in the same event loop used during worker
         initialization so that async cleanup code can safely await coroutines.
         """
-        Glug.get_instance().debug(f"_worker_finalizer called (pid={os.getpid()})")
         p = GulpProcess.get_instance()
         try:
             loop = asyncio.get_event_loop()

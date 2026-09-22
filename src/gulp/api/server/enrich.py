@@ -580,8 +580,6 @@ async def _update_documents_internal(
     will add/update the `gulp.tags` and `custom_field` fields in the matched documents with the new values
     """
 
-    Glug.get_instance().debug("_update_documents_internal called")
-
     # build query
     if flt.is_empty():
         # match all query
@@ -701,8 +699,6 @@ async def _untag_documents_internal(
     """
     called by the untag_documents API entrypoint, runs in a worker process to remove tags from documents
     """
-
-    Glug.get_instance().debug("_untag_documents_internal called")
 
     # build query
     if flt.is_empty():

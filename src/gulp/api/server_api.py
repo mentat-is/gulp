@@ -1246,7 +1246,7 @@ class GulpServer:
         from gulp.api.opensearch_api import GulpOpenSearch
         api = GulpOpenSearch.get_instance()
         p = await api.index_template_get("test_operation")
-        Glug.get_instance().info("index template", detail=p)
+        Glug.get_instance().info("got index template for operation 'test_operation'", detail=p)
         """
         return
 

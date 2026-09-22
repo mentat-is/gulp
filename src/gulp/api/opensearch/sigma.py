@@ -659,7 +659,7 @@ async def sigmas_to_queries(
         srcs = await GulpSource.get_by_filter(sess, flt=flt, user_id=user_id)
         # no source_ids filter was given at this point, so log after resolving it below
         # instead of echoing the (still empty) src_ids parameter here
-        Glug.get_instance().warning(f"no source ids given, using all sources for user {user_id}")
+        Glug.get_instance().info(f"no source ids given, using all sources for user {user_id}")
     else:
         # get the given sources
         srcs = await GulpSource.get_by_ids_ordered(sess, src_ids)

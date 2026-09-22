@@ -4,8 +4,8 @@ Glug (Gulp Log Unified Gateway) — process-local structured logger.
 Composes a plain stdlib `logging.Logger` (composition, not subclassing:
 `MutyLogger` subclassed `logging.Logger` while making it impossible to
 actually construct one via the normal protocol, see
-plans/log-revolution.md). Two sinks, set up once at `get_instance()`/
-`_setup()` time — stdout always, the file additionally when asked for:
+plans/log-revolution.md). Sinks, set up once at `get_instance()`/`_setup()`
+time — stdout always, two files additionally when asked for:
 
 - stdout: always attached, one short human-readable colorized line per
   record (`gulp.glug.console_formatter.GlugConsoleFormatter`) — interactive
@@ -16,6 +16,10 @@ plans/log-revolution.md). Two sinks, set up once at `get_instance()`/
   this process (`gulp.glug.formatter.GlugJsonFormatter`) — one file per
   process, never shared, to avoid the concurrent-rotation corruption risk
   `RotatingFileHandler` has when several processes write to the same file.
+- `log_dir` given: also a second, exception-only JSON-lines rotating file
+  for this process, fed the exact same records as the main file (nothing
+  is removed from the main file), filtered to those with `exc_info` set —
+  a focused stream for postmortem analysis without grepping the whole log.
 
 See plans/log-revolution.md, "Output su stdout vs file", for the full
 rationale.
@@ -51,6 +55,13 @@ def _current_task_name() -> str | None:
     except RuntimeError:
         return None
     return task.get_name() if task is not None else None
+
+
+class _ExceptionOnlyFilter(logging.Filter):
+    """passes only records with exc_info set — used by the dedicated exceptions file handler."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return bool(record.exc_info)
 
 
 class Glug:
@@ -196,6 +207,26 @@ class Glug:
 
         handler.setFormatter(GlugJsonFormatter())
         self._logger.addHandler(handler)
+
+        # a second, exception-only JSON file alongside the main one — same full record
+        # (nothing removed from the main file: it keeps carrying every exception too, for
+        # whoever is already querying it), but collected separately so a postmortem doesn't
+        # have to grep the whole log for the "exception" field. Filtered at the handler
+        # level, not the logger level, so it never affects what reaches the main file/stdout.
+        exc_filename = (
+            "gulp-worker-%d-exceptions.log" % os.getpid()
+            if process_role == "worker"
+            else "gulp-main-exceptions.log"
+        )
+        exc_file_path = os.path.join(log_subdir, exc_filename)
+        exc_handler = RotatingFileHandler(
+            filename=exc_file_path,
+            maxBytes=1024 * 1024 * max_log_size_mb,
+            backupCount=max_kept_log,
+        )
+        exc_handler.addFilter(_ExceptionOnlyFilter())
+        exc_handler.setFormatter(GlugJsonFormatter())
+        self._logger.addHandler(exc_handler)
 
     @classmethod
     def apply_reconfig(cls, level: int = None, dev_mode: bool = None) -> None:

@@ -80,7 +80,7 @@ class GulpHighlight(GulpCollabBase, type=COLLABTYPE_HIGHLIGHT):
             return 0
 
         highligths: list[dict] = []
-        Glug.get_instance().info(f"creating a bulk of {len(docs)} highligths ...")
+        Glug.get_instance().info(f"creating a bulk of {len(docs)} highligths")
 
         for doc in docs:
             object_data: dict = GulpHighlight.build_object_dict(

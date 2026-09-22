@@ -1025,10 +1025,8 @@ class GulpConnectedSocket:
                 Glug.get_instance().debug(
                     f"task {task.get_name()} disconnected during cleanup"
                 )
-            except Exception as ex:
-                Glug.get_instance().error(
-                    f"error cleaning up {task.get_name()}: {ex}"
-                )
+            except Exception:
+                Glug.get_instance().exception(f"error cleaning up {task.get_name()}")
 
         # unregister from Redis
         from gulp.api.redis_api import GulpRedis
@@ -1036,10 +1034,8 @@ class GulpConnectedSocket:
         Glug.get_instance().debug(f"unregistering ws_id={self.ws_id} from Redis")
         try:
             await GulpRedis.get_instance().ws_unregister(self.ws_id)
-        except Exception as ex:
-            Glug.get_instance().error(
-                f"error unregistering ws_id={self.ws_id}: {ex}"
-            )
+        except Exception:
+            Glug.get_instance().exception(f"error unregistering ws_id={self.ws_id}")
 
     def validate_connection(self) -> None:
         """

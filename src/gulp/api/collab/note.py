@@ -474,7 +474,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
 
         # creates a list of notes, one for each document
         notes: list[dict] = []
-        Glug.get_instance().info(f"creating a bulk of {len(docs)} notes ...")
+        Glug.get_instance().info(f"creating a bulk of {len(docs)} notes")
         for idx, doc in enumerate(docs):
             # remove highlights from the document, if any
             highlights: dict = doc.get("_highlight", {})

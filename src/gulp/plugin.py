@@ -2650,9 +2650,6 @@ class GulpPluginBase(ABC):
             wait_for_refresh (bool, optional): whether to wait for refresh
             kwargs: additional keyword arguments
         """
-        Glug.get_instance().debug(
-            f"_flush_and_check_thresholds called, plugin={self.name}"
-        )
         chunk = self._detach_ingestion_chunk(flt=flt)
         if self._pipeline_enabled:
             # A full next chunk is retained locally until the preceding bulk is
@@ -3204,9 +3201,6 @@ class GulpPluginBase(ABC):
         Returns:
             GulpRequestStatus: The final status of the ingestion process.
         """
-        Glug.get_instance().debug(
-            f"update_final_stats_and_flush called for plugin={self.name}"
-        )
         if not self._stats:
             Glug.get_instance().error(
                 "cannot update final stats and flush: stats object is None"
@@ -3610,7 +3604,7 @@ class GulpPluginBase(ABC):
             None
         """
         # clear stuff
-        Glug.get_instance().debug(f"unload() called for plugin: {self.name}")
+        Glug.get_instance().debug(f"unloading plugin: {self.name}")
 
         from gulp.process import GulpProcess
 

@@ -554,7 +554,7 @@ class Plugin(GulpPluginBase):
                 context_type=context_type,
             )
             if total_hits == 0:
-                Glug.get_instance().warning("no results")
+                Glug.get_instance().info("no results")
                 if self._preview_mode:
                     return 0, []
 

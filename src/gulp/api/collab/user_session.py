@@ -121,7 +121,13 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             admin_session: GulpUserSession = await GulpUserSession.create_internal(
                 sess, admin_user.id, time_expire=0, session_user_id=admin_user.id
             )
-            # Glug.get_instance().debug(f"created new admin session: {admin_session.to_dict()}")
+            # id doubles as this session's bearer token — excluded even from detail= (which
+            # is dev_mode-only already, decision 16), same treatment as the oauth token
+            # payload elsewhere: a session/access token is masked unconditionally, not just
+            # dev_mode-gated
+            Glug.get_instance().debug(
+                "created new admin session", detail=admin_session.to_dict(exclude=["id"])
+            )
             return admin_session
         finally:
             pass
