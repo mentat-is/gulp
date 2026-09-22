@@ -42,6 +42,16 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 
 5. go back in the container and develop as normal.
 
+  The dev container uses Debian 13 (Trixie). After changing its base image,
+  rebuild the container. If an existing virtual environment contains native
+  extensions built against the previous base, recreate `.venv` and rerun
+  `.devcontainer/devsetup.sh`.
+  The setup script also removes obsolete package metadata left in an existing
+  workspace volume before reinstalling the current editable distribution. It
+  recreates `.venv` if its Python executable resolves to the system interpreter
+  rather than the virtual environment. The pinned `idna` release also matches
+  the optional MCP development dependency set installed by that script.
+
   > ensure to have .venv activated in the terminal (should be automatic when opening a new terminal in vscode, if not do the following):
   > ~~~bash
   > source ./.venv/bin/activate

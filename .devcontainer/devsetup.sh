@@ -26,7 +26,12 @@ fi
 mkdir -p /home/vscode/.cache/pip || run_privileged_if_available mkdir -p /home/vscode/.cache/pip
 run_privileged_if_available chown -R vscode:vscode /home/vscode/.cache
 
-if [ -d "${VENV_DIR}" ] && [ ! -x "${VENV_DIR}/bin/python" ]; then
+if [ -d "${VENV_DIR}" ] && {
+	[ ! -x "${VENV_DIR}/bin/python" ] ||
+		! "${VENV_DIR}/bin/python" -c \
+			'import pathlib, sys; sys.exit(pathlib.Path(sys.prefix).resolve() != pathlib.Path(sys.argv[1]).resolve())' \
+			"${VENV_DIR}";
+}; then
 	echo "[.] Recreating stale virtual environment"
 	"${PYTHON_BIN}" -m venv --clear "${VENV_DIR}"
 else
@@ -34,6 +39,12 @@ else
 fi
 source "${VENV_DIR}/bin/activate"
 "${PYTHON_BIN}" -m pip install --upgrade pip
+
+# A workspace volume can retain metadata from the former "gulp" distribution.
+# It conflicts with the current editable "mentat-gulp" installation.
+rm -rf ./src/gulp.egg-info
+SITE_PACKAGES="$("${PYTHON_BIN}" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+rm -rf "${SITE_PACKAGES}/gulp-1.0.0.dist-info"
 
 # install development packages
 echo "[.] Installing gulp"

@@ -55,6 +55,10 @@ docker buildx build --progress=plain --build-arg _VERSION="$(git describe --tags
 GULP_IMAGE=gulp-core:local docker compose --profile gulp up -d
 ```
 
+The backend image uses Debian 13 (Trixie). Rebuild local images after updating
+the Dockerfile, or pull a newly published image to pick up the new system
+libraries.
+
 ## Compose profiles
 
 Without an explicit service target, OpenSearch, PostgreSQL, SeaweedFS, and Redis

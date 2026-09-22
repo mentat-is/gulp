@@ -69,7 +69,7 @@ dependencies = [
     "httpcore==1.0.9",
     "httpx==0.28.1",
     "humanfriendly==10.0",
-    "idna==3.13",
+    "idna==3.20",
     "inflection==0.5.1",
     "iniconfig==2.3.0",
     "itsdangerous==2.2.0",

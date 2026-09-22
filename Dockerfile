@@ -10,7 +10,7 @@ RUN pnpm install --frozen-lockfile
 COPY ./gulp-ui ./
 RUN BACKEND_VERSION="$(date +'%Y%m%d')+${_VERSION}" pnpm run build
 
-FROM python:${_PYTHON_VERSION}-bullseye
+FROM python:${_PYTHON_VERSION}-trixie
 
 # Add build arguments
 ARG _VERSION
@@ -30,7 +30,11 @@ ENV GULP_BIND_TO_ADDR=0.0.0.0
 # install dependencies
 RUN apt-get -qq update
 RUN apt-get install -y -q \
+    build-essential \
+    libglib2.0-dev \
     libsystemd-dev \
+    libwireshark-dev \
+    pkgconf \
     inetutils-ping \
     vim \
     sed \

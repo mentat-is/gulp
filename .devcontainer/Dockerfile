@@ -1,5 +1,5 @@
 # .devcontainer/Dockerfile
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.14-bookworm
+FROM mcr.microsoft.com/devcontainers/python:3.14-trixie
 
 ARG PYTHON_MINOR_VERSION=3.13
 ENV PYENV_ROOT=/home/vscode/.pyenv
@@ -23,19 +23,21 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /usr/sh
         htop \
         libbz2-dev \
         libffi-dev \
+        libglib2.0-dev \
         libgl1 \
         libgl1-mesa-dri \
-        libgtk-3-0 \
+        libgtk-3-0t64 \
         liblzma-dev \
         libasound2-dev \
         libgbm-dev \
-        libncursesw5-dev \
+        libncurses-dev \
         libnss3 \
         libpqxx-dev \
         libreadline-dev \
         libsqlite3-dev \
         libssl-dev \
         libsystemd-dev \
+        libwireshark-dev \
         libx11-6 \
         libxext6 \
         libxrender1 \
@@ -44,6 +46,7 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /usr/sh
         llvm \
         nodejs \
         p7zip-full \
+        pkgconf \
         redis-tools \
         rsyslog \
         rustc \
@@ -126,7 +129,7 @@ RUN sudo -u vscode env PYENV_ROOT="${PYENV_ROOT}" PATH="${PATH}" python3 -m pip 
 
 # setup docker
 RUN curl -fsSL https://get.docker.com | sh && \
-    apt -y install --no-install-recommends docker-compose && \
+    docker compose version && \
     # Create docker group if it doesn't exist
     groupadd -f docker && \
     usermod -aG docker vscode && \
