@@ -13,9 +13,11 @@ It can also be used as base for stacked plugins dealing with specific JSON forma
 """
 
 import asyncio
+import math
 import os
 import queue
 import threading
+from collections.abc import Iterator
 from typing import Any, override
 
 import orjson
@@ -47,6 +49,19 @@ import json_stream.base
 
 class Plugin(GulpPluginBase):
     JSON_QUEUE_MAX_SIZE = 100
+    NUMERIC_INDEX_TYPES = frozenset(
+        {
+            "byte",
+            "short",
+            "integer",
+            "long",
+            "unsigned_long",
+            "half_float",
+            "float",
+            "double",
+            "scaled_float",
+        }
+    )
 
     @override
     def desc(self) -> str:
@@ -77,20 +92,113 @@ class Plugin(GulpPluginBase):
                 desc="if set and 'mode' is 'dict', only include the keys in the list",
                 default_value=None,
             ),
+            GulpPluginCustomParameter(
+                name="unmapped_as_is",
+                type="bool",
+                desc="if set, keep fields absent from the selected mapping under their original names instead of gulp.unmapped",
+                default_value=False,
+            ),
         ]
+
+    def _iter_preserved_fields(self, record: dict[str, Any]) -> Iterator[tuple[str, Any]]:
+        """Walk JSON fields while keeping arrays and indexed geo points intact."""
+        mapped_fields = self.selected_mapping().fields
+        index_types = self._index_type_mapping
+
+        def walk(value: Any, path: str) -> Iterator[tuple[str, Any]]:
+            if isinstance(value, dict):
+                if path and index_types.get(path) == "geo_point":
+                    yield path, value
+                    # Explicit mappings of latitude/longitude must still run.
+                    for key, child in value.items():
+                        child_path = f"{path}.{key}"
+                        if child_path in mapped_fields:
+                            yield child_path, child
+                    return
+
+                for key, child in value.items():
+                    child_path = f"{path}.{key}" if path else key
+                    yield from walk(child, child_path)
+            elif path:
+                yield path, value
+
+        yield from walk(record, "")
+
+    @staticmethod
+    def _is_numeric_value(value: Any) -> bool:
+        """Recognize a finite JSON number or numeric string."""
+        if isinstance(value, bool):
+            return False
+        if isinstance(value, int):
+            return True
+        if isinstance(value, float):
+            return math.isfinite(value)
+        try:
+            return math.isfinite(float(value))
+        except (TypeError, ValueError, OverflowError):
+            return False
+
+    def _unmapped_numeric_conflict(self, field: str, value: Any) -> bool:
+        """Detect numeric type conflicts, including fields first seen in this request."""
+        index_type = self._index_type_mapping.get(field)
+        if index_type is not None and index_type not in self.NUMERIC_INDEX_TYPES:
+            return False
+
+        values = value if isinstance(value, list) else (value,)
+        non_null_values = (item for item in values if item is not None)
+        if index_type in self.NUMERIC_INDEX_TYPES:
+            return any(not self._is_numeric_value(item) for item in non_null_values)
+
+        inferred_types = getattr(self, "_json_inferred_numeric_types", None)
+        if inferred_types is None:
+            inferred_types = self._json_inferred_numeric_types = {}
+        if field in inferred_types:
+            # False means the first value was text, so dynamic mapping is not numeric.
+            return inferred_types[field] and any(
+                not self._is_numeric_value(item) for item in non_null_values
+            )
+
+        first_value = next(non_null_values, None)
+        if first_value is None:
+            return False
+        if not self._is_numeric_value(first_value):
+            inferred_types[field] = False
+            return False
+        if any(not self._is_numeric_value(item) for item in non_null_values):
+            return True
+        inferred_types[field] = True
+        return False
 
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         line: str = kwargs.get("__line__")
-        d: dict = muty.dict.flatten(record)
+        preserve_unmapped = (
+            self._plugin_params.custom_parameters.get("unmapped_as_is") is True
+            and isinstance(record, dict)
+        )
+        if preserve_unmapped:
+            fields = self._iter_preserved_fields(record)
+            mapped_fields = self.selected_mapping().fields
+        else:
+            # Preserve the existing traversal for every other JSON ingestion.
+            fields = muty.dict.flatten(record).items()
 
         # map
         final: dict = {}
-        # print("processing record %d:\n%s" % (record_idx, orjson.dumps(d, option=orjson.OPT_INDENT_2).decode()))
-        for k, v in d.items():
+        # print("processing record %d:\n%s" % (record_idx, orjson.dumps(record, option=orjson.OPT_INDENT_2).decode()))
+        for k, v in fields:
             mapped = await self._process_key(k, v, final, **kwargs)
+            if (
+                preserve_unmapped
+                and k not in mapped_fields
+                and k in mapped
+                and self._unmapped_numeric_conflict(k, v)
+            ):
+                # The index cannot change an existing numeric field's type.
+                # Keep the original value in its flat_object fallback instead.
+                mapped = self.build_or_update_unmapped_obj(final, k, v)
             final.update(mapped)
 
         # MutyLogger.get_instance().debug("final mapped record:\n%s" % (orjson.dumps(final, option=orjson.OPT_INDENT_2).decode()))
@@ -296,6 +404,12 @@ class Plugin(GulpPluginBase):
         )
 
         mapping: GulpMapping = self.selected_mapping()
+        if self._plugin_params.custom_parameters.get("unmapped_as_is") is True:
+            # Override only this request's loaded mapping; an unset/false value
+            # leaves the mapping file's existing behavior intact.
+            mapping.unmapped_as_is = True
+            # Track fields the index may map dynamically after the initial lookup.
+            self._json_inferred_numeric_types: dict[str, bool] = {}
         encoding = mapping.default_encoding or "utf-8"
         # MutyLogger.get_instance().debug(
         #     "selected mapping '%s' with default encoding '%s'"

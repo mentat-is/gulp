@@ -24,6 +24,7 @@
 - [mapping 101](#mapping-101)
   - [mapping files](#mapping-files)
     - [select a mapping](#select-a-mapping)
+    - [JSON fields without an explicit mapping](#json-fields-without-an-explicit-mapping)
     - [mapping files load order](#mapping-files-load-order)
   - [advanced mapping](#advanced-mapping)
     - [context and source](#context-and-source)
@@ -604,6 +605,16 @@ when a plugin parses the input data, it needs to know which mapping to select, s
 this is done via [GulpPluginParameter.mapping_id](../src/gulp/structs.py), which tells the plugin to use `mapping_id` as the key in the (possibly multiple) [GulpMapping](../src/gulp/api/mapping/models.py) defined in the file (or in `mappings` directly, as we will see in the next section...).
 
 > if no `mapping_id` is provided, the first mapping found in the specified mapping is used.
+
+### JSON fields without an explicit mapping
+
+The `json` ingestion plugin exposes an optional `unmapped_as_is` boolean custom parameter. Set it to `true` in the UI's JSON plugin custom parameters, or send it as `plugin_params.custom_parameters.unmapped_as_is`, to keep fields absent from the selected mapping under their original names. For example, with `elastic.json`, a source `host.name` field remains `host.name` instead of being stored in `gulp.unmapped`. The parameter does not change the mapping file and applies only to that ingestion request.
+
+When omitted or `false`, the selected mapping's `unmapped_as_is` setting continues to apply; `elastic.json` therefore stores unmapped fields in `gulp.unmapped` by default. This parameter does not check whether a field belongs to ECS: non-ECS fields also keep their original names. `override_allow_unmapped_fields` controls whether unmapped fields are kept at all and does not control their destination.
+
+When the request sets this parameter to `true`, the JSON plugin preserves arrays such as `event.category` and `related.ip`. It also keeps a JSON object intact when its field is mapped as `geo_point` in the destination index. For example, `destination.geo.location: {"lon": -87.6305, "lat": 41.8835}` stays at `destination.geo.location`, so OpenSearch can index it as a point. Other nested objects are traversed into dotted field names and still pass through the selected field mappings. Explicit mappings of a geo point's direct child fields also run. The default JSON traversal is unchanged when this custom parameter is omitted or `false`.
+
+If an unmapped source field has an existing numeric type in the destination index but the current JSON value is not numeric, the plugin stores that value under `gulp.unmapped` for this request. It also tracks numeric fields first seen during the request, since OpenSearch may create their numeric mapping after the plugin reads the index mapping. For example, an index may have `zeek.dce_rpc.named_pipe` as `long` while a later record contains `"\\pipe\\lsass"`; the string is then preserved under `gulp.unmapped` with its original field name instead of causing the document to fail ingestion. Numeric values continue to use the original field. This fallback does not change the index mapping or apply to fields with explicit mapping rules.
 
 ### mapping files load order
 
