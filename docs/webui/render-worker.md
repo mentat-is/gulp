@@ -299,6 +299,37 @@ Renderer resource profiles are available at:
 /renderer-test?docs=30m
 ```
 
+These direct profiles distribute events across eight sources. The default
+`cache=cold` run clears those sources, then generates, encodes, indexes, and
+persists bounded pages in a dedicated worker. It sends compact source summaries
+to the page and transfers visible-row projections to Canvas while writes continue.
+The page uses the live physical Canvas viewport width and scale for projection.
+It retries transient projection errors and fails a run if Canvas keeps rejecting
+the visible window; completion requires an accepted terminal projection.
+The fixture clock is fixed at 2025-01-01 UTC so repeat runs have the same event
+times. Use a fresh browser profile for a measured cold run when quota and storage
+state must be comparable.
+
+After a cold run completes, the same browser profile can open, for example,
+`/renderer-test?docs=10m&cache=warm`. Warm mode checks every source's complete
+status, exact count, and deterministic timestamp edges before reusing its
+IndexedDB pages. It reports `cache-miss` and skips if the cache is absent or
+incompatible; it never rewrites as a fallback. The warm write throughput is zero
+because no ingestion occurs. Both modes retain the engine, overlay, and `?gate=1`
+scenarios. A measured gate delta changes the cache and can make a later warm
+request incompatible.
+
+`window.__rendererBenchmarkDiagnostics` and the
+`renderer-benchmark-complete` event expose the status, cache mode, persisted and
+processed counts, committed encoded bytes, worker write time, bounded queue and
+cache maxima, and optional heap counters. The existing `heap*` fields describe
+the storage worker; `mainHeap*` describes the page. Unsupported heap counters
+are flagged explicitly, and failed runs carry `failureReason`. Browser process
+resident memory and first nonempty frame timing require browser instrumentation
+and are not implied by these
+fields. `quota-exhausted` and `cache-miss` are skips, not successful performance
+results.
+
 The real socket/persistence replay profiles are:
 
 ```text
@@ -314,6 +345,11 @@ source counts, and distributions:
 /renderer-test?queryReplay=steady&docs=20m&sources=140&distribution=skewed
 ```
 
+For a first 10M comparison with the eight-source direct profile, use
+`/renderer-test?queryReplay=steady&docs=10m&sources=8&distribution=uniform`.
+The replay still includes synthetic socket chunks and `QuerySocketSession`, so
+its input and normalization cost differs from direct generation.
+
 It sends actual JSON chunks through `QuerySocketSession` in a dedicated worker,
 persists exact pages and indexes in browser IndexedDB, and uses the real
 RenderWorker. The HTTP/WebSocket peer is synthetic; no backend is required.
@@ -321,37 +357,23 @@ The skewed distribution places 90% of events in one source and divides the
 remainder among the others. Each run checks source-exact counts and deterministic
 first/middle/last document samples, then repeats the batch and verifies all cache
 hits with no additional HTTP query. Page counts allow bounded pressure flushes.
-`scripts/test-timeline-query-replay.cjs` drives native mouse/wheel interaction
-during arrival, records diagnostics and storage use, and writes JSON evidence.
-Its Chromium and Playwright paths can be supplied through
-`CHROMIUM_EXECUTABLE` and `PLAYWRIGHT_MODULE` without adding dependencies.
-The runner records the pre-query baseline, bounded histograms covering the whole
-query, periodic profiler windows, and Chromium resident memory. Histograms round
-up to 0.1 ms; values above 1,000 ms share the last bin while retaining the true
-maximum. The latency gate requires input-to-frame p95 <=33.4 ms, main-frame p95
-<=20 ms, and zero main long tasks during the query. The full-query gate supplements
-the profiler's bounded recent-sample window. Resident-memory sums include shared
-pages and browser overhead; storage usage is the browser's IndexedDB estimate.
-Terminal projection and ACK-to-frame timings capture first convergence. Only then
-does the page release the worker's sample and cache verification phase, so its
-test-only exact-page reads cannot compete with the terminal render. Both phases
-must succeed; a terminal timeout releases verification but still fails the render
-gate. A completed terminal snapshot is not redundantly requested again.
-The runner uses a persistent Chromium profile and records both estimated usage and
-actual IndexedDB file sizes. Temporary profile paths are included in its output.
-Long-task entries and available long-animation-frame attribution are retained in
-the result. Optional `--trace=true` captures a 64 MiB circular Chromium trace at the
-first query-time long task, or at completion when none occurs; it does not relax
-any latency gate. Trace setup precedes the measured pre-query baseline.
-Horizontal pan and vertical zoom events are sent separately, while periodic
-vertical drags cross source-overscan boundaries. Replay projections use the live
-transient Canvas transform, including an unsettled wheel scale.
+This checkout does not contain the previously documented
+`scripts/test-timeline-query-replay.cjs` browser runner. Native Chromium
+interaction, first-frame latency, process resident memory, and full-query
+latency gates therefore need a separate browser capture; the page diagnostics
+alone do not establish those acceptance results. The benchmark repair and
+remaining browser verification are tracked in
+[renderer-test-benchmark-plan.md](renderer-test-benchmark-plan.md).
+Replay projections use the live transient Canvas transform, including an
+unsettled wheel scale. Native interaction captures should exercise horizontal
+pan, vertical zoom, and drags across source-overscan boundaries.
 
 `cacheWarnings=all` marks every synthetic replay source with a settled stale
 cache owned by that exact source. The warning-focused workload is available at
 `/renderer-test?queryReplay=steady&docs=500000&sources=202&cacheWarnings=all`.
-It uses the same full-query latency evidence and gates: input-to-frame p95 at
-most 33.4 ms, main-frame p95 at most 20 ms, and no main-thread long task.
+Its intended browser acceptance gates are input-to-frame p95 at most 33.4 ms,
+main-frame p95 at most 20 ms, and no main-thread long task; this checkout does
+not produce that full-query evidence automatically.
 
 The burst profile must stop with controlled reason
 `backlog` while remaining inside the raw-memory bounds documented for the query

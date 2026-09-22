@@ -892,8 +892,10 @@ Benchmarking at 10, 20, and 30 million events must verify IndexedDB throughput,
 actual storage consumption, steady-state memory, query correctness, viewport
 latency, and interaction latency on the selected reference device. Successful
 persistence remains subject to the origin quota available on that device. The
-`/renderer-test` benchmark performs no predictive admission either: it writes
-bounded pages until completion or a concrete IndexedDB quota failure.
+`/renderer-test` cold benchmark performs no predictive admission either: its
+dedicated worker writes bounded pages until completion or a concrete IndexedDB
+quota failure. The explicit warm mode validates and reuses a complete cache,
+or reports `cache-miss` without writing pages.
 
 Render projection limits and the renderer/query-replay profiles are documented
 with their consumer in [render-worker.md](render-worker.md#diagnostics-and-performance-checks).

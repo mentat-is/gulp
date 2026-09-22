@@ -42,8 +42,8 @@ import {
     type CanvasWorkerProfilerSnapshot,
     type CanvasWorkerSynchronizationSnapshot,
 } from '@/app/body/CanvasProfiler';
+import { getCanvasViewportSourceIds } from '@/app/body/CanvasViewport';
 import type { RendererBackendStatus } from '@/app/body/CanvasRendererBackend';
-import type { EventStoreViewportDescriptor } from '@/event-store';
 import {
     buildReleaseGateCriteria,
     createEmptyRendererRefreshRateBaseline,
@@ -62,9 +62,9 @@ import s from './styles/RendererTest.module.css';
 import { createOfflineRendererTestApp } from './RendererTest.fixture';
 import {
     createEmptyRendererBenchmarkDiagnostics,
-    createRendererBenchmarkEventStore,
     createRendererBenchmarkNamespace,
     DEFAULT_RENDERER_BENCHMARK_TARGET,
+    RENDERER_BENCHMARK_CLOCK_MS,
     evaluateRendererBenchmarkResourceGate,
     getRendererBenchmarkDocumentAtPercentile,
     getRendererBenchmarkSourceEventCount,
@@ -74,8 +74,12 @@ import {
     RENDERER_BENCHMARK_REPRESENTATIVE_LIMIT,
     RENDERER_BENCHMARK_TARGETS,
     type RendererBenchmarkDiagnostics,
-    type RendererBenchmarkEventStore,
 } from './RendererTest.benchmark';
+import {
+    type RendererBenchmarkWorkerStore,
+} from './RendererTest.worker-store';
+import { createRendererBenchmarkWorkerStore } from './RendererTest.worker-store.factory';
+import { createRendererBenchmarkViewportDescriptor } from './RendererTest.viewport';
 import { RendererQueryReplayPage } from './RendererQueryReplay.page';
 import { getRendererQueryReplayProfile } from './RendererTest.query-replay';
 
@@ -669,51 +673,6 @@ function getBenchmarkDocumentAtPercentile(
     );
 }
 
-interface RendererBenchmarkViewportInput {
-    operationEpoch: number;
-    viewportRevision: number;
-    projectionRevision: number;
-    frame: { min: number; max: number };
-    width: number;
-    scale: number;
-    scrollX: number;
-    sources: readonly Source.Type[];
-}
-
-/**
- * Creates the bounded viewport request consumed by the stateless EventStore projector.
- * @param input Current Canvas transform, revisions, and visible benchmark sources.
- * @returns Projection descriptor containing no exact document objects.
- */
-function createRendererBenchmarkViewportDescriptor(
-    input: RendererBenchmarkViewportInput,
-): EventStoreViewportDescriptor {
-    return {
-        operationEpoch: input.operationEpoch,
-        viewportRevision: input.viewportRevision,
-        projectionRevision: input.projectionRevision,
-        frame: input.frame,
-        width: Math.max(1, input.width),
-        scale: Math.max(0.01, input.scale),
-        scrollX: input.scrollX,
-        horizontalOverscanPixels: Math.max(1, input.width),
-        maxRepresentatives: RENDERER_BENCHMARK_REPRESENTATIVE_LIMIT,
-        sources: input.sources.map((source) => ({
-            sourceId: source.id,
-            offset: source.settings.offset,
-            engine: source.settings.render_engine,
-            frequency: source.settings.frequency_sample,
-            overrideHashes: Object.keys(
-                source.settings.color_override?.lookup ?? {},
-            )
-                .map(Number)
-                .filter(Number.isFinite),
-            settingsRevision: 0,
-            overrideRevision: 0,
-        })),
-    };
-}
-
 /**
  * Publishes live benchmark diagnostics without adding translated UI strings.
  * @param diagnostics Detached storage, memory, cache, and LOD measurements.
@@ -728,6 +687,7 @@ function publishRendererBenchmarkDiagnostics(
     const resourceGate = evaluateRendererBenchmarkResourceGate(diagnostics);
     const dataset = document.documentElement.dataset;
     dataset.rendererBenchmarkStatus = diagnostics.status;
+    dataset.rendererBenchmarkCacheMode = diagnostics.cacheMode;
     dataset.rendererBenchmarkTargetEvents = String(diagnostics.targetEvents);
     dataset.rendererBenchmarkProcessedEvents = String(diagnostics.processedEvents);
     dataset.rendererBenchmarkPersistedEvents = String(diagnostics.persistedEvents);
@@ -742,6 +702,8 @@ function publishRendererBenchmarkDiagnostics(
     dataset.rendererBenchmarkHeapPeakBytes = String(diagnostics.heapPeakBytes);
     dataset.rendererBenchmarkHeapDeltaBytes = String(diagnostics.heapDeltaBytes);
     dataset.rendererBenchmarkHeapSupported = String(diagnostics.heapSupported);
+    dataset.rendererBenchmarkMainHeapPeakBytes = String(diagnostics.mainHeapPeakBytes);
+    dataset.rendererBenchmarkMainHeapSupported = String(diagnostics.mainHeapSupported);
     dataset.rendererBenchmarkMainCacheDocuments = String(
         diagnostics.mainCacheDocuments,
     );
@@ -766,6 +728,7 @@ function publishRendererBenchmarkDiagnostics(
         ? 'passed'
         : 'failed';
     dataset.rendererBenchmarkSkipReason = diagnostics.skipReason?.code ?? '';
+    dataset.rendererBenchmarkFailureReason = diagnostics.failureReason ?? '';
     dataset.rendererBenchmarkEncodedBytesPerEvent = String(
         diagnostics.processedEvents > 0
             ? diagnostics.encodedBytes / diagnostics.processedEvents
@@ -1352,14 +1315,16 @@ export namespace RendererTest {
         const fpsFrameRef = useRef<number>(0);
         const fpsTsRef = useRef<number>(performance.now());
         const fpsCountRef = useRef<number>(0);
-        const animFrameRef = useRef<number>(0);
         const releaseGateFrameRef = useRef<number>(0);
         const releaseGateFixtureRef = useRef<ReleaseGateFixture | null>(null);
-        const benchmarkStoreRef = useRef<RendererBenchmarkEventStore | null>(null);
+        const benchmarkStoreRef = useRef<RendererBenchmarkWorkerStore | null>(null);
         const benchmarkSourcesRef = useRef<Source.Type[]>([]);
         const benchmarkProjectionRevisionRef = useRef<number>(0);
         const benchmarkProjectionInFlightRef = useRef<Promise<boolean> | null>(null);
         const benchmarkProjectionErrorRef = useRef<unknown>(null);
+        const benchmarkProjectionFailuresRef = useRef<number>(0);
+        const benchmarkProjectionRetryAtRef = useRef<number>(0);
+        const benchmarkFirstUnacceptedAtRef = useRef<number>(0);
         const benchmarkTeardownRef = useRef<Promise<void>>(Promise.resolve());
         const benchmarkProjectionKeyRef = useRef<string>('');
         const benchmarkLastProjectionAtRef = useRef<number>(0);
@@ -1505,8 +1470,6 @@ export namespace RendererTest {
         ): Promise<boolean> => {
             const store = benchmarkStoreRef.current;
             if (!store) return false;
-            if (benchmarkProjectionErrorRef.current && !force) return false;
-            if (force) benchmarkProjectionErrorRef.current = null;
             const status = store.getDiagnostics().status;
             if (status === 'idle' || status === 'skipped' || status === 'failed') {
                 return false;
@@ -1515,16 +1478,27 @@ export namespace RendererTest {
             const activeRequest = benchmarkProjectionInFlightRef.current;
             if (activeRequest) {
                 if (!force) return false;
-                await activeRequest;
+                try {
+                    await activeRequest;
+                } catch {
+                    // A forced terminal request supersedes a transient projection error.
+                }
                 return publishBenchmarkRenderWindow(true);
             }
 
             const synchronization = CanvasProfiler.getWorkerSynchronizationSnapshot();
             if (!synchronization?.ready) return false;
             const currentApp = latestAppRef.current;
-            const frame = currentApp.timeline.frame;
+            const { frame, width, scale, scrollX } = synchronization.viewport;
             if (frame.max <= frame.min) return false;
-            const sources = benchmarkSourcesRef.current;
+            const visibleSourceIds = new Set(getCanvasViewportSourceIds(
+                Source.Entity.rendered(currentApp),
+                scrollStore.getY(),
+                document.getElementById('canvas')?.clientHeight ?? 900,
+            ));
+            const sources = benchmarkSourcesRef.current.filter((source) =>
+                visibleSourceIds.has(source.id),
+            );
             if (sources.length === 0) return false;
 
             const operationEpoch = DataStore.getRenderOperationEpoch();
@@ -1536,12 +1510,13 @@ export namespace RendererTest {
                 synchronization.requestedViewportRevision,
                 frame.min,
                 frame.max,
-                Info.width,
-                currentApp.timeline.scale,
-                scrollStore.getX(),
+                width,
+                scale,
+                scrollX,
                 sourceSignature,
             ].join(':');
             const now = performance.now();
+            if (!force && now < benchmarkProjectionRetryAtRef.current) return false;
             if (!force && projectionKey === benchmarkProjectionKeyRef.current) {
                 return false;
             }
@@ -1557,31 +1532,48 @@ export namespace RendererTest {
             benchmarkLastProjectionAtRef.current = now;
             const descriptor = createRendererBenchmarkViewportDescriptor({
                 operationEpoch,
-                viewportRevision: synchronization.requestedViewportRevision,
                 projectionRevision: ++benchmarkProjectionRevisionRef.current,
-                frame,
-                width: Math.max(1, Info.width),
-                scale: currentApp.timeline.scale,
-                scrollX: scrollStore.getX(),
+                synchronization,
                 sources,
             });
             const request = store.publishRenderWindow(descriptor);
             benchmarkProjectionInFlightRef.current = request;
             try {
                 const published = await request;
-                if (published) benchmarkProjectionKeyRef.current = projectionKey;
+                if (published) {
+                    benchmarkProjectionKeyRef.current = projectionKey;
+                    benchmarkFirstUnacceptedAtRef.current = 0;
+                    benchmarkProjectionFailuresRef.current = 0;
+                    benchmarkProjectionRetryAtRef.current = 0;
+                    benchmarkProjectionErrorRef.current = null;
+                } else if (
+                    store.getDiagnostics().persistedEvents > 0 &&
+                    CanvasProfiler.getWorkerSynchronizationSnapshot()?.requestedViewportRevision ===
+                        descriptor.viewportRevision
+                ) {
+                    const rejectedAt = performance.now();
+                    benchmarkFirstUnacceptedAtRef.current ||= rejectedAt;
+                    if (rejectedAt - benchmarkFirstUnacceptedAtRef.current >= 5_000) {
+                        throw new Error('Canvas did not accept a benchmark projection within five seconds.');
+                    }
+                } else {
+                    benchmarkFirstUnacceptedAtRef.current = 0;
+                }
                 const diagnostics = store.getDiagnostics();
                 publishRendererBenchmarkDiagnostics(diagnostics);
                 return published;
             } catch (error) {
                 benchmarkProjectionErrorRef.current = error;
+                benchmarkProjectionFailuresRef.current++;
+                benchmarkProjectionRetryAtRef.current = performance.now() +
+                    Math.min(2_000, 100 * 2 ** Math.min(5, benchmarkProjectionFailuresRef.current - 1));
                 throw error;
             } finally {
                 if (benchmarkProjectionInFlightRef.current === request) {
                     benchmarkProjectionInFlightRef.current = null;
                 }
             }
-        }, [Info.width]);
+        }, []);
 
         useEffect(() => {
             if (runKey === 0 || !timelineEnabled) return;
@@ -1622,7 +1614,10 @@ export namespace RendererTest {
             const totalNotes = Math.min(targetNotes, targetDocs);
             const totalLinks = Math.min(targetLinks, targetDocs);
             const totalHighlights = targetHighlights;
-            const nowTs = Date.now();
+            const cacheMode = new URLSearchParams(window.location.search).get('cache') === 'warm'
+                ? 'warm'
+                : 'cold';
+            const nowTs = RENDERER_BENCHMARK_CLOCK_MS;
             const documentMinTs = nowTs - TIME_WINDOW_MS;
             const frameMinTs = releaseGateEnabled
                 ? documentMinTs - RELEASE_GATE_DELTA_RESERVE_MS
@@ -1648,16 +1643,18 @@ export namespace RendererTest {
             let cancelled = false;
 
             // Reset data stores for a fresh run.
-            cancelAnimationFrame(animFrameRef.current);
             Doc.Entity.clearIndex();
             DataStore.resetRenderOperation(MOCK_OPERATION_ID);
             Note.Entity.invalidateCache();
             const namespace = createRendererBenchmarkNamespace(MOCK_OPERATION_ID);
             DataStore.openEventStoreNamespace(namespace);
-            const benchmarkStore = createRendererBenchmarkEventStore(namespace, {
+            const benchmarkStore = createRendererBenchmarkWorkerStore(namespace, {
                 publishSourceSummary: (summary) => {
                     if (cancelled) return;
                     DataStore.publishEventSourceSummary(summary, 'deferred');
+                    if (summary.status === 'building' && summary.eventCount === 0) {
+                        DataStore.markTransientEventSources([summary.sourceId]);
+                    }
                 },
                 readMainCacheDocuments: () => DataStore.Events.cacheSize,
             });
@@ -1665,9 +1662,12 @@ export namespace RendererTest {
             benchmarkSourcesRef.current = sources;
             benchmarkProjectionRevisionRef.current = 0;
             benchmarkProjectionErrorRef.current = null;
+            benchmarkProjectionFailuresRef.current = 0;
+            benchmarkProjectionRetryAtRef.current = 0;
+            benchmarkFirstUnacceptedAtRef.current = 0;
             benchmarkProjectionKeyRef.current = '';
-            benchmarkLastProjectionAtRef.current = 0;
-            const emptyDiagnostics = createEmptyRendererBenchmarkDiagnostics(totalDocs);
+            benchmarkLastProjectionAtRef.current = Number.NEGATIVE_INFINITY;
+            const emptyDiagnostics = createEmptyRendererBenchmarkDiagnostics(totalDocs, cacheMode);
             setBenchmarkDiagnostics(emptyDiagnostics);
             publishRendererBenchmarkDiagnostics(emptyDiagnostics);
 
@@ -1945,9 +1945,8 @@ export namespace RendererTest {
             };
 
             /**
-             * Terminates a benchmark rejected by IndexedDB quota without exposing a
-             * partial dataset, while waking both benchmark and gate automation.
-             * @param diagnostics Concrete quota failure and resource measurements.
+             * Terminates a skipped workload without exposing a partial dataset.
+             * @param diagnostics Concrete skip reason and resource measurements.
              * @returns Nothing.
              */
             const completeQuotaSkip = (
@@ -2014,7 +2013,7 @@ export namespace RendererTest {
             };
 
             /**
-             * Writes exact pages until completion or a concrete IndexedDB failure.
+             * Runs cold writes or validates a warm cache until a terminal result.
              * @returns Promise settled after completion, skip, cancellation, or failure.
              */
             const runBenchmark = async (): Promise<void> => {
@@ -2027,18 +2026,19 @@ export namespace RendererTest {
                         generation: runKey,
                         documentMinTimestamp: documentMinTs,
                         frameSpanMs: documentSpanMs,
+                        cacheMode,
                     });
-                    setBenchmarkDiagnostics(progress.diagnostics);
-                    publishRendererBenchmarkDiagnostics(progress.diagnostics);
+                    setBenchmarkDiagnostics(benchmarkStore.getDiagnostics());
+                    publishRendererBenchmarkDiagnostics(benchmarkStore.getDiagnostics());
 
                     while (!progress.done && !cancelled) {
-                        await new Promise<void>((resolve) => {
-                            animFrameRef.current = requestAnimationFrame(() => resolve());
-                        });
-                        if (cancelled) break;
                         progress = await benchmarkStore.appendNextPage();
-                        setBenchmarkDiagnostics(progress.diagnostics);
-                        publishRendererBenchmarkDiagnostics(progress.diagnostics);
+                        if (cancelled) break;
+                        if (benchmarkProjectionFailuresRef.current >= 6) {
+                            throw benchmarkProjectionErrorRef.current;
+                        }
+                        setBenchmarkDiagnostics(benchmarkStore.getDiagnostics());
+                        publishRendererBenchmarkDiagnostics(benchmarkStore.getDiagnostics());
                         setPerfStats((previous) => ({
                             ...previous,
                             injected: progress.persistedEvents,
@@ -2051,7 +2051,7 @@ export namespace RendererTest {
                         return;
                     }
                     if (progress.status === 'skipped') {
-                        const diagnostics = progress.diagnostics;
+                        const diagnostics = benchmarkStore.getDiagnostics();
                         if (diagnostics.processedEvents > 0) {
                             DataStore.resetRenderOperation(MOCK_OPERATION_ID);
                         }
@@ -2154,7 +2154,15 @@ export namespace RendererTest {
                         });
                     }
 
-                    await publishBenchmarkRenderWindow(true);
+                    let terminalProjectionAccepted = false;
+                    for (let attempt = 0; attempt < 50 && !cancelled; attempt++) {
+                        terminalProjectionAccepted = await publishBenchmarkRenderWindow(true);
+                        if (terminalProjectionAccepted) break;
+                        await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+                    }
+                    if (!terminalProjectionAccepted) {
+                        throw new Error('Canvas did not accept the terminal benchmark projection.');
+                    }
                     const diagnostics = benchmarkStore.getDiagnostics();
                     setBenchmarkDiagnostics(diagnostics);
                     publishRendererBenchmarkDiagnostics(diagnostics, true);
@@ -2174,9 +2182,11 @@ export namespace RendererTest {
                     }
                 } catch (error) {
                     if (cancelled) return;
+                    await benchmarkStore.cancel();
                     const diagnostics: RendererBenchmarkDiagnostics = {
                         ...benchmarkStore.getDiagnostics(),
                         status: 'failed',
+                        failureReason: error instanceof Error ? error.message : String(error),
                     };
                     setBenchmarkDiagnostics(diagnostics);
                     publishRendererBenchmarkDiagnostics(diagnostics, true);
@@ -2200,7 +2210,6 @@ export namespace RendererTest {
             const runPromise = runBenchmark();
             return () => {
                 cancelled = true;
-                cancelAnimationFrame(animFrameRef.current);
                 const pendingProjection = benchmarkProjectionInFlightRef.current;
                 if (benchmarkStoreRef.current === benchmarkStore) {
                     benchmarkStoreRef.current = null;

@@ -233,6 +233,8 @@ export interface EventPixelPage {
 /** Serializable source-level update sent from QueryWorker to browser clients. */
 export interface EventSourceSummary {
 	sourceId: Source.Id;
+	/** Persisted encoded page, aggregate, and ID-index bytes when the repository supplies them. */
+	encodedBytes?: number;
 	generation: number;
 	revision: number;
 	/** Monotonic logical authority that permits activation of older physical generations. */

@@ -4012,6 +4012,7 @@ export class EventStoreRepository
 	private toSummary(manifest: StoredEventSourceManifest): EventSourceSummary {
 		return {
 			sourceId: manifest.sourceId,
+			encodedBytes: manifest.encodedBytes,
 			generation: manifest.generation,
 			revision: manifest.revision,
 			authorityRevision: manifest.authorityRevision,

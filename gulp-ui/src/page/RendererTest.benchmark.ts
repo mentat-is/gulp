@@ -2,8 +2,6 @@ import type { Doc } from "@/entities/Doc";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
 import {
-	buildEventPageHeight,
-	buildEventPageLod,
 	encodeEventPage,
 	EVENT_MAIN_CACHE_SIZE,
 	EVENT_PAGE_SIZE,
@@ -28,6 +26,7 @@ export const RENDERER_BENCHMARK_TARGETS = [
 ] as const;
 export const DEFAULT_RENDERER_BENCHMARK_TARGET = RENDERER_BENCHMARK_TARGETS[0];
 export const RENDERER_BENCHMARK_CACHE_NAMESPACE_ID = "renderer-test";
+export const RENDERER_BENCHMARK_CLOCK_MS = Date.UTC(2025, 0, 1);
 
 /** Raw typed-array bytes stored by one document-index locator entry. */
 const DOCUMENT_INDEX_BYTES_PER_EVENT = 6 * Uint32Array.BYTES_PER_ELEMENT;
@@ -40,9 +39,10 @@ export type RendererBenchmarkRunStatus =
 	| "failed"
 	| "cancelled";
 
-export type RendererBenchmarkSkipCode = "quota-exhausted";
+export type RendererBenchmarkSkipCode = "quota-exhausted" | "cache-miss";
+export type RendererBenchmarkCacheMode = "cold" | "warm";
 
-/** Structured reason for a benchmark target that cannot fit in the current origin. */
+/** Structured reason a requested benchmark workload did not run. */
 export interface RendererBenchmarkSkipReason {
 	code: RendererBenchmarkSkipCode;
 }
@@ -50,6 +50,7 @@ export interface RendererBenchmarkSkipReason {
 /** Storage, memory, cache, and bounded-queue telemetry for one benchmark run. */
 export interface RendererBenchmarkDiagnostics {
 	status: RendererBenchmarkRunStatus;
+	cacheMode: RendererBenchmarkCacheMode;
 	targetEvents: number;
 	processedEvents: number;
 	persistedEvents: number;
@@ -58,11 +59,17 @@ export interface RendererBenchmarkDiagnostics {
 	writeEventsPerSecond: number;
 	writeEncodedBytesPerSecond: number;
 	skipReason: RendererBenchmarkSkipReason | null;
+	failureReason: string | null;
 	heapSupported: boolean;
 	heapStartBytes: number;
 	heapPeakBytes: number;
 	heapEndBytes: number;
 	heapDeltaBytes: number;
+	mainHeapSupported: boolean;
+	mainHeapStartBytes: number;
+	mainHeapPeakBytes: number;
+	mainHeapEndBytes: number;
+	mainHeapDeltaBytes: number;
 	mainCacheDocuments: number;
 	maximumMainCacheDocuments: number;
 	maximumPendingDocuments: number;
@@ -99,6 +106,7 @@ export interface RendererBenchmarkStartOptions {
 	generation: number;
 	documentMinTimestamp: number;
 	frameSpanMs: number;
+	cacheMode?: RendererBenchmarkCacheMode;
 }
 
 /** Parameters for deterministic generation of one source-local exact page. */
@@ -130,6 +138,8 @@ interface RendererBenchmarkSourceCursor {
 
 /** Minimal writer lifecycle required by the transition benchmark adapter. */
 export interface RendererBenchmarkWriter extends EventStoreWriter {
+	/** Reads one compact persisted source authority for warm-cache validation. */
+	getSourceSummary?(sourceId: Source.Id): Promise<EventSourceSummary | null>;
 	/** Releases the operation-scoped persistence connection. */
 	close(): void;
 }
@@ -155,13 +165,16 @@ export interface RendererBenchmarkEventStoreDependencies {
 /**
  * Creates the zeroed machine-readable state published before a benchmark starts.
  * @param targetEvents Selected 10M, 20M, or 30M target.
+ * @param cacheMode Requested cold ingestion or compatible warm reuse.
  * @returns Detached diagnostics safe to expose on `window` and DOM datasets.
  */
 export function createEmptyRendererBenchmarkDiagnostics(
 	targetEvents: number = DEFAULT_RENDERER_BENCHMARK_TARGET,
+	cacheMode: RendererBenchmarkCacheMode = "cold",
 ): RendererBenchmarkDiagnostics {
 	return {
 		status: "idle",
+		cacheMode,
 		targetEvents,
 		processedEvents: 0,
 		persistedEvents: 0,
@@ -170,11 +183,17 @@ export function createEmptyRendererBenchmarkDiagnostics(
 		writeEventsPerSecond: 0,
 		writeEncodedBytesPerSecond: 0,
 		skipReason: null,
+		failureReason: null,
 		heapSupported: false,
 		heapStartBytes: 0,
 		heapPeakBytes: 0,
 		heapEndBytes: 0,
 		heapDeltaBytes: 0,
+		mainHeapSupported: false,
+		mainHeapStartBytes: 0,
+		mainHeapPeakBytes: 0,
+		mainHeapEndBytes: 0,
+		mainHeapDeltaBytes: 0,
 		mainCacheDocuments: 0,
 		maximumMainCacheDocuments: 0,
 		maximumPendingDocuments: 0,
@@ -456,6 +475,7 @@ export class RendererBenchmarkEventStore {
 	private processedEvents = 0;
 	private persistedEvents = 0;
 	private encodedBytes = 0;
+	private readonly encodedBytesBySource = new Map<Source.Id, number>();
 	private writeStartedAtMs = -1;
 	private writeFinishedAtMs = 0;
 	private skipReason: RendererBenchmarkSkipReason | null = null;
@@ -489,7 +509,7 @@ export class RendererBenchmarkEventStore {
 	}
 
 	/**
-	 * Clears old benchmark generations and opens one generation per source.
+	 * Opens a cold generation or validates and adopts complete warm sources.
 	 * @param options Target, source identities, and deterministic timeline parameters.
 	 * @returns Initial admitted or skipped progress snapshot.
 	 */
@@ -503,6 +523,9 @@ export class RendererBenchmarkEventStore {
 		}
 		this.resetRunState(options);
 		try {
+			if (options.cacheMode === "warm") {
+				return await this.startWarmCache(options);
+			}
 			for (const sourceId of options.sourceIds) {
 				await this.writer.clearSource(sourceId);
 			}
@@ -543,6 +566,70 @@ export class RendererBenchmarkEventStore {
 		}
 	}
 
+	/** Reuses only a complete cache matching every source count and event time edge. */
+	private async startWarmCache(
+		options: RendererBenchmarkStartOptions,
+	): Promise<RendererBenchmarkWriteProgress> {
+		const summaries: EventSourceSummary[] = [];
+		for (let sourceIndex = 0; sourceIndex < options.sourceIds.length; sourceIndex++) {
+			const sourceId = options.sourceIds[sourceIndex];
+			const summary = await this.writer.getSourceSummary?.(sourceId) ?? null;
+			const expectedCount = getRendererBenchmarkSourceEventCount(
+				options.targetEvents,
+				sourceIndex,
+				options.sourceIds.length,
+			);
+			const oldest = getRendererBenchmarkDocumentAtPercentile(
+				sourceId,
+				sourceIndex,
+				options.sourceIds.length,
+				0,
+				options.targetEvents,
+				options.documentMinTimestamp,
+				options.frameSpanMs,
+			);
+			const newest = getRendererBenchmarkDocumentAtPercentile(
+				sourceId,
+				sourceIndex,
+				options.sourceIds.length,
+				1,
+				options.targetEvents,
+				options.documentMinTimestamp,
+				options.frameSpanMs,
+			);
+			if (
+				!summary || summary.status !== "complete" ||
+				summary.eventCount !== expectedCount ||
+				summary.minTimestamp !== (oldest?.gulp_timestamp ?? null) ||
+				summary.maxTimestamp !== (newest?.gulp_timestamp ?? null)
+			) {
+				this.status = "skipped";
+				this.skipReason = { code: "cache-miss" };
+				return this.getProgress();
+			}
+			summaries.push(summary);
+		}
+		for (let sourceIndex = 0; sourceIndex < summaries.length; sourceIndex++) {
+			const summary = summaries[sourceIndex];
+			this.cursors.push({
+				sourceId: summary.sourceId,
+				sourceIndex,
+				eventCount: summary.eventCount,
+				sourceOffset: summary.eventCount,
+				pageId: 0,
+				revision: summary.revision,
+			});
+			this.encodedBytes += summary.encodedBytes ?? 0;
+			if (summary.encodedBytes !== undefined) {
+				this.encodedBytesBySource.set(summary.sourceId, summary.encodedBytes);
+			}
+			this.publishSourceSummary(summary);
+		}
+		this.persistedEvents = options.targetEvents;
+		this.status = "complete";
+		return this.getProgress();
+	}
+
 	/**
 	 * Encodes and commits at most one exact EventStore page.
 	 * @returns Progress after the bounded page, or a terminal status when complete/skipped.
@@ -577,24 +664,28 @@ export class RendererBenchmarkEventStore {
 				documents: pageInput.documents,
 				handles: pageInput.handles,
 			});
-			const lod = buildEventPageLod(page);
-			const height = buildEventPageHeight(page);
 			const summary = await this.writer.appendPages({
 				sourceId: cursor.sourceId,
 				generation: this.options.generation,
 				pages: [page],
 			});
-			const committedBytes =
-				page.encodedByteLength +
-				lod.encodedByteLength +
-				height.encodedByteLength +
-				page.activeCount * DOCUMENT_INDEX_BYTES_PER_EVENT;
+			// Real repositories expose exact cumulative bytes; synthetic writer spies
+			// retain a bounded estimate without rebuilding LOD and HeightMap records.
+			if (summary.encodedBytes !== undefined) {
+				this.encodedBytesBySource.set(cursor.sourceId, summary.encodedBytes);
+				this.encodedBytes = [...this.encodedBytesBySource.values()].reduce(
+					(total, bytes) => total + bytes,
+					0,
+				);
+			} else {
+				this.encodedBytes += page.encodedByteLength +
+					page.activeCount * DOCUMENT_INDEX_BYTES_PER_EVENT;
+			}
 			cursor.sourceOffset += page.activeCount;
 			cursor.pageId++;
 			cursor.revision = summary.revision;
 			this.processedEvents += page.activeCount;
 			this.persistedEvents += page.activeCount;
-			this.encodedBytes += committedBytes;
 			this.publishSourceSummary(summary);
 			this.sampleHeapUsage();
 			return this.getProgress();
@@ -680,6 +771,9 @@ export class RendererBenchmarkEventStore {
 		);
 		for (const summary of summaries) {
 			summaryCounts.set(summary.sourceId, summary.eventCount);
+			if (summary.encodedBytes !== undefined) {
+				this.encodedBytesBySource.set(summary.sourceId, summary.encodedBytes);
+			}
 			const cursor = this.cursors.find(
 				(candidate) => candidate.sourceId === summary.sourceId,
 			);
@@ -692,6 +786,12 @@ export class RendererBenchmarkEventStore {
 			(total, count) => total + count,
 			0,
 		);
+		if (this.encodedBytesBySource.size > 0) {
+			this.encodedBytes = [...this.encodedBytesBySource.values()].reduce(
+				(total, bytes) => total + bytes,
+				0,
+			);
+		}
 		this.sampleHeapUsage();
 		return summaries;
 	}
@@ -711,6 +811,27 @@ export class RendererBenchmarkEventStore {
 	}
 
 	/**
+	 * Builds one bounded projection while tracking in-flight render batches.
+	 * @param descriptor Current Canvas viewport and source settings.
+	 * @returns Projection ready for transfer, or null when the batch cap is reached.
+	 */
+	public async projectRenderWindow(
+		descriptor: EventStoreViewportDescriptor,
+	): Promise<RenderWindowProjection | null> {
+		if (this.renderBatchesInFlight >= 2) return null;
+		this.renderBatchesInFlight++;
+		this.maximumRenderBatchesInFlight = Math.max(
+			this.maximumRenderBatchesInFlight,
+			this.renderBatchesInFlight,
+		);
+		try {
+			return await this.requestRenderWindow(descriptor);
+		} finally {
+			this.renderBatchesInFlight--;
+		}
+	}
+
+	/**
 	 * Builds and synchronously hands one projection to the Canvas bus.
 	 * @param descriptor Current Canvas viewport and visible source settings.
 	 * @returns True when the mounted Canvas accepted the projection.
@@ -718,18 +839,8 @@ export class RendererBenchmarkEventStore {
 	public async publishRenderWindow(
 		descriptor: EventStoreViewportDescriptor,
 	): Promise<boolean> {
-		if (this.renderBatchesInFlight >= 2) return false;
-		this.renderBatchesInFlight++;
-		this.maximumRenderBatchesInFlight = Math.max(
-			this.maximumRenderBatchesInFlight,
-			this.renderBatchesInFlight,
-		);
-		try {
-			const projection = await this.requestRenderWindow(descriptor);
-			return this.publishProjection(projection, descriptor);
-		} finally {
-			this.renderBatchesInFlight--;
-		}
+		const projection = await this.projectRenderWindow(descriptor);
+		return projection ? this.publishProjection(projection, descriptor) : false;
 	}
 
 	/**
@@ -768,6 +879,7 @@ export class RendererBenchmarkEventStore {
 		);
 		const diagnostics: RendererBenchmarkDiagnostics = {
 			status: this.status,
+			cacheMode: this.options?.cacheMode ?? "cold",
 			targetEvents: this.options?.targetEvents ?? 0,
 			processedEvents: this.processedEvents,
 			persistedEvents: this.persistedEvents,
@@ -778,11 +890,17 @@ export class RendererBenchmarkEventStore {
 			writeEncodedBytesPerSecond:
 				writeSeconds > 0 ? this.encodedBytes / writeSeconds : 0,
 			skipReason: this.skipReason ? { ...this.skipReason } : null,
+			failureReason: null,
 			heapSupported: this.heapStartBytes > 0,
 			heapStartBytes: this.heapStartBytes,
 			heapPeakBytes: this.heapPeakBytes,
 			heapEndBytes: this.heapEndBytes,
 			heapDeltaBytes: Math.max(0, this.heapEndBytes - this.heapStartBytes),
+			mainHeapSupported: false,
+			mainHeapStartBytes: 0,
+			mainHeapPeakBytes: 0,
+			mainHeapEndBytes: 0,
+			mainHeapDeltaBytes: 0,
 			mainCacheDocuments,
 			maximumMainCacheDocuments: this.maximumMainCacheDocuments,
 			maximumPendingDocuments: this.maximumPendingDocuments,
@@ -814,6 +932,7 @@ export class RendererBenchmarkEventStore {
 		this.processedEvents = 0;
 		this.persistedEvents = 0;
 		this.encodedBytes = 0;
+		this.encodedBytesBySource.clear();
 		this.writeStartedAtMs = -1;
 		this.writeFinishedAtMs = 0;
 		this.skipReason = null;
@@ -968,7 +1087,7 @@ export class RendererBenchmarkEventStore {
 	}
 }
 
-/** Reads Chromium's optional heap counter when exposed to the current page. */
+/** Reads Chromium's optional heap counter for the adapter's current realm. */
 function readRendererBenchmarkHeapUsage(): number | null {
 	const memory = (performance as PerformanceWithMemory).memory;
 	return memory && Number.isFinite(memory.usedJSHeapSize)

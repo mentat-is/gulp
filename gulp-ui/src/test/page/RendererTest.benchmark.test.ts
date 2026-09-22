@@ -13,6 +13,7 @@ import {
 	createEmptyRendererBenchmarkDiagnostics,
 	evaluateRendererBenchmarkResourceGate,
 	generateRendererBenchmarkSourcePage,
+	getRendererBenchmarkDocumentAtPercentile,
 	getRendererBenchmarkSourceEventCount,
 	getRendererBenchmarkTarget,
 	RENDERER_BENCHMARK_REPRESENTATIVE_LIMIT,
@@ -41,13 +42,17 @@ class RendererBenchmarkWriterSpy {
 	public closed = false;
 	public quotaAfterSuccessfulPageWrites: number | null = null;
 	public failUpsertWithQuota = false;
+	public reportEncodedBytes = false;
+	public readonly warmSummaries = new Map<Source.Id, EventSourceSummary>();
 	private readonly counts = new Map<Source.Id, number>();
+	private readonly encodedBytes = new Map<Source.Id, number>();
 	private readonly revisions = new Map<Source.Id, number>();
 
 	/** Clears one source counter. */
 	public async clearSource(sourceId: Source.Id): Promise<void> {
 		this.counts.delete(sourceId);
 		this.revisions.delete(sourceId);
+		this.encodedBytes.delete(sourceId);
 	}
 
 	/** Opens one empty source generation. */
@@ -58,6 +63,11 @@ class RendererBenchmarkWriterSpy {
 		this.counts.set(input.sourceId, 0);
 		this.revisions.set(input.sourceId, 1);
 		return this.summary(input.sourceId, "building");
+	}
+
+	/** Returns a compact persisted authority for the warm-cache path. */
+	public async getSourceSummary(sourceId: Source.Id): Promise<EventSourceSummary | null> {
+		return this.warmSummaries.get(sourceId) ?? null;
 	}
 
 	/** Records one exact bounded page append. */
@@ -75,6 +85,10 @@ class RendererBenchmarkWriterSpy {
 			0,
 		);
 		for (const page of input.pages) this.pageSizes.push(page.activeCount);
+		this.encodedBytes.set(
+			input.sourceId,
+			(this.encodedBytes.get(input.sourceId) ?? 0) + 123 * input.pages.length,
+		);
 		this.counts.set(
 			input.sourceId,
 			(this.counts.get(input.sourceId) ?? 0) + appended,
@@ -156,6 +170,7 @@ class RendererBenchmarkWriterSpy {
 		const revision = this.revisions.get(sourceId) ?? 0;
 		return {
 			sourceId,
+			encodedBytes: this.reportEncodedBytes ? this.encodedBytes.get(sourceId) ?? 0 : undefined,
 			generation: 1,
 			revision,
 			authorityRevision: revision,
@@ -341,6 +356,100 @@ describe("RendererTest bounded EventStore benchmark", () => {
 		);
 		adapter.close();
 		expect(writer.closed).toBe(true);
+	});
+
+	it("uses committed repository byte totals without rebuilding page summaries", async () => {
+		const writer = new RendererBenchmarkWriterSpy();
+		writer.reportEncodedBytes = true;
+		const adapter = new RendererBenchmarkEventStore({
+			writer,
+			projector: new RendererBenchmarkProjectorSpy(),
+		});
+		let progress = await adapter.start({
+			targetEvents: EVENT_PAGE_SIZE + 1,
+			sourceIds: [SOURCE_A, SOURCE_B],
+			generation: 1,
+			documentMinTimestamp: 1_000,
+			frameSpanMs: 100_000,
+		});
+		while (!progress.done) progress = await adapter.appendNextPage();
+		const diagnostics = await adapter.finalize();
+
+		expect(writer.pageSizes).toEqual([EVENT_PAGE_SIZE / 2 + 1, EVENT_PAGE_SIZE / 2]);
+		expect(diagnostics.encodedBytes).toBe(246);
+		adapter.close();
+	});
+
+	it("reuses only complete source-exact warm caches without writing a page", async () => {
+		const writer = new RendererBenchmarkWriterSpy();
+		const options = {
+			targetEvents: 3,
+			sourceIds: [SOURCE_A, SOURCE_B],
+			generation: 1,
+			documentMinTimestamp: 1_000,
+			frameSpanMs: 100_000,
+			cacheMode: "warm" as const,
+		};
+		for (let sourceIndex = 0; sourceIndex < options.sourceIds.length; sourceIndex++) {
+			const sourceId = options.sourceIds[sourceIndex];
+			const base = await writer.beginGeneration({
+				sourceId,
+				generation: 1,
+				sourceOrdinal: sourceIndex + 1,
+			});
+			writer.warmSummaries.set(sourceId, {
+				...base,
+				status: "complete",
+				eventCount: getRendererBenchmarkSourceEventCount(3, sourceIndex, 2),
+				minTimestamp: getRendererBenchmarkDocumentAtPercentile(
+					sourceId, sourceIndex, 2, 0, 3, 1_000, 100_000,
+				)?.gulp_timestamp ?? 0,
+				maxTimestamp: getRendererBenchmarkDocumentAtPercentile(
+					sourceId, sourceIndex, 2, 1, 3, 1_000, 100_000,
+				)?.gulp_timestamp ?? 0,
+				encodedBytes: 123,
+			});
+		}
+		const adapter = new RendererBenchmarkEventStore({
+			writer,
+			projector: new RendererBenchmarkProjectorSpy(),
+		});
+		const progress = await adapter.start(options);
+		expect(progress.status).toBe("complete");
+		expect(progress.done).toBe(true);
+		expect(progress.diagnostics.cacheMode).toBe("warm");
+		expect(progress.diagnostics.persistedEvents).toBe(3);
+		expect(progress.diagnostics.processedEvents).toBe(0);
+		expect(progress.diagnostics.encodedBytes).toBe(246);
+		expect(writer.pageSizes).toEqual([]);
+		const changedSummary = writer.warmSummaries.get(SOURCE_B);
+		if (!changedSummary) throw new Error("Expected warm source summary.");
+		writer.warmSummaries.set(SOURCE_B, {
+			...changedSummary,
+			maxTimestamp: (changedSummary.maxTimestamp ?? 0) + 1,
+		});
+		expect((await adapter.start(options)).diagnostics.skipReason?.code).toBe("cache-miss");
+		adapter.close();
+	});
+
+	it("reports a warm-cache miss without silently switching to cold ingestion", async () => {
+		const writer = new RendererBenchmarkWriterSpy();
+		const adapter = new RendererBenchmarkEventStore({
+			writer,
+			projector: new RendererBenchmarkProjectorSpy(),
+		});
+		const progress = await adapter.start({
+			targetEvents: 10_000_000,
+			sourceIds: [SOURCE_A, SOURCE_B],
+			generation: 1,
+			documentMinTimestamp: 1_000,
+			frameSpanMs: 100_000,
+			cacheMode: "warm",
+		});
+		expect(progress.status).toBe("skipped");
+		expect(progress.diagnostics.skipReason?.code).toBe("cache-miss");
+		expect(writer.pageSizes).toEqual([]);
+		adapter.close();
 	});
 
 	it("cancels partial generations after a concrete IndexedDB quota failure", async () => {
