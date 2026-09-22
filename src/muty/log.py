@@ -2,9 +2,18 @@
 
 NOTE: as of the log-revolution migration (see gulp's plans/log-revolution.md),
 nothing in this repo (src/gulp/, src/muty/) calls MutyLogger anymore — gulp's
-own application code uses gulp.glug.Glug instead. MutyLogger is kept here,
-unchanged, only for backward compatibility with external/paid plugins outside
-this repo that may still import and use it directly.
+own application code uses gulp.glug.Glug instead. MutyLogger is kept here for
+backward compatibility with external/paid plugins outside this repo that may
+still import and use it directly, but its stdout handler now forwards every
+record to Glug (see _GlugForwardingHandler below) instead of writing its own,
+differently-formatted line — so a plugin still calling
+MutyLogger.get_instance() renders through the same console/JSON output as the
+rest of gulp, respecting --log-level/--dev-mode, instead of a separate
+pipe-delimited format. The import of gulp.glug is lazy (done inside
+_GlugForwardingHandler.emit(), not at module level) so muty itself still does
+not hard-depend on gulp at import time — if gulp.glug cannot be imported
+(muty used standalone, outside gulp), the handler silently drops the record,
+the same as an unconfigured stdlib logger with no handler would.
 """
 
 import asyncio
@@ -17,13 +26,39 @@ import threading
 import traceback
 from logging.handlers import RotatingFileHandler, SysLogHandler
 
-import coloredlogs
 
+class _GlugForwardingHandler(logging.Handler):
+    """
+    forwards stdlib LogRecords (e.g. from an external plugin still calling
+    MutyLogger.get_instance()) to Glug, gulp's own structured logger — see
+    this module's docstring for why.
+    """
 
-class MultiLineFormatter(logging.Formatter):
-    def format(self, record):
-        message = super().format(record).replace("\\n", "\n")
-        return message
+    _LEVEL_METHOD_NAMES = {
+        logging.DEBUG: "debug",
+        logging.INFO: "info",
+        logging.WARNING: "warning",
+        logging.ERROR: "error",
+        logging.CRITICAL: "critical",
+    }
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            from gulp.glug import Glug
+        except ImportError:
+            # muty used outside gulp: nothing to forward to, drop silently.
+            return
+
+        method_name = self._LEVEL_METHOD_NAMES.get(record.levelno, "info")
+        method = getattr(Glug.get_instance(), method_name)
+        try:
+            message = record.getMessage()
+        except Exception:
+            # record.getMessage() itself raises if args don't match the
+            # format string (a caller bug) — fall back to the raw msg
+            # instead of losing the record entirely.
+            message = str(record.msg)
+        method(message, exc_info=record.exc_info or None)
 
 
 class TruncateFormatter(logging.Formatter):
@@ -90,14 +125,20 @@ class MutyLogger(logging.Logger):
 
         Args:
             name (str, optional): the name of the logger, mandatory on the first call. Defaults to None (uses the global Logger).
-            logger_file_path (str, optional): path to the logger file. Defaults to None (log to stdout only), ignored if log_to_syslog is True.
+            logger_file_path (str, optional): path to an EXTRA log file, on top of the default
+                forwarding to Glug (see this module's docstring). Defaults to None (no extra file),
+                ignored if log_to_syslog is set.
             level (int, optional): the debug level. Defaults to logging.DEBUG.
             max_log_size_mb (int, optional): the maximum size of each log file in MB. Defaults to 4.
             max_kept_log (int, optional): the maximum number of log files to keep. Defaults to 10.
-            format_string (str, optional): the log format string. Defaults to None (uses default).
-            custom_field_styles (dict, optional): a dictionary of custom field styles for coloredlogs. Defaults to None (uses default).
-            use_multiline_formatter (bool, optional): whether to use a multiline formatter or not. Defaults to False.
-            log_to_syslog (tuple[str,str], optional): if set, logs to syslog at the specified address and facility.
+            format_string (str, optional): the log format string, used only for the optional
+                extra file/syslog handler (the default forwarding to Glug has its own format).
+                Defaults to None (uses default).
+            custom_field_styles (dict, optional): unused, kept only for call-site compatibility
+                (the default output now goes through Glug's own formatter, not coloredlogs).
+            use_multiline_formatter (bool, optional): unused, kept only for call-site compatibility.
+            log_to_syslog (tuple[str,str], optional): if set, ALSO logs to syslog (on top of the
+                default forwarding to Glug) at the specified address and facility.
                 if (None, None) is passed, it auto-detects a local Unix syslog socket
                 (e.g. /dev/log or /var/run/syslog) and falls back to ("127.0.0.1", 514)
                 when no socket is available (common in Docker containers).
@@ -119,8 +160,6 @@ class MutyLogger(logging.Logger):
                 max_log_size_mb=max_log_size_mb,
                 max_kept_log=max_kept_log,
                 format_string=format_string,
-                custom_field_styles=custom_field_styles,
-                use_multiline_formatter=use_multiline_formatter,
                 log_to_syslog=log_to_syslog,
             )
         return cls._instance
@@ -134,8 +173,6 @@ class MutyLogger(logging.Logger):
         max_log_size_mb: int = 4,
         max_kept_log: int = 10,
         format_string: str = None,
-        custom_field_styles: dict = None,
-        use_multiline_formatter: bool = True,
         log_to_syslog: tuple[str, str] = None,
         **kwargs,
     ) -> None:
@@ -148,34 +185,25 @@ class MutyLogger(logging.Logger):
         level = level or logging.DEBUG
         l.setLevel(level)
         l.handlers = []
-        # This logger owns its stdout and optional file/syslog handlers. Do not
-        # duplicate its records through root handlers installed by libraries
-        # such as FastMCP/Rich.
+        # This logger owns its handlers. Do not duplicate its records through
+        # root handlers installed by libraries such as FastMCP/Rich.
         l.propagate = False
 
-        # configure a default log format, including thread id
+        # configure a default log format, including thread id — used only by the
+        # optional extra file/syslog handlers below, never by the default
+        # Glug-forwarding handler (which has its own formatting).
         log_format = (
             '%(asctime)s|%(name)s|%(task)s|%(levelname)s|%(process)d,%(thread_id)d|%(funcName)s|"%(pathname)s", line %(lineno)d|%(message)s'
             if format_string is None
             else format_string
         )
-        stdout_handler = logging.StreamHandler(sys.stdout)
-        stdout_handler.setLevel(level)
-        stdout_handler.setFormatter(
-            logging.Formatter(log_format)
-            if not use_multiline_formatter
-            else MultiLineFormatter(log_format)
-        )
 
-        if _thread_id_filter not in stdout_handler.filters:
-            stdout_handler.addFilter(_thread_id_filter)
-        if _path_filter not in stdout_handler.filters:
-            stdout_handler.addFilter(_path_filter)
-        if _taskname_filter not in stdout_handler.filters:
-            stdout_handler.addFilter(_taskname_filter)
-
-        if stdout_handler not in l.handlers:
-            l.handlers.append(stdout_handler)
+        # default: forward every record to Glug instead of writing our own,
+        # differently-formatted stdout line — see this module's docstring.
+        glug_handler = _GlugForwardingHandler()
+        glug_handler.setLevel(level)
+        if glug_handler not in l.handlers:
+            l.handlers.append(glug_handler)
 
         if log_to_syslog:
             # configure syslog handler
@@ -223,37 +251,7 @@ class MutyLogger(logging.Logger):
             if rotating_handler not in l.handlers:
                 l.handlers.append(rotating_handler)
 
-        if custom_field_styles:
-            # use default
-            custom_field_styles = coloredlogs.DEFAULT_FIELD_STYLES
-            custom_field_styles.update(
-                {
-                    "pathname": {
-                        "color": "blue",
-                    },
-                    "funcname": {
-                        "color": "blue",
-                    },
-                    "lineno": {
-                        "color": "yellow",
-                    },
-                    "thread_id": {
-                        "color": "green",
-                    },
-                    "process": {
-                        "color": "green",
-                    },
-                }
-            )
-
-        coloredlogs.install(
-            fmt=log_format,
-            level=level,
-            logger=l,
-            milliseconds=True,
-            field_styles=custom_field_styles,
-        )
-        l.debug('logger "%s" configured!' % (l))
+        l.debug('logger "%s" configured, forwarding to Glug' % (l))
 
 
 def _thread_id_filter(record: logging.LogRecord) -> bool:

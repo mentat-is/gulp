@@ -380,6 +380,32 @@
     loads again without an `ImportError`), and a broad integration batch (11 files): 91 passed,
     1 skipped, 2 failures — the same two already-tracked pre-existing environmental issues
     (parallel EVTX parser flakiness, OpenSearch disk-watermark pressure), no new regressions.
+- turned the kept-for-compatibility `MutyLogger` (`src/muty/log.py`) into an active `Glug`
+  forwarding wrapper: live validation showed its external-plugin output (e.g. `webhook.py`,
+  `oauth.py`) still rendered in `MutyLogger`'s old pipe-delimited stdout format, visually
+  inconsistent with the rest of the now-`Glug`-formatted console. Added
+  `_GlugForwardingHandler(logging.Handler)`, whose `emit()` does a deferred, `try/except
+  ImportError`-guarded `from gulp.glug import Glug` (never a module-level import, preserving
+  `muty`'s architectural independence from `gulp`), maps the record's level to the matching
+  `Glug` method, uses `record.getMessage()` (correctly applies `%`-style positional `args`),
+  and forwards `exc_info=record.exc_info or None` so tracebacks survive. `MutyLogger._reconfigure()`
+  now installs this handler as the default stdout handler instead of the old
+  `StreamHandler`+`MultiLineFormatter`/`coloredlogs` combination; syslog/rotating-file handlers
+  are unchanged, still available as opt-in extras when `log_to_syslog`/`logger_file_path` are
+  passed explicitly. Removed the now-dead `MultiLineFormatter` class and `coloredlogs` usage.
+  Known, accepted cosmetic limitation: forwarded lines show `muty.log:NN` as their
+  `module:line` in `Glug`'s console output rather than the original external caller's location,
+  since `Glug`'s fixed `_STACKLEVEL` assumes a direct call, not one relayed through a
+  `logging.Handler`. Re-verified, per explicit user request, that zero active
+  `MutyLogger.get_instance()`/`MutyLogger(...)` calls remain anywhere in the project outside
+  `src/muty/log.py`'s own definition (`grep -rn` across `src/`, excluding that file: no
+  results); the only remaining textual mentions are comparative comments in
+  `tests/unit/test_glug.py`, `glug/core.py`, and `glug/console_formatter.py`. Validated live
+  with two full backend restarts (`--log-level warning` and `--log-level debug`): both
+  external plugins' output now renders through `Glug`'s formatter, zero pipe-delimited lines
+  remain anywhere in the log; re-ran `pytest tests/unit/` (564/564) and an integration smoke
+  batch (`test_db.py`, `test_collab.py`, `test_users.py`, `test_plugins.py` — 34 passed), no
+  regressions.
 - fixed `docker-entrypoint.sh` leaving the bind-mounted working directory
   root-owned when Docker auto-creates a missing host mount path as root
   regardless of the container's own user, blocking `GULP_RUNTIME_USER` from
