@@ -416,6 +416,25 @@
   kept only for any genuinely third-party/unmaintained plugin outside both repos; the real
   fix is migrating `gulp-paid-plugins` itself to call `Glug` directly (289 call sites across
   43 files, tracked separately).
+- migrated `gulp-paid-plugins` (separate repo, branch `log-revolution` off `develop`) from
+  `MutyLogger` to `Glug`: 43 files, 289 call sites, same pattern as `src/gulp/plugins/`.
+  Unlike gulp's own already-f-string-style plugins, these used stdlib `logging`'s `%s`/`%d`
+  positional style extensively, which `Glug` doesn't support (a second positional argument
+  silently binds to `exc_info` instead of interpolating); re-ran the AST-based checker from
+  the `src/gulp/plugins/` migration across the whole repo and found 53 call sites with this
+  latent bug, all converted to f-strings, plus a manual sweep caught ~15 more call sites using
+  a pre-interpolated `"..." % (...)` string (syntactically valid, still wrong style) and ~13
+  bare `.exception(ex)` sites (the exception object as the whole message, no context) — all
+  fixed. Found and fixed two real credential leaks in `extension/oauth.py` while at it: a debug
+  line logged the Google/Microsoft OAuth `client_secret` in cleartext, and another dumped the
+  full OAuth token payload (access/id/refresh tokens) at DEBUG unconditionally; the secret was
+  removed from the message, the token dump moved into `detail=` (dev_mode-gated). Validated:
+  AST checker and `py_compile` clean on every touched file, two full backend restarts with
+  `--log-level debug` (paid plugins sync automatically into `~/.config/gulp/plugins/` in this
+  devcontainer) showing zero pipe-delimited `MutyLogger` lines and no new plugin-load failures
+  (the 3 that do fail — `ai_report.py`, `oauth.py`, `send_data_opencti.py` — are pre-existing,
+  caused by missing paid-plugin configuration in this devcontainer, not by this change).
+  Committed locally in the `gulp-paid-plugins` repo, not pushed.
 - fixed `docker-entrypoint.sh` leaving the bind-mounted working directory
   root-owned when Docker auto-creates a missing host mount path as root
   regardless of the container's own user, blocking `GULP_RUNTIME_USER` from
