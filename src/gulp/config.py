@@ -137,22 +137,22 @@ class GulpConfig:
         """
         config_file_path = self.path_config()
 
-        # Glug.get_instance().debug(f"configuration path: {config_file_path}")
-
-        # note that we use prints here since this is called before the logger is initialized
+        # this runs before the real Glug bootstrap (server_api.py/process.py), so an
+        # explicit name="glug" is used rather than a bare get_instance(): the first-ever
+        # call in a process defaults to name=None (the root logger) otherwise, which would
+        # risk attaching a handler to root and picking up every propagating third-party
+        # logger — the real bootstrap reconfigures the same "glug" name later regardless.
         if not os.path.exists(config_file_path):
             # copy default configuration file
             pkg_dir = os.path.dirname(os.path.abspath(__file__))  # src/gulp/
             src = os.path.join(pkg_dir, "gulp_cfg_template.json")
-            print(
-                "****** configuration file not found at %s, creating it from template %s ..."
-                % (config_file_path, src)
+            Glug.get_instance(name="glug").info(
+                f"configuration file not found at {config_file_path}, creating it from template {src}"
             )
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
-            print(
-                "****** PID=%d, NO CONFIGURATION FILE FOUND, created default configuration %s from template ******"
-                % (os.getpid(), config_file_path)
+            Glug.get_instance(name="glug").info(
+                f"created default configuration {config_file_path} from template"
             )
 
         # read
@@ -160,9 +160,8 @@ class GulpConfig:
             js = f.read()
             self._config = json5.loads(js)
 
-        print(
-            "******  PID=%d, reading configuration file DONE: %s ******"
-            % (os.getpid(), config_file_path)
+        Glug.get_instance(name="glug").debug(
+            f"reading configuration file done: {config_file_path}"
         )
 
     def set_config(self, config: dict):
@@ -747,9 +746,10 @@ class GulpConfig:
             # env var not set, create default or ensure it already exists
             home_path = os.path.expanduser("~")
             p = muty.file.safe_path_join(home_path, ".config/gulp", allow_relative=True)
-            print(
-                "****** PID=%d, GULP_WORKING_DIR not set, using default working directory in $HOME: %s"
-                % (os.getpid(), p)
+            # this runs before the real Glug bootstrap, same reasoning as _read_config()
+            # above: use an explicit name="glug" rather than a bare get_instance()
+            Glug.get_instance(name="glug").debug(
+                f"GULP_WORKING_DIR not set, using default working directory in $HOME: {p}"
             )
 
         self._working_dir = p
@@ -763,18 +763,13 @@ class GulpConfig:
         os.makedirs(self.path_logs(), exist_ok=True)
         os.makedirs(self.path_tmp_upload(), exist_ok=True)
         os.makedirs(self.path_ingest_local(), exist_ok=True)
-        # print paths
-        print(
-            "****** PID=%d, working_dir=%s, mapping_files_extra=%s, plugins_extra=%s, tmp_upload=%s, ingest_local=%s, logs=%s ******"
-            % (
-                os.getpid(),
-                self._working_dir,
-                self.path_mapping_files_extra(),
-                self.path_plugins_extra(),
-                self.path_tmp_upload(),
-                self.path_ingest_local(),
-                self.path_logs(),
-            )
+        Glug.get_instance(name="glug").debug(
+            f"working_dir={self._working_dir}, "
+            f"mapping_files_extra={self.path_mapping_files_extra()}, "
+            f"plugins_extra={self.path_plugins_extra()}, "
+            f"tmp_upload={self.path_tmp_upload()}, "
+            f"ingest_local={self.path_ingest_local()}, "
+            f"logs={self.path_logs()}"
         )
         return p
 

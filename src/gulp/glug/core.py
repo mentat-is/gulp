@@ -144,6 +144,23 @@ class Glug:
         self._logger.handlers = []
         self._logger.setLevel(logging.DEBUG if dev_mode else level)
 
+        # third-party HTTP/transport client libraries log every single request at INFO
+        # (opensearch-py in particular: one line per request, including routine polling
+        # every few seconds) — this is noise unrelated to gulp's own diagnostics, capped
+        # here unconditionally (even in dev_mode) rather than gated by gulp's own level.
+        # note: opensearch-py's actual logger is named "opensearch" (see
+        # opensearchpy/connection/base.py), not "opensearchpy" — both are covered here since
+        # opensearchpy.helpers/opensearchpy.trace do exist as separate logger names too.
+        for _noisy_logger_name in (
+            "opensearch",
+            "opensearchpy",
+            "elasticsearch",
+            "botocore",
+            "aiobotocore",
+            "urllib3",
+        ):
+            logging.getLogger(_noisy_logger_name).setLevel(logging.WARNING)
+
         # stdout is always on, human-readable, colorized only against a real terminal —
         # interactive use and Docker/systemd all already capture stdout themselves (see
         # plans/log-revolution.md, "Output su stdout vs file"). log_dir, when given, adds
@@ -203,6 +220,28 @@ class Glug:
         if level is not None:
             instance._level = level
         instance._logger.setLevel(logging.DEBUG if instance._dev_mode else instance._level)
+
+    @classmethod
+    def route_stdlib_logger(cls, name: str) -> None:
+        """
+        route a third-party stdlib-named logger (e.g. "uvicorn", "uvicorn.error") through
+        this Glug instance's own handlers/formatter, instead of whatever the library itself
+        installed — so its output looks like every other gulp log line instead of its own,
+        differently-formatted one.
+
+        must be called after this process's real Glug bootstrap (get_instance() with the
+        real name/level/log_dir), and, for uvicorn specifically, before uvicorn.run(...,
+        log_config=None) — passing log_config=None is required, otherwise uvicorn's own
+        logging.config.dictConfig() call inside run() overwrites these handlers again.
+
+        Args:
+            name (str): the stdlib logger name to take over (logging.getLogger(name))
+        """
+        instance = cls.get_instance()
+        target = logging.getLogger(name)
+        target.handlers = list(instance._logger.handlers)
+        target.propagate = False
+        target.setLevel(instance._logger.level)
 
     def is_dev_mode(self) -> bool:
         """

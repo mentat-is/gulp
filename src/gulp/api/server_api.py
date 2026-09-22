@@ -434,11 +434,19 @@ class GulpServer:
         except Exception:
             Glug.get_instance().exception("failed to write pidfile")
 
+        # route uvicorn's own startup/shutdown/error banner through glug instead of its
+        # own default handler, so it looks like every other gulp log line — log_config=None
+        # is required, otherwise uvicorn's own logging.config.dictConfig() call inside
+        # run() would overwrite the handlers just attached here.
+        for _uvicorn_logger_name in ("uvicorn", "uvicorn.error"):
+            Glug.route_stdlib_logger(_uvicorn_logger_name)
+
         uvicorn.run(
             self._app,
             host=address,
             port=port,
             ws_ping_interval=None,
+            log_config=None,
         )
 
     @staticmethod

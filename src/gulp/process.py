@@ -199,10 +199,25 @@ class GulpProcess:
                 addition to glug's always-on stdout output. Defaults to None (stdout only).
             dev_mode (bool, optional): glug dev_mode. Defaults to False.
         """
-        # glug isn't bootstrapped with this worker's own identity (process_role="worker")
-        # until finish_initialization() below, so we use print statements here
-        print(
-            "_worker_initializer, server_id=%s, spawn_key=%s" % (server_id, spawn_key)
+        # bootstrap glug for this worker process as the very first thing, before any other
+        # logging (including GulpConfig's own early debug calls just below): log_level/
+        # log_dir/dev_mode are already available as parameters here, so there is no reason
+        # to wait for finish_initialization() below — a bare or default-named get_instance()
+        # this early would lock in a level=INFO, name=None (root logger) instance that every
+        # .debug() call before the real bootstrap would silently be dropped against.
+        # finish_initialization() reconfigures the same name again — cheap and idempotent,
+        # kept as a safety net, mirroring GulpServer.start()/_lifespan_handler()'s main-process
+        # pattern.
+        Glug.get_instance(
+            name="glug-worker-%d" % (os.getpid()),
+            log_dir=log_dir,
+            level=log_level or logging.INFO,
+            dev_mode=dev_mode,
+            process_role="worker",
+            reconfigure=True,
+        )
+        Glug.get_instance().debug(
+            f"_worker_initializer starting, server_id={server_id}, spawn_key={spawn_key}"
         )
 
         GulpProcess._apply_worker_runtime_config(workers_concurrency_max)

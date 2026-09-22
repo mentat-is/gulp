@@ -435,6 +435,57 @@
   (the 3 that do fail — `ai_report.py`, `oauth.py`, `send_data_opencti.py` — are pre-existing,
   caused by missing paid-plugin configuration in this devcontainer, not by this change).
   Committed locally in the `gulp-paid-plugins` repo, not pushed.
+- converted the last plain `print()` startup diagnostics (`src/gulp/config.py`'s
+  `_read_config()`/`path_working_dir()`, `src/gulp/process.py`'s `_worker_initializer`) to
+  `Glug`, and removed their decorative `******` markers, after the user noticed lines like
+  `****** PID=302336, GULP_WORKING_DIR not set...` weren't going through the logger at all.
+  These run before the real per-process `Glug` bootstrap, so they explicitly bootstrap with
+  `name="glug"` rather than a bare `get_instance()` — the first-ever call in a process
+  defaults to `name=None` (the root logger) otherwise, risking a handler attached to root
+  that would pick up every propagating third-party logger (the exact bug class already fixed
+  once for `MutyLogger`, see the Fase 5 entry above). One-time, significant events (template
+  config created) are `.info()`; routine per-process diagnostics (working dir resolved,
+  config file read) are `.debug()`.
+  - Found and fixed the underlying reason these were silently invisible in worker processes
+    even after being converted: `process.py::_worker_initializer()` (which runs first in
+    every spawned worker, before `GulpConfig` is ever touched) is exactly where the real
+    per-worker `Glug` bootstrap (`name="glug-worker-<pid>"`, correct `log_level`/`dev_mode`)
+    belongs — it already receives those as parameters, so there is no reason to wait for
+    `finish_initialization()` to do it later. Moved that bootstrap to the top of
+    `_worker_initializer()`; `finish_initialization()`'s worker branch keeps its own
+    `reconfigure=True` call as a cheap, idempotent safety net (mirrors the existing
+    `GulpServer.start()`/`_lifespan_handler()` main-process pattern). Without this, any
+    `.debug()` call before `finish_initialization()` ran would silently be dropped against
+    the bare instance's `level=INFO` default, regardless of the actual `--log-level` flag —
+    exactly what was happening to the newly-converted worker diagnostics before this fix.
+  - Live validation surfaced two more integration gaps in the same area, both fixed:
+    `opensearch-py`'s own internal transport logger (name `"opensearch"`, not the package
+    name `"opensearchpy"` one might guess — confirmed by reading its source) was logging
+    every single HTTP request to OpenSearch at INFO, including a periodic backpressure stats
+    poll every ~2s, with zero relation to gulp's own log level; and `uvicorn.run()`'s own
+    default logging setup produced unformatted `INFO:     Application startup complete.`
+    lines alongside `Glug`'s own console output. Added `Glug.route_stdlib_logger(name)`
+    (`src/gulp/glug/core.py`): attaches the calling process's already-configured `Glug`
+    handlers to another stdlib-named logger, so its output renders identically to every
+    other gulp log line instead of the library's own format. `Glug._setup()` now also caps
+    `opensearch`/`opensearchpy`/`elasticsearch`/`botocore`/`aiobotocore`/`urllib3` to WARNING
+    unconditionally (even in `dev_mode`) — third-party per-request HTTP noise was never
+    useful even for gulp's own deep debugging, and 404/error-level output from those clients
+    still comes through. `GulpServer.start()` now routes `uvicorn`/`uvicorn.error` through
+    `Glug` right before `uvicorn.run(..., log_config=None)` (`log_config=None` is required,
+    otherwise uvicorn's own `logging.config.dictConfig()` call inside `run()` would overwrite
+    the handlers just attached); `uvicorn.access`'s per-request lines came along for free
+    since that logger's default `propagate=True` sends them to the now-routed `"uvicorn"`
+    parent logger, without needing to touch it directly.
+  - Validated: `pytest tests/unit/` (564/564), three full backend restarts at
+    `--log-level info`/`--log-level debug`/default confirming — at `info`: zero `******`
+    lines, zero OpenSearch per-request INFO noise (its 404/error-level lines during
+    `--reset-collab` still show, confirming the cap is precise, not a blanket silence),
+    `uvicorn`'s startup/shutdown banner rendered through `Glug`'s own formatter; at `debug`:
+    the same worker-diagnostic lines now correctly appear once per worker process (gated by
+    the real requested level, not silently dropped or unconditionally spammed like the old
+    `print()`s), no root-logger pollution. An integration smoke batch (`test_db.py`,
+    `test_collab.py`, `test_users.py` — 23 passed) confirmed no regressions.
 - fixed `docker-entrypoint.sh` leaving the bind-mounted working directory
   root-owned when Docker auto-creates a missing host mount path as root
   regardless of the container's own user, blocking `GULP_RUNTIME_USER` from
