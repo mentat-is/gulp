@@ -95,6 +95,7 @@ focused on the investigation.
 - [Integration API and raw ingestion](docs/integration.md)
 - [Query behavior](docs/query.md)
 - [Testing](docs/testing.md)
+- [Logging (Glug)](docs/logging.md)
 - [Observability](docs/observability.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
