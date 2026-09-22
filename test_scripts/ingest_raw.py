@@ -2,10 +2,10 @@
 import argparse
 import asyncio
 import json
+import logging
 
 import muty.file
 import websockets
-from muty.log import MutyLogger
 
 from gulp_client.common import GulpAPICommon
 from gulp_client.db import GulpAPIDb
@@ -18,6 +18,9 @@ from gulp_client.test_values import (
     TEST_WS_ID,
 )
 from gulp.api.ws_api import GulpWsAuthPacket, GulpWsIngestPacket
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+_logger = logging.getLogger("ingest_raw")
 
 
 def _chunk_array(arr: list, chunk_size: int) -> list:
@@ -35,8 +38,7 @@ def _chunk_array(arr: list, chunk_size: int) -> list:
 
 
 async def _ingest_ws_raw(args) -> None:
-    MutyLogger.get_instance("ingest_raw").info(
-        "ingesting raw, args=%s ..." % (args))
+    _logger.info("ingesting raw, args=%s", args)
 
     path = args.path
     reset = args.reset
@@ -55,7 +57,7 @@ async def _ingest_ws_raw(args) -> None:
 
     if reset:
         # reset first
-        MutyLogger.get_instance().info("resetting gulp !")
+        _logger.info("resetting gulp")
         token = await GulpAPIUser.login("admin", "admin")
         await GulpAPIDb.gulp_reset(token)
 
@@ -92,13 +94,13 @@ async def _ingest_ws_raw(args) -> None:
                     await ws.send(raw_chunk)
                     await asyncio.sleep(0.1)
                     c += 1
-                    MutyLogger.get_instance().info("sent chunk %d of %d documents ..." % (c, len(chunk)))
+                    _logger.info("sent chunk %d of %d documents", c, len(chunk))
                 break
 
             # ws delay
             await asyncio.sleep(0.1)
 
-        MutyLogger.get_instance().info("DONE!")
+        _logger.info("done")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -138,8 +140,8 @@ def main():
     try:
         asyncio.run(_ingest_ws_raw(args))
         return 0
-    except Exception as ex:
-        MutyLogger.get_instance().exception(ex)
+    except Exception:
+        _logger.exception("fatal error")
         return 1
 
 

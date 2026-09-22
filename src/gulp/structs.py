@@ -13,12 +13,12 @@ Key components:
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Optional, Protocol
 
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.mapping.models import GulpMapping, GulpSigmaMapping
+from gulp.glug import Glug
 
 
 class ObjectAlreadyExists(Exception):
@@ -210,7 +210,7 @@ class GulpMappingParameters(BaseModel):
             and not self.additional_mappings
         ):
             # no mappings at all
-            MutyLogger.get_instance().warning("mapping parameters are empty")
+            Glug.get_instance().warning("mapping parameters are empty")
             return True
 
         return False

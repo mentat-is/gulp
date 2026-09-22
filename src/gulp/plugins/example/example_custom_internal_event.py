@@ -3,10 +3,9 @@
 import asyncio
 from typing import override
 
-from muty.log import MutyLogger
-
 from gulp.api.server_api import GulpServer
 from gulp.events import GulpEvent, events
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 
 
@@ -42,11 +41,9 @@ class Plugin(GulpPluginBase):
         )
 
     async def on_event(self, event: GulpEvent) -> None:
-        MutyLogger.get_instance().debug(
-            "extension plugin=%s received %s: %s",
-            self.name,
-            event.event,
-            event.data,
+        Glug.get_instance().debug(
+            f"extension plugin={self.name} received {event.event}",
+            detail=event.data,
         )
 
     def desc(self) -> str:

@@ -3,7 +3,6 @@ from typing import Annotated, Literal, Optional, override
 from fastapi import Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 from sqlalchemy import ARRAY, Boolean, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict, MutableList
@@ -17,6 +16,7 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import GulpRedisBroker
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 
 COLLABTYPE_SHARED_OBJECT = "shared_object"
@@ -266,7 +266,7 @@ class Plugin(GulpPluginBase):
             )
 
         else:
-            MutyLogger.get_instance().debug("initialized in worker process")
+            Glug.get_instance().debug("initialized in worker process")
 
     @override
     def desc(self) -> str:
@@ -294,8 +294,8 @@ class Plugin(GulpPluginBase):
                     return_conflict_status=True,
                 )
                 action = "inserted" if created else "already present"
-                MutyLogger.get_instance().debug(
-                    "default shared dashboard %s: %s", action, dashboard["id"]
+                Glug.get_instance().debug(
+                    f"default shared dashboard {action}: {dashboard['id']}"
                 )
 
     async def shared_object_create_handler(
@@ -467,7 +467,7 @@ class Plugin(GulpPluginBase):
 
     @override
     async def post_init(self, **kwargs):
-        MutyLogger.get_instance().debug("creating shared objects table ...")
+        Glug.get_instance().debug("creating shared objects table")
         await GulpCollab.get_instance().create_table(Plugin.GulpSharedObject.__table__)
         await self._seed_default_dashboards()
 

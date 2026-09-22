@@ -18,7 +18,6 @@ group and if a group has specific permissions.
 
 from typing import TYPE_CHECKING, Optional, override
 
-from muty.log import MutyLogger
 from sqlalchemy import ARRAY, Column, ForeignKey, Table
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
@@ -30,6 +29,7 @@ from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpUserPermission,
 )
+from gulp.glug import Glug
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
 if TYPE_CHECKING:
@@ -110,14 +110,10 @@ class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
                 # add user to the group
                 self.users.append(user)
                 await sess.commit()
-                MutyLogger.get_instance().info(
-                    "adding user %s to group %s" % (user_id, self.id)
-                )
+                Glug.get_instance().info(f"adding user {user_id} to group {self.id}")
                 return
 
-            MutyLogger.get_instance().info(
-                "user %s already in group %s" % (user_id, self.id)
-            )
+            Glug.get_instance().info(f"user {user_id} already in group {self.id}")
             # no changes, but release transaction-scoped advisory lock acquired above
             await sess.commit()
             if raise_if_already_exists:
@@ -145,14 +141,10 @@ class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
                 # remove user from the group
                 self.users.remove(user)
                 await sess.commit()
-                MutyLogger.get_instance().info(
-                    "removing user %s from group %s" % (user_id, self.id)
-                )
+                Glug.get_instance().info(f"removing user {user_id} from group {self.id}")
                 return
 
-            MutyLogger.get_instance().info(
-                "user %s not in group %s" % (user_id, self.id)
-            )
+            Glug.get_instance().info(f"user {user_id} not in group {self.id}")
             # no changes, but release transaction-scoped advisory lock acquired above
             await sess.commit()
             if raise_if_not_found:

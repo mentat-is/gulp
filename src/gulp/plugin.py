@@ -20,9 +20,7 @@ import muty.file
 import muty.log
 import muty.pydantic
 import muty.string
-import orjson
 from fastapi import WebSocketDisconnect
-from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, ValidationError, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,6 +62,7 @@ from gulp.api.ws_api import (
     GulpRedisBroker,
 )
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.events import (
     GulpChunkPrePostIngestEventData,
     GulpCoreEvent,
@@ -416,12 +415,10 @@ class GulpPluginCache:
             name (str): The internal name of the plugin.
         """
         if name not in self._cache:
-            MutyLogger.get_instance().debug("adding plugin %s to cache" % (name))
+            Glug.get_instance().debug(f"adding plugin {name} to cache")
             self._cache[name] = plugin
         else:
-            MutyLogger.get_instance().warning(
-                "plugin %s already in cache, not adding" % (name)
-            )
+            Glug.get_instance().warning(f"plugin {name} already in cache, not adding")
 
     def get(self, name: str) -> ModuleType:
         """
@@ -434,7 +431,7 @@ class GulpPluginCache:
         """
         p = self._cache.get(name, None)
         if p:
-            MutyLogger.get_instance().debug("found plugin %s in cache !" % (name))
+            Glug.get_instance().debug(f"found plugin {name} in cache")
         return p
 
     def remove(self, name: str):
@@ -445,7 +442,7 @@ class GulpPluginCache:
             name (str): The internal name of the plugin to remove from the cache.
         """
         if name in self._cache:
-            MutyLogger.get_instance().debug("removing plugin %s from cache" % (name))
+            Glug.get_instance().debug(f"removing plugin {name} from cache")
             del self._cache[name]
 
 
@@ -812,7 +809,7 @@ class GulpPluginBase(ABC):
         if not docs and not send_empty_terminal:
             return
 
-        MutyLogger.get_instance().debug("adding %d docs to ws", len(docs))
+        Glug.get_instance().debug(f"adding {len(docs)} docs to ws")
         chunk = GulpDocumentsChunkPacket(
             docs=docs,
             chunk_size=len(docs),
@@ -902,10 +899,8 @@ class GulpPluginBase(ABC):
         if not chunk.documents:
             return
 
-        MutyLogger.get_instance().debug(
-            "processing chunk of %d documents with plugin=%s",
-            len(chunk.documents),
-            self.name,
+        Glug.get_instance().debug(
+            f"processing chunk of {len(chunk.documents)} documents with plugin={self.name}"
         )
         if (
             not self._preview_mode
@@ -1032,14 +1027,10 @@ class GulpPluginBase(ABC):
         upper = min(8000, current * 2)
         self._adaptive_chunk_size = max(1, min(8000, proposed, upper))
         self._adaptive_chunk_size = max(lower, self._adaptive_chunk_size)
-        MutyLogger.get_instance().debug(
-            "adaptive ingestion chunk size changed from %d to %d "
-            "(documents=%d, ndjson_bytes=%d, target_bytes=%d)",
-            current,
-            self._adaptive_chunk_size,
-            len(chunk.prepared.documents),
-            chunk.prepared.size_bytes,
-            target_bytes,
+        Glug.get_instance().debug(
+            f"adaptive ingestion chunk size changed from {current} to "
+            f"{self._adaptive_chunk_size} (documents={len(chunk.prepared.documents)}, "
+            f"ndjson_bytes={chunk.prepared.size_bytes}, target_bytes={target_bytes})"
         )
 
     async def _postprocess_ingestion_chunk(
@@ -1113,7 +1104,7 @@ class GulpPluginBase(ABC):
                         data=post_ingest_ev.model_dump(exclude_none=True),
                     )
                 except Exception:
-                    MutyLogger.get_instance().exception(
+                    Glug.get_instance().exception(
                         "failed to emit chunk-post-ingest event"
                     )
 
@@ -1175,8 +1166,8 @@ class GulpPluginBase(ABC):
             await self._sess.commit()
             if canceled:
                 self._req_canceled = True
-                MutyLogger.get_instance().warning(
-                    "_process_docs_chunk: request %s canceled!", self._req_id
+                Glug.get_instance().warning(
+                    f"_process_docs_chunk: request {self._req_id} canceled"
                 )
         if post_error is not None:
             raise post_error
@@ -1220,7 +1211,7 @@ class GulpPluginBase(ABC):
         cache_key: str = f"{k}-{v}"
         cached_ctx_id = self.doc_value_cache.get_value(cache_key)
         if cached_ctx_id:
-            # MutyLogger.get_instance().debug("found context %s in cache, returning id %s", v, cached_ctx_id)
+            # Glug.get_instance().debug(f"found context {v} in cache, returning id {cached_ctx_id}")
             # return cached context id
             return cached_ctx_id
 
@@ -1244,8 +1235,8 @@ class GulpPluginBase(ABC):
         # update cache
         self.doc_value_cache.set_value(cache_key, context.id)
 
-        MutyLogger.get_instance().debug(
-            "context name=%s, id=%s added to cache, created=%r", v, context.id, created
+        Glug.get_instance().debug(
+            f"context name={v}, id={context.id} added to cache, created={created!r}"
         )
         return context.id
 
@@ -1265,8 +1256,8 @@ class GulpPluginBase(ABC):
 
         """
         if not context_id:
-            MutyLogger.get_instance().error(
-                "context_id is None, cannot create source for key %s, value %s", k, v
+            Glug.get_instance().error(
+                f"context_id is None, cannot create source for key {k}, value {v}"
             )
             return None
 
@@ -1274,11 +1265,11 @@ class GulpPluginBase(ABC):
         cache_key: str = f"{context_id}-{k}-{v}"
         cached_source_id = self.doc_value_cache.get_value(cache_key)
         if cached_source_id:
-            # MutyLogger.get_instance().debug("found source %s in cache for context %s, returning id %s, cache_key=%s",v,context_id, cached_source_id, cache_key)
+            # Glug.get_instance().debug(f"found source {v} in cache for context {context_id}, returning id {cached_source_id}, cache_key={cache_key}")
             return cached_source_id
 
         # cache miss - create new source (or get existing)
-        # MutyLogger.get_instance().warning("NOT found source %s in cache for cache_key=%s",context_id, cache_key)
+        # Glug.get_instance().debug(f"source {v} not found in cache for cache_key={cache_key}")
 
         # fetch context object
         context: GulpContext = await GulpContext.get_by_id(
@@ -1287,7 +1278,7 @@ class GulpPluginBase(ABC):
         """if context and force_v_as_source_id:
             for s in context.sources:
                 if s.id == v:
-                    # MutyLogger.get_instance().warning("*** not found in cache but present in context.sources, cache it now, src_id=%s", s.id)
+                    # Glug.get_instance().debug(f"not found in cache but present in context.sources, cache it now, src_id={s.id}")
                     self.doc_value_cache.set_value(cache_key, s.id)
                     return s.id"""
 
@@ -1306,12 +1297,9 @@ class GulpPluginBase(ABC):
 
         # update cache
         self.doc_value_cache.set_value(cache_key, source.id)
-        MutyLogger.get_instance().debug(
-            "source name=%s, context_id=%s, id=%s added to cache, created=%r",
-            v,
-            context_id,
-            source.id,
-            created,
+        Glug.get_instance().debug(
+            f"source name={v}, context_id={context_id}, id={source.id} "
+            f"added to cache, created={created!r}"
         )
 
         return source.id
@@ -1357,15 +1345,14 @@ class GulpPluginBase(ABC):
         Raises:
             any exception encountered during the query
         """
-        MutyLogger.get_instance().debug(
-            "GulpPluginBase.query_external: q=%s, sess=%s, index=%s, operation_id=%s, q_options=%s, plugin_params=%s, kwargs=%s",
-            q,
-            sess,
-            index,
-            operation_id,
-            q_options,
-            plugin_params,
-            kwargs,
+        Glug.get_instance().debug(
+            f"GulpPluginBase.query_external: index={index}, operation_id={operation_id}",
+            detail={
+                "q": q,
+                "q_options": q_options,
+                "plugin_params": plugin_params,
+                "kwargs": kwargs,
+            },
         )
 
         # setup the engine in external query mode:
@@ -1384,9 +1371,7 @@ class GulpPluginBase(ABC):
         await self._initialize(plugin_params=plugin_params)
         if q_options.preview_mode:
             self._preview_mode = True
-            MutyLogger.get_instance().warning(
-                "***PREVIEW MODE** enabled for external query!"
-            )
+            Glug.get_instance().warning("preview mode enabled for external query")
 
         return (0, 0)
 
@@ -1445,16 +1430,10 @@ class GulpPluginBase(ABC):
         self._last_raw_chunk = last
         self._normalized_timestamp_cache.clear()
 
-        MutyLogger.get_instance().debug(
-            "ingesting raw, chunk size=%d, plugin %s, last=%r, user_id=%s, operation_id=%s, index=%s, ws_id=%s, req_id=%s",
-            len(chunk),
-            self.name,
-            last,
-            user_id,
-            operation_id,
-            index,
-            ws_id,
-            req_id,
+        Glug.get_instance().debug(
+            f"ingesting raw, chunk size={len(chunk)}, plugin={self.name}, "
+            f"last={last!r}, user_id={user_id}, operation_id={operation_id}, "
+            f"index={index}, ws_id={ws_id}, req_id={req_id}"
         )
 
         # initialize
@@ -1535,11 +1514,8 @@ class GulpPluginBase(ABC):
             **kwargs,
         )
 
-        MutyLogger.get_instance().debug(
-            "%s: enriched %d documents, last=%r",
-            self.name,
-            len(enriched_chunk),
-            last,
+        Glug.get_instance().debug(
+            f"{self.name}: enriched {len(enriched_chunk)} documents, last={last!r}"
         )
 
         # update the documents on opensearch
@@ -1668,16 +1644,16 @@ class GulpPluginBase(ABC):
 
         # check if the caller provided a raw query to be used, if so merge with q
         if q:
-            MutyLogger.get_instance().debug(
-                "enrich_documents: raw query provided by caller: %s", q
+            Glug.get_instance().debug(
+                "enrich_documents: raw query provided by caller", detail=q
             )
             # merge
             qq = GulpQueryHelpers.merge_queries(qq, q)
 
         # check if we must further filter with GulpQUeryFilter
         if flt and not flt.is_empty():
-            MutyLogger.get_instance().debug(
-                "enrich_documents: applying GulpQueryFilter: %s", flt
+            Glug.get_instance().debug(
+                "enrich_documents: applying GulpQueryFilter", detail=flt
             )
             qqq = flt.to_opensearch_dsl()
             qq = GulpQueryHelpers.merge_queries(qq, qqq)
@@ -1695,9 +1671,7 @@ class GulpPluginBase(ABC):
             "defer_final_stats": kwargs.get("defer_final_stats", False),
         }
         canceled: bool = False
-        MutyLogger.get_instance().debug(
-            "enrich query:\n%s", orjson.dumps(qq, option=orjson.OPT_INDENT_2).decode()
-        )
+        Glug.get_instance().debug("enrich query", detail=qq)
         # try:
         await GulpOpenSearch.get_instance().search_dsl(
             sess,
@@ -1710,7 +1684,7 @@ class GulpPluginBase(ABC):
             fields=fields,
         )
         # except Exception as ex:
-        #     MutyLogger.get_instance().exception(ex)
+        #     Glug.get_instance().exception(str(ex))
         #     errors.append(str(ex))
         #     if isinstance(ex, RequestCanceledError):
         #         # flag canceled
@@ -1874,9 +1848,13 @@ class GulpPluginBase(ABC):
         self._chunk_sequence_next = 0
         self._chunk_build_started = time.perf_counter()
 
-        MutyLogger.get_instance().debug(
-            f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, \
-                plugin_params={self._plugin_params}, flt={flt}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}, preview_mode={self._preview_mode}"
+        Glug.get_instance().debug(
+            f"ingesting file source_id={source_id}, file_path={file_path}, "
+            f"original_file_path={original_file_path}, plugin={self.name}, "
+            f"user_id={user_id}, operation_id={operation_id}, context_id={context_id}, "
+            f"index={index}, ws_id={ws_id}, req_id={req_id}, "
+            f"preview_mode={self._preview_mode}",
+            detail={"plugin_params": self._plugin_params, "flt": flt},
         )
 
         # add mapping parameters to source
@@ -2018,9 +1996,7 @@ class GulpPluginBase(ABC):
         # set mapping in lower plugin
         lower._mapping_id = self._mapping_id
         lower._mappings = self._mappings
-        MutyLogger.get_instance().debug(
-            "---> plugin %s stacked over %s", self.name, lower.name
-        )
+        Glug.get_instance().debug(f"plugin {self.name} stacked over {lower.name}")
         return lower
 
     def _finalize_process_record(self, doc: GulpDocument | dict) -> list[dict]:
@@ -2043,7 +2019,7 @@ class GulpPluginBase(ABC):
                 return [doc.model_dump(by_alias=True)]
 
         base_doc_dump = doc.model_dump() if isinstance(doc, GulpDocument) else doc
-        # MutyLogger.get_instance().debug(orjson.dumps("base doc:\n%s" % (base_doc_dump), option=orjson.OPT_INDENT_2).decode())
+        # Glug.get_instance().debug("base doc", detail=base_doc_dump)
 
         extra_docs = []
         expanded_docs = expand_extra_docs(
@@ -2054,7 +2030,7 @@ class GulpPluginBase(ABC):
             ),
         )
         for new_doc_data in expanded_docs[1:]:
-            # MutyLogger.get_instance().debug("creating new doc with %s\nand\n%s" % (orjson.dumps(extra_fields, option=orjson.OPT_INDENT_2), orjson.dumps(base_doc_dump, option=orjson.OPT_INDENT_2).decode()))
+            # Glug.get_instance().debug("creating new doc", detail={"base": base_doc_dump, "data": new_doc_data})
             # default event code must be ignored for the extra document (since the extra document, by design, has a different event code)
             new_doc = GulpDocument(
                 self,
@@ -2062,14 +2038,7 @@ class GulpPluginBase(ABC):
                 __ignore_default_event_code__=True,
                 __timestamp_cache_slot__=f"extra:{new_doc_data['event_code']}",
             )
-            # MutyLogger.get_instance().debug(
-            #     "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
-            #     % (
-            #         orjson.dumps(base_doc_dump, option=orjson.OPT_INDENT_2).decode(),
-            #         orjson.dumps(new_doc_data, option=orjson.OPT_INDENT_2).decode(),
-            #         orjson.dumps(new_doc.model_dump(), option=orjson.OPT_INDENT_2).decode(),
-            #     )
-            # )
+            # Glug.get_instance().debug("created new doc", detail={"base": base_doc_dump, "data": new_doc_data, "new_doc": new_doc.model_dump()})
             extra_docs.append(new_doc.model_dump(by_alias=True))
 
         return [doc.model_dump(by_alias=True)] + extra_docs
@@ -2138,7 +2107,7 @@ class GulpPluginBase(ABC):
 
         # walk generated documents and ensure they have context_id and source_id set
         mapping: GulpMapping = self.selected_mapping()
-        # MutyLogger.get_instance().debug("using mapping: %s", mapping)
+        # Glug.get_instance().debug("using mapping", detail=mapping)
         default_src = mapping.default_source
         default_ctx = mapping.default_context
         dd: list[dict] = []
@@ -2160,7 +2129,7 @@ class GulpPluginBase(ABC):
                 if self._preview_mode:
                     d["gulp.source_id"] = "preview"
                 else:
-                    # MutyLogger.get_instance().debug("**** calling source_id_from_doc_value, context_id=%s, k=gulp_source_id, v=%s", context_id, default_src)
+                    # Glug.get_instance().debug(f"calling _source_id_from_doc_value, context_id={context_id}, k=gulp_source_id, v={default_src}")
                     d["gulp.source_id"] = await self._source_id_from_doc_value(
                         context_id, "gulp.source_id", default_src
                     )
@@ -2173,8 +2142,9 @@ class GulpPluginBase(ABC):
                 dd.append(d)
             else:
                 # we cannot process this document, skip it
-                MutyLogger.get_instance().warning(
-                    f"document {d} does not have context_id or source_id set, skipping"
+                Glug.get_instance().warning(
+                    "document does not have context_id or source_id set, skipping",
+                    detail=d,
                 )
         return dd
 
@@ -2537,20 +2507,20 @@ class GulpPluginBase(ABC):
                     )
                     if not ctx_id:
                         # no context_id, cannot process source
-                        MutyLogger.get_instance().error(
+                        Glug.get_instance().error(
                             f"cannot set source {source_key} without context"
                         )
                         return {}
 
                     if gulp_type == "source_name":
                         # get/create the source
-                        # MutyLogger.get_instance().debug("**** calling source_id_from_doc_value, context_id=%s, k=%s, v=%s", ctx_id, source_key, source_value)
+                        # Glug.get_instance().debug(f"calling _source_id_from_doc_value, context_id={ctx_id}, k={source_key}, v={source_value}")
                         src_id: str = await self._source_id_from_doc_value(
                             ctx_id, source_key, source_value
                         )
                     else:
                         # directly use the value as source_id
-                        # MutyLogger.get_instance().debug("**** calling source_id_from_doc_value, context_id=%s, k=%s, v=%s, force_v_as_source_id=True", ctx_id, source_key, source_value)
+                        # Glug.get_instance().debug(f"calling _source_id_from_doc_value, context_id={ctx_id}, k={source_key}, v={source_value}, force_v_as_source_id=True")
                         src_id: str = await self._source_id_from_doc_value(
                             ctx_id, source_key, source_value, force_v_as_source_id=True
                         )
@@ -2630,9 +2600,9 @@ class GulpPluginBase(ABC):
                 force_type = "int"
             except ValueError:
                 # not supported
-                MutyLogger.get_instance().warning(
-                    f"timestamp type {field_mapping.is_timestamp} not supported for key {source_key}, value=%s, set to 0...",
-                    str(source_value),
+                Glug.get_instance().warning(
+                    f"timestamp type {field_mapping.is_timestamp} not supported for "
+                    f"key {source_key}, value={source_value}, set to 0"
                 )
                 source_value = 0
 
@@ -2680,8 +2650,8 @@ class GulpPluginBase(ABC):
             wait_for_refresh (bool, optional): whether to wait for refresh
             kwargs: additional keyword arguments
         """
-        MutyLogger.get_instance().debug(
-            "_flush_and_check_thresholds called, plugin=%s", self.name
+        Glug.get_instance().debug(
+            f"_flush_and_check_thresholds called, plugin={self.name}"
         )
         chunk = self._detach_ingestion_chunk(flt=flt)
         if self._pipeline_enabled:
@@ -2802,7 +2772,7 @@ class GulpPluginBase(ABC):
         except Exception as ex:
             # increment records failed counters
             self._records_failed_per_chunk += 1
-            MutyLogger.get_instance().exception(ex)
+            Glug.get_instance().exception(str(ex))
 
             # continue processing anyway
             return True
@@ -2810,26 +2780,25 @@ class GulpPluginBase(ABC):
         self._records_processed_per_chunk += 1
 
         if self._preview_mode:
-            # MutyLogger.get_instance().debug("***PREVIEW MODE*** got %d docs", len(docs))
+            # Glug.get_instance().debug(f"preview mode, got {len(docs)} docs")
             # preview, accumulate docs
             for d in docs:
                 # remove highlight if present
                 d.pop("highlight", None)
 
             self._preview_chunk.extend(docs)
-            # MutyLogger.get_instance().debug("accumulated %d docs" % (len(self._preview_chunk)))
+            # Glug.get_instance().debug(f"accumulated {len(self._preview_chunk)} docs")
             if len(self._preview_chunk) >= self._plugin_params.preview_mode_max_records:
                 # must stop
-                MutyLogger.get_instance().warning(
-                    "***PREVIEW MODE*** reached %d documents, stopping!",
-                    len(self._preview_chunk),
+                Glug.get_instance().warning(
+                    f"preview mode reached {len(self._preview_chunk)} documents, stopping"
                 )
                 return False
             # continue accumulating
             return True
 
         # add documents to buffer and check if we need to flush
-        # MutyLogger.get_instance().debug("adding %d docs to buffer", len(docs))
+        # Glug.get_instance().debug(f"adding {len(docs)} docs to buffer")
         for d in docs:
             self._docs_buffer.append(d)
             if len(self._docs_buffer) >= ingestion_buffer_size:
@@ -2863,8 +2832,8 @@ class GulpPluginBase(ABC):
                 param_value = param.default_value
                 self._plugin_params.custom_parameters[param_name] = param_value
 
-            MutyLogger.get_instance().debug(
-                f"---> found plugin custom parameter: {param_name}={param_value}"
+            Glug.get_instance().debug(
+                f"found plugin custom parameter: {param_name}={param_value}"
             )
 
     def _ensure_plugin_params(
@@ -2890,25 +2859,24 @@ class GulpPluginBase(ABC):
         Returns:
             GulpPluginParameters: the ensured plugin parameters.
         """
-        MutyLogger.get_instance().debug(
-            "---> ensuring plugin_params: plugin_params=%s, mapping_file=%s, mappings=%s, mapping_id=%s, additional_mapping_files=%s, additional_mappings=%s",
-            plugin_params,
-            mapping_file,
-            mappings,
-            mapping_id,
-            additional_mapping_files,
-            additional_mappings,
+        Glug.get_instance().debug(
+            f"ensuring plugin_params: mapping_file={mapping_file}, "
+            f"mapping_id={mapping_id}, "
+            f"additional_mapping_files={additional_mapping_files}",
+            detail={
+                "plugin_params": plugin_params,
+                "mappings": mappings,
+                "additional_mappings": additional_mappings,
+            },
         )
         if not plugin_params:
             # initialize as empty
-            MutyLogger.get_instance().debug(
-                "---> plugin_params is None, initializing as empty"
-            )
+            Glug.get_instance().debug("plugin_params is None, initializing as empty")
             plugin_params = GulpPluginParameters()
 
         if plugin_params.mapping_parameters.is_empty():
-            MutyLogger.get_instance().debug(
-                "---> plugin_params.mapping_parameters is empty, setting from provided values"
+            Glug.get_instance().debug(
+                "plugin_params.mapping_parameters is empty, setting from provided values"
             )
             # set whole mapping parameters from provided values
             plugin_params.mapping_parameters = GulpMappingParameters(
@@ -2927,14 +2895,10 @@ class GulpPluginBase(ABC):
                 plugin_params.mapping_parameters.mapping_id = mapping_id
 
             if mappings and not plugin_params.mapping_parameters.mappings:
-                """MutyLogger.get_instance().debug(
-                    "---> setting plugin_params.mapping_parameters.mappings with provided mappings"
-                )"""
+                # Glug.get_instance().debug("setting plugin_params.mapping_parameters.mappings with provided mappings")
                 plugin_params.mapping_parameters.mappings = mappings
             else:
-                """MutyLogger.get_instance().debug(
-                    "---> updating plugin_params.mapping_parameters.mappings with provided mappings"
-                )"""
+                # Glug.get_instance().debug("updating plugin_params.mapping_parameters.mappings with provided mappings")
                 plugin_params.mapping_parameters.mappings.update(mappings or {})
 
             if (
@@ -2948,21 +2912,17 @@ class GulpPluginBase(ABC):
                 additional_mappings
                 and not plugin_params.mapping_parameters.additional_mappings
             ):
-                """MutyLogger.get_instance().debug(
-                    "---> setting plugin_params.mapping_parameters.additional_mappings with provided additional_mappings"
-                )"""
+                # Glug.get_instance().debug("setting plugin_params.mapping_parameters.additional_mappings with provided additional_mappings")
                 plugin_params.mapping_parameters.additional_mappings = (
                     additional_mappings
                 )
             else:
-                """MutyLogger.get_instance().debug(
-                    "---> updating plugin_params.mapping_parameters.additional_mappings with provided additional_mappings"
-                )"""
+                # Glug.get_instance().debug("updating plugin_params.mapping_parameters.additional_mappings with provided additional_mappings")
                 plugin_params.mapping_parameters.additional_mappings.update(
                     additional_mappings or {}
                 )
 
-        # MutyLogger.get_instance().debug("---> ensured plugin_params: %s", plugin_params)
+        # Glug.get_instance().debug("ensured plugin_params", detail=plugin_params)
         return plugin_params
 
     async def _fetch_index_type_mappings(self) -> None:
@@ -2975,7 +2935,7 @@ class GulpPluginBase(ABC):
                     self._index
                 )
             )
-            MutyLogger.get_instance().debug(
+            Glug.get_instance().debug(
                 f"got index type mappings with {len(self._index_type_mapping)} entries"
             )
 
@@ -3035,13 +2995,9 @@ class GulpPluginBase(ABC):
             0 if self._plugin_params.preview_mode else await events.listener_mask()
         )
 
-        MutyLogger.get_instance().debug(
-            "---> _initialize: plugin=%s, stacked=%r, plugin_params=%s",
-            self.filename,
-            self._stacked,
-            orjson.dumps(
-                self._plugin_params.model_dump(), option=orjson.OPT_INDENT_2
-            ).decode(),
+        Glug.get_instance().debug(
+            f"_initialize: plugin={self.filename}, stacked={self._stacked!r}",
+            detail=self._plugin_params,
         )
 
         if (
@@ -3051,9 +3007,9 @@ class GulpPluginBase(ABC):
             and self._plugin_params.store_file
         ):
             if self._upper_instance:
-                MutyLogger.get_instance().warning(
-                    "plugin %s is stacked, skipping upload handling (done in the upper)!",
-                    self.filename,
+                Glug.get_instance().warning(
+                    f"plugin {self.filename} is stacked, "
+                    "skipping upload handling (done in the upper)"
                 )
             else:
                 # start the upload concurrently so we can ingest the file while it's being uploaded
@@ -3068,9 +3024,9 @@ class GulpPluginBase(ABC):
                             self._user_id,
                             self._req_id,
                         )
-                    except Exception as ex:
-                        MutyLogger.get_instance().exception(
-                            "***ERROR*** in background upload task: %s", ex
+                    except Exception:
+                        Glug.get_instance().exception(
+                            "error in background upload task"
                         )
 
                 self.upload_task = asyncio.create_task(_upload_wrapper())
@@ -3079,9 +3035,7 @@ class GulpPluginBase(ABC):
         await self._parse_custom_parameters()
         pt: GulpPluginType = self.type()
         if pt == GulpPluginType.ENRICHMENT:
-            MutyLogger.get_instance().debug(
-                "plugin %s type=%s, no mappings needed", self.name, pt
-            )
+            Glug.get_instance().debug(f"plugin {self.name} type={pt}, no mappings needed")
             return
 
         # setup mappings
@@ -3094,14 +3048,7 @@ class GulpPluginBase(ABC):
         # initialize index type mappings
         await self._fetch_index_type_mappings()
 
-        # MutyLogger.get_instance().debug(
-        #     "---> finished _initialize: plugin=%s, mapping_id=%s, mappings=%s"
-        #     % (
-        #         self.filename,
-        #         self._mapping_id,
-        #         self._mappings,
-        #     )
-        # )
+        # Glug.get_instance().debug(f"finished _initialize: plugin={self.filename}, mapping_id={self._mapping_id}", detail=self._mappings)
 
     def _type_checks(
         self, k: str, v: Any, force_type_set: bool = False
@@ -3120,7 +3067,7 @@ class GulpPluginBase(ABC):
         """
         index_type = self._index_type_mapping.get(k)
         if not index_type:
-            # MutyLogger.get_instance().warning("key %s not found in index_type_mapping" % (k))
+            # Glug.get_instance().debug(f"key {k} not found in index_type_mapping")
             if force_type_set:
                 # force_type has been enforced on this field, so we return as is
                 return k, v
@@ -3134,7 +3081,7 @@ class GulpPluginBase(ABC):
         # check different types, we may add more ...
         index_type = self._index_type_mapping[k]
         if index_type == "long":
-            # MutyLogger.get_instance().debug("converting %s:%s to long" % (k, v))
+            # Glug.get_instance().debug(f"converting {k}:{v} to long")
             if isinstance(v, str):
                 if v.isnumeric():
                     return k, int(v)
@@ -3143,7 +3090,7 @@ class GulpPluginBase(ABC):
                 try:
                     return k, int(v)
                 except ValueError:
-                    # MutyLogger.get_instance().exception("error converting %s:%s to long" % (k, v))
+                    # Glug.get_instance().exception(f"error converting {k}:{v} to long")
                     return k, None
             return k, v
 
@@ -3152,7 +3099,7 @@ class GulpPluginBase(ABC):
                 try:
                     return k, float(v)
                 except ValueError:
-                    # MutyLogger.get_instance().exception("error converting %s:%s to float" % (k, v))
+                    # Glug.get_instance().exception(f"error converting {k}:{v} to float")
                     return k, None
 
             return k, v
@@ -3160,15 +3107,15 @@ class GulpPluginBase(ABC):
         if index_type == "date" and isinstance(v, str) and v.lower().startswith("0x"):
             # convert hex to int, then ensure it is a valid timestamp
             try:
-                # MutyLogger.get_instance().debug("converting %s: %s to date" % (k, v))
+                # Glug.get_instance().debug(f"converting {k}:{v} to date")
                 v = muty.time.ensure_iso8601(str(int(v, 16)))
                 return k, v
             except ValueError:
-                # MutyLogger.get_instance().exception("error converting %s:%s to date" % (k, v))
+                # Glug.get_instance().exception(f"error converting {k}:{v} to date")
                 return k, None
 
         if index_type == "keyword" or index_type == "text":
-            # MutyLogger.get_instance().debug("converting %s:%s to keyword" % (k, v))
+            # Glug.get_instance().debug(f"converting {k}:{v} to keyword")
             # keyword/text fields may legitimately hold arrays (e.g. process.args);
             # stringify element-wise so the array is preserved.
             if isinstance(v, list):
@@ -3176,17 +3123,17 @@ class GulpPluginBase(ABC):
             return k, str(v)
 
         if index_type == "ip":
-            # MutyLogger.get_instance().debug("converting %s:%s to ip" % (k, v))
+            # Glug.get_instance().debug(f"converting {k}:{v} to ip")
             if "local" in v.lower():
                 return k, "127.0.0.1"
             try:
                 ipaddress.ip_address(v)
             except ValueError:
-                # MutyLogger.get_instance().exception("error converting %s:%s to ip" % (k, v))
+                # Glug.get_instance().exception(f"error converting {k}:{v} to ip")
                 return k, None
 
         # add more types here if needed ...
-        # MutyLogger.get_instance().debug("returning %s:%s" % (k, v))
+        # Glug.get_instance().debug(f"returning {k}:{v}")
         return k, v
 
     async def _update_source_mapping_parameters(self) -> None:
@@ -3203,7 +3150,7 @@ class GulpPluginBase(ABC):
                 self._sess, self._source_id, throw_if_not_found=False
             )
             if not n:
-                MutyLogger.get_instance().error(
+                Glug.get_instance().error(
                     f"cannot find source {self._source_id} to update mapping_parameters"
                 )
                 return
@@ -3257,26 +3204,24 @@ class GulpPluginBase(ABC):
         Returns:
             GulpRequestStatus: The final status of the ingestion process.
         """
-        MutyLogger.get_instance().debug(
-            "update_final_stats_and_flush called for plugin=%s", self.name
+        Glug.get_instance().debug(
+            f"update_final_stats_and_flush called for plugin={self.name}"
         )
         if not self._stats:
-            MutyLogger.get_instance().error(
-                "cannot update final stats and flush: stats object is None!"
+            Glug.get_instance().error(
+                "cannot update final stats and flush: stats object is None"
             )
             return GulpRequestStatus.FAILED
 
         if self._preview_mode:
-            MutyLogger.get_instance().debug("*** preview mode, no ingestion! ***")
+            Glug.get_instance().debug("preview mode, no ingestion")
             return GulpRequestStatus.DONE
 
         owner = self._ingestion_buffer_owner()
-        MutyLogger.get_instance().debug(
-            "*** plugin=%s, file_path/source_id=%s, remaining docs to flush in docs_buffer: %d, status=%s ***",
-            self.name,
-            self._file_path or self._source_id,
-            len(owner._docs_buffer),
-            self._stats.status,
+        Glug.get_instance().debug(
+            f"plugin={self.name}, file_path/source_id="
+            f"{self._file_path or self._source_id}, remaining docs to flush "
+            f"in docs_buffer: {len(owner._docs_buffer)}, status={self._stats.status}"
         )
         errors: list[str] = []
         status: GulpRequestStatus = None
@@ -3293,7 +3238,7 @@ class GulpPluginBase(ABC):
         try:
             await owner._acknowledge_pipeline_chunk(update_stats=True)
         except Exception as pipeline_ex:
-            MutyLogger.get_instance().exception(pipeline_ex)
+            Glug.get_instance().exception(str(pipeline_ex))
             serialized = muty.log.exception_to_string(pipeline_ex)
             if serialized not in errors:
                 errors.append(serialized)
@@ -3308,7 +3253,7 @@ class GulpPluginBase(ABC):
                     update_stats=False,
                 )
             except Exception as final_ex:
-                MutyLogger.get_instance().exception(final_ex)
+                Glug.get_instance().exception(str(final_ex))
                 serialized = muty.log.exception_to_string(final_ex)
                 if serialized not in errors:
                     errors.append(serialized)
@@ -3381,16 +3326,13 @@ class GulpPluginBase(ABC):
 
         final_status = status
         try:
-            MutyLogger.get_instance().debug(
-                "updating ingestion stats with: ingested=%d, skipped=%d, processed=%d, failed=%d, errors=%s, status=%s, source_finished=%r, ws_disconnected=%r",
-                owner._stats_pending_ingested,
-                owner._stats_pending_skipped,
-                owner._stats_pending_processed,
-                owner._stats_pending_failed,
-                errors,
-                status,
-                source_finished,
-                disconnected,
+            Glug.get_instance().debug(
+                f"updating ingestion stats with: ingested={owner._stats_pending_ingested}, "
+                f"skipped={owner._stats_pending_skipped}, "
+                f"processed={owner._stats_pending_processed}, "
+                f"failed={owner._stats_pending_failed}, status={status}, "
+                f"source_finished={source_finished!r}, ws_disconnected={disconnected!r}",
+                detail=errors,
             )
             d: dict = await self._stats.update_ingestion_stats(
                 self._sess,
@@ -3436,7 +3378,7 @@ class GulpPluginBase(ABC):
             GulpServer.spawn_bg_task(coro, bg_task_name)
             final_status = GulpRequestStatus(d["status"])
         except Exception:
-            MutyLogger.get_instance().exception("error updating ingestion stats")
+            Glug.get_instance().exception("error updating ingestion stats")
             final_status = GulpRequestStatus.FAILED
 
         if source_finished:
@@ -3446,7 +3388,7 @@ class GulpPluginBase(ABC):
                 )
                 await self._emit_source_finished_event(final_status, event_errors)
             except Exception:
-                MutyLogger.get_instance().exception(
+                Glug.get_instance().exception(
                     "failed to emit source-finished event"
                 )
 
@@ -3541,22 +3483,16 @@ class GulpPluginBase(ABC):
         force_load_from_disk: bool = False
         # if path.endswith(".pyc" or path.endswith(".pyc")):
         #     # compiled file, always load from disk
-        #     MutyLogger.get_instance().debug(
-        #         "loading compiled plugin %s from disk" % (bare_name)
-        #     )
+        #     Glug.get_instance().debug(f"loading compiled plugin {bare_name} from disk")
         #     cache_mode = GulpPluginCacheMode.IGNORE
 
         if cache_mode == GulpPluginCacheMode.IGNORE:
             # ignore cache
-            MutyLogger.get_instance().debug(
-                "ignoring cache for plugin %s" % (internal_plugin_name)
-            )
+            Glug.get_instance().debug(f"ignoring cache for plugin {internal_plugin_name}")
             force_load_from_disk = True
         elif cache_mode == GulpPluginCacheMode.FORCE:
             # force cache use
-            MutyLogger.get_instance().warning(
-                "force cache for plugin %s" % (internal_plugin_name)
-            )
+            Glug.get_instance().warning(f"force cache for plugin {internal_plugin_name}")
             force_load_from_disk = False
         else:
             # cache mode DEFAULT
@@ -3566,9 +3502,9 @@ class GulpPluginBase(ABC):
                     force_load_from_disk = False
                 else:
                     # cache disabled
-                    MutyLogger.get_instance().warning(
-                        "plugin cache is disabled, loading plugin %s from disk"
-                        % (internal_plugin_name)
+                    Glug.get_instance().warning(
+                        f"plugin cache is disabled, loading plugin "
+                        f"{internal_plugin_name} from disk"
                     )
                     force_load_from_disk = True
 
@@ -3592,8 +3528,9 @@ class GulpPluginBase(ABC):
                 module_name, path
             )
             p = m.Plugin(path, module_name, pickled=pickled, **kwargs)
-        MutyLogger.get_instance().debug(
-            f"LOADED plugin m={m}, p={p}, name()={p.name}, pickled={pickled}, depends_on={p.depends_on()}"
+        Glug.get_instance().debug(
+            f"loaded plugin m={m}, p={p}, name()={p.name}, pickled={pickled}, "
+            f"depends_on={p.depends_on()}"
         )
 
         # check dependencies
@@ -3638,9 +3575,9 @@ class GulpPluginBase(ABC):
                 broker_types.update(broadcast_types)
             try:
                 await p.unload()
-            except BaseException as unload_ex:
-                MutyLogger.get_instance().exception(
-                    "failed to unload plugin after post_init error: %s", unload_ex
+            except BaseException:
+                Glug.get_instance().exception(
+                    "failed to unload plugin after post_init error"
                 )
             finally:
                 sys.modules.pop(module_name, None)
@@ -3648,10 +3585,9 @@ class GulpPluginBase(ABC):
                     try:
                         events.unsubscribe(p)
                         await events.drain()
-                    except Exception as cleanup_ex:
-                        MutyLogger.get_instance().exception(
-                            "failed to remove plugin event subscriptions: %s",
-                            cleanup_ex,
+                    except Exception:
+                        Glug.get_instance().exception(
+                            "failed to remove plugin event subscriptions"
                         )
             raise
 
@@ -3674,7 +3610,7 @@ class GulpPluginBase(ABC):
             None
         """
         # clear stuff
-        MutyLogger.get_instance().debug("unload() called for plugin: %s", self.name)
+        Glug.get_instance().debug(f"unload() called for plugin: {self.name}")
 
         from gulp.process import GulpProcess
 
@@ -3815,7 +3751,7 @@ class GulpPluginBase(ABC):
             """
             append found plugins to l list.
             """
-            MutyLogger.get_instance().debug("listing plugins in %s ..." % (path))
+            Glug.get_instance().debug(f"listing plugins in {path}")
             path_extension = os.path.join(path, "extension")
             plugins = await muty.file.list_directory_async(path, "*.py*")
             extensions = await muty.file.list_directory_async(path_extension, "*.py*")
@@ -3841,9 +3777,8 @@ class GulpPluginBase(ABC):
                         cache_mode=GulpPluginCacheMode.IGNORE,
                         run_post_init=False,
                     )
-                except Exception as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    MutyLogger.get_instance().error("could not load plugin %s" % (f))
+                except Exception:
+                    Glug.get_instance().exception(f"could not load plugin {f}")
                     continue
                 try:
                     if name is not None and name.lower() not in p.name.lower():
@@ -3851,9 +3786,8 @@ class GulpPluginBase(ABC):
                         continue
 
                     if _exists(l, p.filename):
-                        MutyLogger.get_instance().warning(
-                            "skipping plugin %s, already exists in list (in another path)"
-                            % (f)
+                        Glug.get_instance().warning(
+                            f"skipping plugin {f}, already exists in list (in another path)"
                         )
                         continue
 
@@ -3875,9 +3809,11 @@ class GulpPluginBase(ABC):
                         )
 
                         l.append(entry)
-                    except Exception as ex:
-                        # something wrong in the value returned from plugin methods, cannot add ....
-                        MutyLogger.get_instance().exception(ex)
+                    except Exception:
+                        # something wrong in the value returned from plugin methods, cannot add
+                        Glug.get_instance().exception(
+                            f"error building plugin entry for {f}"
+                        )
                 finally:
                     await p.unload()
 
@@ -3887,9 +3823,7 @@ class GulpPluginBase(ABC):
         p = GulpConfig.get_instance().path_plugins_extra()
         if p:
             await _list_internal(l, p, name, extension_only)
-            MutyLogger.get_instance().debug(
-                "found %d plugins in extra path=%s" % (len(l), p)
-            )
+            Glug.get_instance().debug(f"found {len(l)} plugins in extra path={p}")
 
         # list default path
         default_path = GulpConfig.get_instance().path_plugins_default()
@@ -3913,7 +3847,7 @@ class GulpPluginBase(ABC):
             """
             append found plugins to l list.
             """
-            MutyLogger.get_instance().debug("listing UI plugins in %s ..." % (path))
+            Glug.get_instance().debug(f"listing UI plugins in {path}")
             files: list[str] = await muty.file.list_directory_async(path)
             for f in files:
                 # skip non ts/js files
@@ -3928,9 +3862,9 @@ class GulpPluginBase(ABC):
                 # we have the plugin path, now build the corresponding metadata file (json) path
                 metadata_file = os.path.join(path, f + ".json")
                 if not await muty.file.exists(metadata_file):
-                    MutyLogger.get_instance().warning(
-                        "plugin metadata file %s not found, skipping plugin %s"
-                        % (metadata_file, f)
+                    Glug.get_instance().warning(
+                        f"plugin metadata file {metadata_file} not found, "
+                        f"skipping plugin {f}"
                     )
                     continue
 
@@ -3943,11 +3877,11 @@ class GulpPluginBase(ABC):
                     mtd.path = os.path.abspath(os.path.expanduser(f))
                     mtd.filename = os.path.basename(f)
                     l.append(mtd)
-                except ValidationError as ve:
-                    MutyLogger.get_instance().exception(ve)
-                    MutyLogger.get_instance().warning(
-                        "plugin metadata file %s is not valid, skipping plugin %s:\n%s"
-                        % (metadata_file, f, js)
+                except ValidationError:
+                    Glug.get_instance().exception(
+                        f"plugin metadata file {metadata_file} is not valid, "
+                        f"skipping plugin {f}",
+                        detail=js,
                     )
                     continue
 
@@ -3959,9 +3893,7 @@ class GulpPluginBase(ABC):
         p = GulpConfig.get_instance().path_plugins_extra()
         if p:
             await _list_ui_internal(l, os.path.join(p, "ui"))
-            MutyLogger.get_instance().debug(
-                "found %d UI plugins in extra path=%s" % (len(l), p)
-            )
+            Glug.get_instance().debug(f"found {len(l)} UI plugins in extra path={p}")
 
         # list default path
         default_path = GulpConfig.get_instance().path_plugins_default()

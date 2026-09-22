@@ -2,12 +2,12 @@
 import argparse
 import asyncio
 import json
+import logging
 import sys
 
 import pytest
 import pytest_asyncio
 import websockets
-from muty.log import MutyLogger
 
 from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp_client.common import GulpAPICommon
@@ -56,6 +56,9 @@ example usage:
 }'
 """
 
+
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
+_logger = logging.getLogger("query_external_test")
 
 SPLUNK_RAW_Q = "EventCode=5156"  # all
 SPLUNK_PLUGIN = "splunk"
@@ -113,14 +116,14 @@ def _parse_args():
 
 async def query_external(args):
 
-    MutyLogger.get_instance(name="query_external_test").debug("args=%s", args)
+    _logger.debug("args=%s", args)
 
     GulpAPICommon.get_instance().init(
         host=args.host, ws_id=args.ws_id, req_id=args.req_id
     )
     if args.reset:
         # reset first
-        MutyLogger.get_instance().info("resetting gulp !")
+        _logger.info("resetting gulp")
         token = await GulpAPIUser.login("admin", "admin")
         await GulpAPIDb.gulp_reset(token)
 
@@ -148,7 +151,7 @@ async def query_external(args):
                         if args.q_options
                         else GulpQueryParameters()
                     )
-                    MutyLogger.get_instance().debug(
+                    _logger.debug(
                         "plugin_params=%s", json.loads(args.plugin_params)
                     )
                     plugin_params: GulpPluginParameters = (
@@ -162,7 +165,7 @@ async def query_external(args):
                         q_options.preview_mode = True
 
                     # dump structs before running the query
-                    MutyLogger.get_instance().debug("q_options=%s", q_options)
+                    _logger.debug("q_options=%s", q_options)
 
                     # check if q is a json string, if so turn to dict
                     if isinstance(args.q, str):
@@ -185,20 +188,16 @@ async def query_external(args):
                     q_done_packet: GulpQueryDonePacket = (
                         GulpQueryDonePacket.model_validate(data["data"])
                     )
-                    MutyLogger.get_instance().debug(
-                        "query done, packet=%s", q_done_packet
-                    )
+                    _logger.debug("query done, packet=%s", q_done_packet)
                     if q_done_packet.name == q_options.name:
                         if q_done_packet.status != "done":
-                            MutyLogger.get_instance().error(
-                                f"query failed: {q_done_packet}"
-                            )
+                            _logger.error("query failed: %s", q_done_packet)
                             break
-                        MutyLogger.get_instance().info("DONE: %s" % (q_done_packet))
+                        _logger.info("done: %s", q_done_packet)
                     break
 
-        except websockets.exceptions.ConnectionClosed as ex:
-            MutyLogger.get_instance().exception(ex)
+        except websockets.exceptions.ConnectionClosed:
+            _logger.exception("websocket connection closed")
 
 
 def main():

@@ -127,7 +127,7 @@ default is False (both OpenSearch and websocket receives the filtered results).
         Returns:
             GulpEventFilterResult: The result of the filter check.
         """
-        # MutyLogger.get_instance().error(flt)
+        # Glug.get_instance().error(str(flt))
         if not flt or flt.storage_ignore_filter:
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
@@ -320,7 +320,7 @@ include documents matching the given `gulp.source_id`/s.
             # empty filter, match all
             query_dict = {"query": {"match_all": {}}}
 
-        # MutyLogger.get_instance().debug('resulting query=%s' % (orjson.dumps(query_dict, option=orjson.OPT_INDENT_2).decode()))
+        # Glug.get_instance().debug(f"resulting query={orjson.dumps(query_dict, option=orjson.OPT_INDENT_2).decode()}")
         return query_dict
 
     def merge_to_opensearch_dsl(self, dsl: dict) -> dict:

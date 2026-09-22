@@ -1,3 +1,4 @@
+import logging
 import multiprocessing
 import os
 import platform
@@ -8,9 +9,10 @@ import uuid
 
 import psutil
 from importlib.metadata import PackageNotFoundError
-from muty.log import MutyLogger
 import muty.crypto
 from importlib.metadata import version
+
+_logger = logging.getLogger(__name__)
 
 
 def check_os(exclude: list = None):
@@ -116,8 +118,8 @@ def check_and_install_package(package_name: str, version_check: str = None) -> N
                 # exact version
                 to_install = f"{package_name}=={version_check}"
 
-        MutyLogger.get_instance().info(
-            f"{package_name} not found or wrong version, installing {to_install} ..."
+        _logger.info(
+            "%s not found or wrong version, installing %s", package_name, to_install
         )
 
         # install
@@ -144,11 +146,11 @@ def multiprocessing_fixes():
     then we need to ignore SIGCHLD to avoid zombies on processes exit.
     """
     plat = platform.system().lower()
-    MutyLogger.get_instance().info("running on %s ..." % (plat))
+    _logger.info("running on %s", plat)
     if platform.system().lower() == "darwin":
         # by default, now python use spawn() on macos, and this would break gulp multiprocessing engine
         # anyway this is just for developing on macos, production will use linux.
-        MutyLogger.get_instance().warning("setting multiprocessing to use fork!")
+        _logger.warning("setting multiprocessing to use fork")
         multiprocessing.set_start_method("fork")
 
     # avoid zombies on processes exit

@@ -6,7 +6,6 @@ from typing import Optional, Tuple
 
 import muty.crypto
 import muty.time
-from muty.log import MutyLogger
 from sqlalchemy import BIGINT, String, delete, exists, insert, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +13,7 @@ from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api.collab.structs import COLLABTYPE_FIELD_TYPES, GulpCollabBase
+from gulp.glug import Glug
 
 
 class GulpFieldTypesEntry(GulpCollabBase, type=COLLABTYPE_FIELD_TYPES):
@@ -95,5 +95,5 @@ class GulpFieldTypesEntry(GulpCollabBase, type=COLLABTYPE_FIELD_TYPES):
             # always end transaction to release advisory lock even when nothing was deleted
             await sess.commit()
             if deleted:
-                MutyLogger.get_instance().debug("deleted %d orphan field types entries", deleted)
+                Glug.get_instance().debug(f"deleted {deleted} orphan field types entries")
             return deleted

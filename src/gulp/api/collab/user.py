@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Optional, override
 
 import muty.crypto
 import muty.time
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import ARRAY, BIGINT, String
@@ -46,6 +45,7 @@ from gulp.api.ws_api import (
     GulpUserAccessPacket,
 )
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.structs import GulpPluginParameters
 
 if TYPE_CHECKING:
@@ -212,20 +212,16 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             if len(q_history) > max_history_size:
                 # remove oldest entries
                 over: int = len(q_history) - max_history_size
-                MutyLogger.get_instance().warning(
-                    "trimming query history for user %s, size=%d, max_size=%d",
-                    self.id,
-                    len(q_history),
-                    max_history_size,
+                Glug.get_instance().warning(
+                    f"trimming query history for user {self.id}, "
+                    f"size={len(q_history)}, max_size={max_history_size}"
                 )
                 q_history = q_history[over:]
 
             self.user_data["query_history"] = q_history
-            MutyLogger.get_instance().debug(
-                "added %d query history entries for user %s, total size=%d",
-                len(entries),
-                self.id,
-                len(q_history),
+            Glug.get_instance().debug(
+                f"added {len(entries)} query history entries for user {self.id}, "
+                f"total size={len(q_history)}"
             )
             await sess.commit()
 
@@ -322,8 +318,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         #     g: GulpUserGroup = await GulpUserGroup.get_by_id(
         #         sess, ADMINISTRATORS_GROUP_ID
         #     )
-        #     MutyLogger.get_instance().debug(
-        #         "adding user %s to the 'administrators' group",u.id)
+        #     Glug.get_instance().debug(
+        #         f"adding user {u.id} to the 'administrators' group")
         #     await g.add_user(sess, u.id)
         return u
 
@@ -393,9 +389,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
             if u.session:
                 # session already exist, update expiration time
-                MutyLogger.get_instance().warning(
-                    "user %s was already logged in, resetting and renewing token...",
-                    user_id,
+                Glug.get_instance().warning(
+                    f"user {user_id} was already logged in, resetting and renewing token..."
                 )
 
                 # update expiration
@@ -432,12 +427,9 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             # update user with new session and write the new session object itself
             u.session = new_session
             u.time_last_login = muty.time.now_msec()
-            MutyLogger.get_instance().info(
-                "user %s logged in, token=%s, expire=%d, admin=%r",
-                u.id,
-                new_session.id,
-                new_session.time_expire,
-                u.is_admin(),
+            Glug.get_instance().info(
+                f"user {u.id} logged in, token={new_session.id}, "
+                f"expire={new_session.time_expire}, admin={u.is_admin()!r}"
             )
             await sess.commit()
 
@@ -477,7 +469,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         Returns:
             None
         """
-        MutyLogger.get_instance().info("logging out token=%s, user=%s", s.id, s.user.id)
+        Glug.get_instance().info(f"logging out token={s.id}, user={s.user.id}")
         p = GulpUserAccessPacket(
             user_id=s.user.id, login=False, req_id=req_id, ip=user_ip
         )
@@ -549,12 +541,12 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         """
         if self.is_admin():
             # admin is always granted
-            # MutyLogger.get_instance().debug("allowing access to admin")
+            # Glug.get_instance().debug("allowing access to admin")
             return True
 
         # check if the user is the owner of the object
         if obj.is_owner(self.id):
-            # MutyLogger.get_instance().debug("allowing access to object owner")
+            # Glug.get_instance().debug("allowing access to object owner")
             return True
 
         if enforce_owner:
@@ -566,9 +558,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
         if not obj.granted_user_group_ids and not obj.granted_user_ids:
             # public object (both granted_user_group_ids and granted_user_ids are empty)
-            MutyLogger.get_instance().debug(
-                "allowing access to public object, user=%s", self.id
-            )
+            Glug.get_instance().debug(f"allowing access to public object, user={self.id}")
             return True
 
         # the object is private or have granted users/groups, check if the user is in the granted groups or users
@@ -577,23 +567,19 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         if obj.granted_user_group_ids:
             for group in self.groups:
                 if group.id in obj.granted_user_group_ids:
-                    MutyLogger.get_instance().debug(
-                        "allowing access to granted group %s", group.id
-                    )
+                    Glug.get_instance().debug(f"allowing access to granted group {group.id}")
                     return True
 
         # check if the user is in the granted users
         if obj.granted_user_ids and self.id in obj.granted_user_ids:
-            MutyLogger.get_instance().debug(
-                "allowing access to granted user %s", self.id
-            )
+            Glug.get_instance().debug(f"allowing access to granted user {self.id}")
             return True
 
         if throw_on_no_permission:
             raise MissingPermission(
                 f"User {self.id} does not have the required permissions to access the object {obj.id}."
             )
-        MutyLogger.get_instance().debug(
+        Glug.get_instance().debug(
             f"User {self.id} does not have the required permissions to access the object {obj.id}, granted_user_ids={obj.granted_user_ids}, granted_group_ids={obj.granted_user_group_ids}, requestor_user_id={self.id}"
         )
         return False

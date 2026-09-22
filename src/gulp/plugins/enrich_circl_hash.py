@@ -8,13 +8,13 @@ from urllib.parse import urlparse
 
 import aiohttp
 import muty.dict
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpQueryHelpers, GulpQueryParameters
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
@@ -86,7 +86,7 @@ class Plugin(GulpPluginBase):
         cached: dict = self.doc_value_cache.get_value(cache_key)
         if cached is not None:
             # found cached!
-            MutyLogger.get_instance().debug(
+            Glug.get_instance().debug(
                 f"hash found in cache for hash='{hash}' and hash_type='{hash_type}': {cached}"
             )
             return cached
@@ -97,13 +97,13 @@ class Plugin(GulpPluginBase):
             if resp.status == 200:
                 # found!
                 js = await resp.json()
-                MutyLogger.get_instance().debug(
+                Glug.get_instance().debug(
                     f"hash found for hash='{hash}' and hash_type='{hash_type}': {js}"
                 )
                 return js
 
             # not found
-            MutyLogger.get_instance().warning(
+            Glug.get_instance().warning(
                 f"hash NOT found for hash='{hash}' and hash_type='{hash_type}': status={resp.status}"
             )
             return None
@@ -151,7 +151,7 @@ class Plugin(GulpPluginBase):
                             "sha256": 64,
                         }
                         if len(f) not in hash_len_map.values():
-                            MutyLogger.get_instance().warning(
+                            Glug.get_instance().warning(
                                 f"unable to autodetect hash type for field='{field}' with value='{f}' (len={len(f)}), skipping"
                             )
                             await asyncio.sleep(
@@ -161,18 +161,18 @@ class Plugin(GulpPluginBase):
                         for h, l in hash_len_map.items():
                             if len(f) == l:
                                 h_to_use = h
-                                MutyLogger.get_instance().debug(
+                                Glug.get_instance().debug(
                                     f"autodetected hash type='{h_to_use}' for field='{field}' with value='{f}'"
                                 )
                                 break
                     elif h_to_use and not compute:
-                        MutyLogger.get_instance().debug(
+                        Glug.get_instance().debug(
                             f"using provided hash type='{h_to_use}' for field='{field}' with value='{f}'"
                         )
 
                     elif h_to_use and compute:
                         # compute hash from raw data
-                        MutyLogger.get_instance().debug(
+                        Glug.get_instance().debug(
                             f"computing hash for field='{field}' using hash_type='{h_to_use}'"
                         )
                         f = hashlib.new(h_to_use, bytes.fromhex(f)).hexdigest()

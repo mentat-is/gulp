@@ -19,7 +19,6 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats

@@ -11,7 +11,6 @@ import tracemalloc
 import psutil
 import time
 import os
-from muty.log import MutyLogger
 import asyncio
 
 BYTES_PER_KB = 1024

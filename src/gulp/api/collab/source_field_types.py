@@ -5,12 +5,12 @@ This module defines the `GulpSourceFieldTypes` class, which represents the types
 from typing import override
 
 import muty.crypto
-from muty.log import MutyLogger
 from sqlalchemy import ForeignKey
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api.collab.structs import COLLABTYPE_SOURCE_FIELD_TYPES, GulpCollabBase, T
+from gulp.glug import Glug
 
 
 class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
@@ -132,13 +132,9 @@ class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
 
             if src_field_types:
                 # already exists, update it to point to the deduplicated entry
-                MutyLogger.get_instance().debug(
-                    "---> updating source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
-                    obj_id,
-                    operation_id,
-                    context_id,
-                    source_id,
-                    len(field_types),
+                Glug.get_instance().debug(
+                    f"updating source_field_types: id={obj_id}, operation_id={operation_id}, "
+                    f"context_id={context_id}, source_id={source_id}, # of fields={len(field_types)}"
                 )
                 # prefer writing the reference id; keep legacy field_types column untouched for now
                 src_field_types.field_types_id = entry.id
@@ -151,13 +147,9 @@ class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
                 await GulpFieldTypesEntry.delete_orphaned(sess)
                 return d
 
-        MutyLogger.get_instance().debug(
-            "---> create source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fieldtypes=%d",
-            obj_id,
-            operation_id,
-            context_id,
-            source_id,
-            len(field_types),
+        Glug.get_instance().debug(
+            f"creating source_field_types: id={obj_id}, operation_id={operation_id}, "
+            f"context_id={context_id}, source_id={source_id}, # of fieldtypes={len(field_types)}"
         )
 
         # create new, store only the reference to the deduplicated entry

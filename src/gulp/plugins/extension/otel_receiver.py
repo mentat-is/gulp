@@ -46,10 +46,10 @@ from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 
 from gulp.structs import GulpPluginParameters, ObjectNotFound
 
@@ -142,7 +142,7 @@ class Plugin(GulpPluginBase):
             )
         else:
             # Running in a worker process: log initialization for debugging only.
-            MutyLogger.get_instance().debug("initialized in worker process")
+            Glug.get_instance().debug("initialized in worker process")
 
     """ MIDDLEWARE """
 
@@ -383,7 +383,7 @@ class Plugin(GulpPluginBase):
                     orjson.dumps(records),
                 )
             except Exception as ex:
-                MutyLogger.get_instance().exception(ex)
+                Glug.get_instance().exception(str(ex))
             finally:
                 if mod:
                     # Ensure plugin flush and unload to release resources
@@ -498,9 +498,9 @@ class Plugin(GulpPluginBase):
 
             # parse JSON into a Python object
             payload = json.loads(body_bytes)
-            MutyLogger.get_instance().debug(f"payload:\n-------\n{payload}\n----------")
+            Glug.get_instance().debug("received payload", detail=payload)
         except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
+            Glug.get_instance().exception(str(ex))
             raise JSendException() from ex
         return payload
 
@@ -751,10 +751,10 @@ class Plugin(GulpPluginBase):
                 val_obj = attr.get("value", {})
                 result[key] = self._safe_value(val_obj)
             return result
-        except Exception as ex:
+        except Exception:
             # Log and return an empty dict if attribute parsing fails
-            MutyLogger.get_instance().error(
-                "error during parse attributes for {attributes}, error: {ex}"
+            Glug.get_instance().exception(
+                "error parsing attributes", detail=attributes
             )
             return {}
 

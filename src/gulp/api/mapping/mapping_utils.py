@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 import muty.crypto
-from muty.log import MutyLogger
 import orjson
 import muty.time
 from dateutil import parser as dateparser
@@ -14,6 +13,7 @@ from dateutil import parser as dateparser
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.structs import GulpMappingParameters
 
 _MISSING = object()
@@ -331,9 +331,7 @@ async def mapping_parameters_to_mapping(
     elif mapping_parameters.mapping_file:
         # load from mapping file, check if its an absolute path first
         mapping_file = mapping_parameters.mapping_file
-        # MutyLogger.get_instance().debug(
-        #     f"using plugin_params.mapping_parameters.mapping_file={mapping_file}"
-        # )
+        # Glug.get_instance().debug(f"using plugin_params.mapping_parameters.mapping_file={mapping_file}")
         mapping_file_path, is_absolute_path = _check_abs_path(
             mapping_file, mapping_base_path
         )
@@ -356,30 +354,31 @@ async def mapping_parameters_to_mapping(
     # validation checks
     if not mappings and not mapping_parameters.mapping_id:
         # empty mapping will be used
-        MutyLogger.get_instance().warning(
-            "mappings/mapping_file and mapping_id are both None/empty!"
+        Glug.get_instance().warning(
+            "mappings/mapping_file and mapping_id are both None/empty"
         )
         mappings = {"default": GulpMapping(fields={})}
 
     # ensure mapping_id is set to first key if not specified
     mapping_id = mapping_parameters.mapping_id or list(mappings.keys())[0]
-    # MutyLogger.get_instance().debug(f"mapping_id={mapping_id}")
+    # Glug.get_instance().debug(f"mapping_id={mapping_id}")
 
     # if we have specified direct mapping alone, just stop here and use it
     if mapping_parameters.mappings and (
         not mapping_parameters.additional_mapping_files
         and not mapping_parameters.additional_mappings
     ):
-        MutyLogger.get_instance().debug(
-            f'---> using mappings="{mappings}, mapping_id={mapping_id}"'
+        Glug.get_instance().debug(
+            f"using mapping_id={mapping_id}", detail=mappings
         )
         return mappings, mapping_id
 
     # we may have additional mapping specified in mapping_parameters.additional_mapping_files and/or
     # mapping_parameters.additional_mappings. so, merge them
     if mapping_parameters.additional_mapping_files:
-        MutyLogger.get_instance().debug(
-            f"loading additional mapping files/id: {mapping_parameters.additional_mapping_files} ..."
+        Glug.get_instance().debug(
+            "loading additional mapping files/id",
+            detail=mapping_parameters.additional_mapping_files,
         )
 
         for file_info in mapping_parameters.additional_mapping_files:
@@ -388,8 +387,8 @@ async def mapping_parameters_to_mapping(
                 file_info[0], mapping_base_path
             )
             if not additional_file_path:
-                MutyLogger.get_instance().error(
-                    f"mapping file {file_info[0]} does not exist!"
+                Glug.get_instance().error(
+                    f"mapping file {file_info[0]} does not exist"
                 )
                 continue
             if not is_absolute_path:
@@ -413,8 +412,9 @@ async def mapping_parameters_to_mapping(
             main_mapping = mappings.get(mapping_id, GulpMapping())
             add_mapping = additional_mapping_file.mappings[additional_mapping_id]
 
-            MutyLogger.get_instance().debug(
-                f"adding additional mappings from {additional_file_path}.{additional_mapping_id} to '{mapping_id}' ..."
+            Glug.get_instance().debug(
+                f"adding additional mappings from "
+                f"{additional_file_path}.{additional_mapping_id} to '{mapping_id}'"
             )
 
             for key, value in add_mapping.fields.items():
@@ -423,8 +423,8 @@ async def mapping_parameters_to_mapping(
             mappings[mapping_id] = main_mapping
 
     if mapping_parameters.additional_mappings:
-        MutyLogger.get_instance().debug(
-            f"loading additional mappings: {mapping_parameters.additional_mappings} ..."
+        Glug.get_instance().debug(
+            "loading additional mappings", detail=mapping_parameters.additional_mappings
         )
 
         for (
@@ -435,15 +435,14 @@ async def mapping_parameters_to_mapping(
             main_mapping = mappings.get(mapping_id, GulpMapping())
             add_mapping = GulpMapping.model_validate(additional_mapping)
 
-            MutyLogger.get_instance().debug(
-                f"adding additional mappings from {additional_mapping_id} to '{mapping_id}' ..."
+            Glug.get_instance().debug(
+                f"adding additional mappings from {additional_mapping_id} "
+                f"to '{mapping_id}'"
             )
             for key, value in add_mapping.fields.items():
                 main_mapping.fields[key] = value
 
             mappings[mapping_id] = main_mapping
 
-    """MutyLogger.get_instance().debug(
-        f'---> using mappings="{mappings}, mapping_id={mapping_id}"'
-    )"""
+    # Glug.get_instance().debug(f"using mapping_id={mapping_id}", detail=mappings)
     return mappings, mapping_id

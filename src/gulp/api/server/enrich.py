@@ -18,7 +18,6 @@ import muty.log
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +40,7 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies, TASK_TYPE_ENRICH
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
@@ -219,7 +219,7 @@ async def _enrich_documents_internal(
     """
     called by the enrich_documents API entrypoint, runs in a worker to enrich documents with the given plugin
     """
-    # MutyLogger.get_instance().debug("---> _enrich_documents_internal")
+    # Glug.get_instance().debug("_enrich_documents_internal called")
     errors: list[str] = []
     enriched: int = 0
     total_hits: int = 0
@@ -242,10 +242,9 @@ async def _enrich_documents_internal(
                 and not stats_created
                 and GulpRequestStats.is_terminal_status(stats.status)
             ):
-                MutyLogger.get_instance().warning(
-                    "enrich request %s already terminal with status=%s, skipping duplicate request",
-                    req_id,
-                    stats.status,
+                Glug.get_instance().warning(
+                    f"enrich request {req_id} already terminal with status={stats.status}, "
+                    "skipping duplicate request"
                 )
                 return
 
@@ -484,11 +483,8 @@ async def _modify_documents_chunk(
         if mutate_fn(d):
             updated_docs.append(d)
 
-    MutyLogger.get_instance().debug(
-        "processed %d documents (updated %d), last=%r",
-        len(chunk),
-        len(updated_docs),
-        last,
+    Glug.get_instance().debug(
+        f"processed {len(chunk)} documents (updated {len(updated_docs)}), last={last!r}"
     )
 
     # update the documents on opensearch
@@ -584,7 +580,7 @@ async def _update_documents_internal(
     will add/update the `gulp.tags` and `custom_field` fields in the matched documents with the new values
     """
 
-    MutyLogger.get_instance().debug("---> _update_documents_internal")
+    Glug.get_instance().debug("_update_documents_internal called")
 
     # build query
     if flt.is_empty():
@@ -627,10 +623,9 @@ async def _update_documents_internal(
                 and not stats_created
                 and GulpRequestStats.is_terminal_status(stats.status)
             ):
-                MutyLogger.get_instance().warning(
-                    "update-documents request %s already terminal with status=%s, skipping duplicate request",
-                    req_id,
-                    stats.status,
+                Glug.get_instance().warning(
+                    f"update-documents request {req_id} already terminal with "
+                    f"status={stats.status}, skipping duplicate request"
                 )
                 return
             cb_context["stats"] = stats
@@ -707,7 +702,7 @@ async def _untag_documents_internal(
     called by the untag_documents API entrypoint, runs in a worker process to remove tags from documents
     """
 
-    MutyLogger.get_instance().debug("---> _untag_documents_internal")
+    Glug.get_instance().debug("_untag_documents_internal called")
 
     # build query
     if flt.is_empty():
@@ -747,10 +742,9 @@ async def _untag_documents_internal(
                 and not stats_created
                 and GulpRequestStats.is_terminal_status(stats.status)
             ):
-                MutyLogger.get_instance().warning(
-                    "untag-documents request %s already terminal with status=%s, skipping duplicate request",
-                    req_id,
-                    stats.status,
+                Glug.get_instance().warning(
+                    f"untag-documents request {req_id} already terminal with "
+                    f"status={stats.status}, skipping duplicate request"
                 )
                 return
             cb_context["stats"] = stats
@@ -874,17 +868,14 @@ async def _enrich_remove_internal(
                 and not stats_created
                 and GulpRequestStats.is_terminal_status(stats.status)
             ):
-                MutyLogger.get_instance().warning(
-                    "enrich-remove request %s already terminal with status=%s, skipping duplicate request",
-                    req_id,
-                    stats.status,
+                Glug.get_instance().warning(
+                    f"enrich-remove request {req_id} already terminal with "
+                    f"status={stats.status}, skipping duplicate request"
                 )
                 return
 
             params_body = _build_enrich_remove_request(flt, fields)
-            MutyLogger.get_instance().debug(
-                "enrich_remove: update_by_query body=%s", params_body
-            )
+            Glug.get_instance().debug("enrich_remove: update_by_query body", detail=params_body)
             res = await GulpOpenSearch.get_instance()._opensearch.update_by_query(
                 index=index,
                 body=params_body,

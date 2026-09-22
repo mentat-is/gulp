@@ -13,12 +13,12 @@ from urllib.parse import urlparse
 import muty.string
 import orjson
 import redis.asyncio as redis
-from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 from redis.asyncio.client import PubSub
 from redis.exceptions import ConnectionError as RedisConnectionError, ResponseError
 from gulp.api.prometheus_api import GulpMetrics
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 
 
 class GulpWsMetadata(BaseModel):
@@ -262,21 +262,17 @@ class GulpRedis:
             redis_kwargs["max_connections"] = max_connections
         self._redis = redis.Redis.from_url(url, **redis_kwargs)
         url_parts = urlparse(url)
-        MutyLogger.get_instance().info(
-            "client %s connected to Redis at %s:%d (max_connections=%s)",
-            self._redis,
-            url_parts.hostname,
-            url_parts.port,
-            max_connections if max_connections > 0 else "unlimited",
+        Glug.get_instance().info(
+            f"client {self._redis} connected to Redis at "
+            f"{url_parts.hostname}:{url_parts.port} "
+            f"(max_connections={max_connections if max_connections > 0 else 'unlimited'})"
         )
 
         if main_process:
             # create pub/sub connection
             self._pubsub = self._redis.pubsub()
 
-            MutyLogger.get_instance().info(
-                "initialized Redis pub/sub for server_id=%s", server_id
-            )
+            Glug.get_instance().info(f"initialized Redis pub/sub for server_id={server_id}")
 
     async def shutdown(self) -> None:
         """
@@ -290,20 +286,17 @@ class GulpRedis:
             try:
                 await self.unsubscribe()
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "error closing pubsub during shutdown!"
-                )
+                Glug.get_instance().exception("error closing pubsub during shutdown")
 
         # close redis client
         try:
             await self._redis.close()
-            MutyLogger.get_instance().info(
-                "Redis client %s connection closed, redis shutdown DONE!, main_process=%r",
-                self._redis,
-                main_process,
+            Glug.get_instance().info(
+                f"redis client {self._redis} connection closed, shutdown complete, "
+                f"main_process={main_process!r}"
             )
         except Exception as ex:
-            MutyLogger.get_instance().exception("error closing redis client!")
+            Glug.get_instance().exception("error closing redis client")
 
     def _get_ws_metadata_key(self, ws_id: str) -> str:
         """Get Redis key for websocket metadata."""
@@ -372,10 +365,8 @@ class GulpRedis:
         lookup_key = self._get_ws_lookup_key(ws_id)
         await self._redis.set(lookup_key, self.server_id.encode(), ex=self.WS_KEY_TTL)
 
-        MutyLogger.get_instance().debug(
-            "registered websocket: ws_id=%s, server_id=%s",
-            ws_id,
-            self.server_id,
+        Glug.get_instance().debug(
+            f"registered websocket: ws_id={ws_id}, server_id={self.server_id}"
         )
         return True
 
@@ -442,7 +433,7 @@ class GulpRedis:
                 if isinstance(deleted, int):
                     deleted_total += deleted
             except Exception:
-                MutyLogger.get_instance().exception("failed to delete ws metadata key")
+                Glug.get_instance().exception("failed to delete ws metadata key")
 
             # Delete the lookup only if it still points to this server. This
             # prevents a stale disconnect from erasing a newer remote owner.
@@ -455,17 +446,13 @@ class GulpRedis:
                     if isinstance(deleted, int):
                         deleted_total += deleted
             except Exception:
-                MutyLogger.get_instance().exception("failed to delete ws lookup key")
+                Glug.get_instance().exception("failed to delete ws lookup key")
 
         except Exception:
-            MutyLogger.get_instance().exception(
-                "error during ws_unregister scan/delete"
-            )
+            Glug.get_instance().exception("error during ws_unregister scan/delete")
 
-        MutyLogger.get_instance().debug(
-            "unregistered websocket: ws_id=%s, deleted=%d",
-            ws_id,
-            deleted_total,
+        Glug.get_instance().debug(
+            f"unregistered websocket: ws_id={ws_id}, deleted={deleted_total}"
         )
         return deleted_total > 0
 
@@ -484,9 +471,7 @@ class GulpRedis:
             pipe.expire(lookup_key, self.WS_KEY_TTL)
             await pipe.execute()
         except Exception:
-            MutyLogger.get_instance().exception(
-                "error refreshing TTL for ws_id=%s", ws_id
-            )
+            Glug.get_instance().exception(f"error refreshing TTL for ws_id={ws_id}")
 
     async def ws_refresh_all_ttls(self) -> None:
         """
@@ -517,7 +502,7 @@ class GulpRedis:
                 if cursor == 0:
                     break
         except Exception:
-            MutyLogger.get_instance().exception("error refreshing ws key TTLs")
+            Glug.get_instance().exception("error refreshing ws key TTLs")
 
     async def ws_get_server(self, ws_id: str) -> str:
         """
@@ -617,9 +602,10 @@ class GulpRedis:
         try:
             payload = orjson.dumps(message)
         except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to serialize message for with orjson, trying with json... anyway, it is invalid data, should be checked:\n%s\n",
-                message,
+            Glug.get_instance().exception(
+                "failed to serialize message with orjson, trying with json... "
+                "anyway, it is invalid data, should be checked",
+                detail=message,
             )
             payload = json.dumps(message).encode()
 
@@ -653,7 +639,7 @@ class GulpRedis:
                     stored_bytes = zlib.compress(payload)
                     compressed_flag = True
                 except Exception:
-                    MutyLogger.get_instance().exception(
+                    Glug.get_instance().exception(
                         "failed to compress large payload, falling back to direct publish"
                     )
                     return int(await self._redis.publish(channel_to_use, payload))
@@ -698,17 +684,18 @@ class GulpRedis:
                             GulpMetrics.redis_chunked_publish_total.inc()
                         except Exception:
                             pass
-                    MutyLogger.get_instance().warning(
-                        "published large %s message stored in %d chunks base=%s total_size=%d bytes (stored=%d)",
-                        "compressed" if compressed_flag else "uncompressed",
-                        num_chunks,
-                        base_key,
-                        len(payload),
-                        len(stored_bytes),
+                    # routine handling of an oversized payload, not an anomaly — DEBUG,
+                    # not WARNING (the fallback path below, taken only when the primary
+                    # pipeline fails, is the one that actually deserves a WARNING)
+                    Glug.get_instance().debug(
+                        f"published large "
+                        f"{'compressed' if compressed_flag else 'uncompressed'} message "
+                        f"stored in {num_chunks} chunks base={base_key} "
+                        f"total_size={len(payload)} bytes (stored={len(stored_bytes)})"
                     )
                     return int(results[-1] or 0)
                 except Exception:
-                    MutyLogger.get_instance().exception(
+                    Glug.get_instance().exception(
                         "pipeline store/publish failed for chunked payload, attempting non-transactional fallback"
                     )
                     # fallback: best-effort non-transactional pipeline (may succeed on partial failures)
@@ -720,20 +707,19 @@ class GulpRedis:
                             )
                         pipe.publish(channel_to_use, pointer_bytes)
                         results = await pipe.execute()
-                        MutyLogger.get_instance().warning(
-                            "published large %s message stored (fallback non-atomic) in %d chunks base=%s",
-                            "compressed" if compressed_flag else "uncompressed",
-                            num_chunks,
-                            base_key,
+                        Glug.get_instance().warning(
+                            f"published large "
+                            f"{'compressed' if compressed_flag else 'uncompressed'} message "
+                            f"stored (fallback non-atomic) in {num_chunks} chunks base={base_key}"
                         )
                         return int(results[-1] or 0)
                     except Exception:
-                        MutyLogger.get_instance().exception(
+                        Glug.get_instance().exception(
                             "failed to store chunked payload in Redis (pipeline fallback), falling back to direct publish"
                         )
 
         except Exception:
-            MutyLogger.get_instance().exception("error handling large publish payload")
+            Glug.get_instance().exception("error handling large publish payload")
 
         # default: publish inline
         return int(await self._redis.publish(channel_to_use, payload))
@@ -774,16 +760,14 @@ class GulpRedis:
                     1.0 - throttle_threshold
                 )
                 delay = max_delay * pressure_above
-                MutyLogger.get_instance().warning(
-                    "publish backpressure throttling: agg_queue_util=%.2f threshold=%.2f delay=%.3fs",
-                    depth,
-                    throttle_threshold,
-                    delay,
+                Glug.get_instance().warning(
+                    f"publish backpressure throttling: agg_queue_util={depth:.2f} "
+                    f"threshold={throttle_threshold:.2f} delay={delay:.3f}s"
                 )
                 await asyncio.sleep(delay)
         except Exception:
             # best-effort: if we can't inspect socket queues, proceed with normal token-bucket
-            MutyLogger.get_instance().exception(
+            Glug.get_instance().exception(
                 "failed to evaluate aggregate queue utilization for backpressure"
             )
 
@@ -934,15 +918,14 @@ class GulpRedis:
                 ]
                 await self._redis.delete(*keys_to_delete)
                 cleaned += 1
-                MutyLogger.get_instance().warning(
-                    "cleaned orphaned raw websocket ingest stream: owner_server_id=%s ws_id=%s",
-                    owner_server_id,
-                    ws_id,
+                Glug.get_instance().warning(
+                    f"cleaned orphaned raw websocket ingest stream: "
+                    f"owner_server_id={owner_server_id} ws_id={ws_id}"
                 )
                 if cleaned >= limit:
                     break
         except Exception:
-            MutyLogger.get_instance().exception(
+            Glug.get_instance().exception(
                 "error cleaning orphaned raw websocket ingest streams"
             )
         return cleaned
@@ -1001,9 +984,8 @@ class GulpRedis:
                 pass
 
         if not pubsub:
-            MutyLogger.get_instance().debug(
-                "unsubscribe requested with no active pubsub, server_id=%s",
-                self.server_id,
+            Glug.get_instance().debug(
+                f"unsubscribe requested with no active pubsub, server_id={self.server_id}"
             )
             return
 
@@ -1011,19 +993,15 @@ class GulpRedis:
             if self._has_active_pubsub_subscriptions(pubsub):
                 await pubsub.unsubscribe(*channels)
         except Exception:
-            MutyLogger.get_instance().exception("error unsubscribing pubsub channels")
+            Glug.get_instance().exception("error unsubscribing pubsub channels")
 
         try:
             await pubsub.close()
         except Exception:
-            MutyLogger.get_instance().exception(
-                "error closing pubsub after unsubscribe"
-            )
+            Glug.get_instance().exception("error closing pubsub after unsubscribe")
 
-        MutyLogger.get_instance().info(
-            "unsubscribed from channels: %s, server_id=%s",
-            channels,
-            self.server_id,
+        Glug.get_instance().info(
+            f"unsubscribed from channels: {channels}, server_id={self.server_id}"
         )
 
     async def subscribe(
@@ -1042,9 +1020,9 @@ class GulpRedis:
                 self._subscriber_task = None
 
             if self._subscriber_task:
-                MutyLogger.get_instance().warning(
-                    "subscribe requested while subscriber loop is already running, server_id=%s",
-                    self.server_id,
+                Glug.get_instance().warning(
+                    "subscribe requested while subscriber loop is already running, "
+                    f"server_id={self.server_id}"
                 )
                 return
 
@@ -1061,10 +1039,8 @@ class GulpRedis:
             )
             self._subscriber_task = task
 
-        MutyLogger.get_instance().info(
-            "subscribed to channels: %s, server_id=%s",
-            channels,
-            self.server_id,
+        Glug.get_instance().info(
+            f"subscribed to channels: {channels}, server_id={self.server_id}"
         )
 
     async def _recreate_pubsub(self) -> None:
@@ -1078,7 +1054,7 @@ class GulpRedis:
 
         async with self._pubsub_lock:
             if self._subscriber_callback is None:
-                MutyLogger.get_instance().debug(
+                Glug.get_instance().debug(
                     "skipping pubsub recreation because subscriber is shutting down"
                 )
                 return
@@ -1091,15 +1067,11 @@ class GulpRedis:
                 if old_pubsub:
                     await old_pubsub.close()
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "error closing pubsub before recreate"
-                )
+                Glug.get_instance().exception("error closing pubsub before recreate")
 
             await self._pubsub.subscribe(*channels)
 
-        MutyLogger.get_instance().warning(
-            "pubsub connection recreated and resubscribed: %s", channels
-        )
+        Glug.get_instance().warning(f"pubsub connection recreated and resubscribed: {channels}")
 
     async def _subscriber_loop(
         self,
@@ -1113,10 +1085,9 @@ class GulpRedis:
             channel_name (str): Descriptive name for logging (e.g., "subscriber")
             callback: Function to call with each message
         """
-        MutyLogger.get_instance().debug(
-            "starting subscriber loop for channels: %s, %s",
-            _MAIN_REDIS_CHANNEL,
-            _CLIENT_DATA_REDIS_CHANNEL,
+        Glug.get_instance().debug(
+            f"starting subscriber loop for channels: {_MAIN_REDIS_CHANNEL}, "
+            f"{_CLIENT_DATA_REDIS_CHANNEL}"
         )
 
         try:
@@ -1125,9 +1096,8 @@ class GulpRedis:
                 try:
                     current_task = asyncio.current_task()
                     if self._subscriber_task is not current_task:
-                        MutyLogger.get_instance().debug(
-                            "stopping stale subscriber loop for server_id=%s",
-                            self.server_id,
+                        Glug.get_instance().debug(
+                            f"stopping stale subscriber loop for server_id={self.server_id}"
                         )
                         return
 
@@ -1135,9 +1105,9 @@ class GulpRedis:
                     if pubsub is None or not self._has_active_pubsub_subscriptions(
                         pubsub
                     ):
-                        MutyLogger.get_instance().warning(
-                            "subscriber loop stopping because no pubsub subscriptions are active, server_id=%s",
-                            self.server_id,
+                        Glug.get_instance().warning(
+                            "subscriber loop stopping because no pubsub subscriptions "
+                            f"are active, server_id={self.server_id}"
                         )
                         return
 
@@ -1166,10 +1136,8 @@ class GulpRedis:
                                     GulpMetrics.redis_subscriber_errors_total.inc()
                                 except Exception:
                                     pass
-                            MutyLogger.get_instance().exception(
-                                "ERROR in subscriber callback for channel %s: %s",
-                                actual_channel,
-                                ex,
+                            Glug.get_instance().exception(
+                                f"ERROR in subscriber callback for channel {actual_channel}: {ex}"
                             )
                             # Continue processing instead of terminating the loop
 
@@ -1184,57 +1152,53 @@ class GulpRedis:
                     await self._periodic_ws_ingest_orphan_cleanup()
 
                 except asyncio.CancelledError:
-                    MutyLogger.get_instance().debug("subscriber loop cancelled")
+                    Glug.get_instance().debug("subscriber loop cancelled")
                     raise
                 except RuntimeError as ex:
                     if "pubsub connection not set" not in str(ex).lower():
                         raise
 
                     if self._subscriber_task is not asyncio.current_task():
-                        MutyLogger.get_instance().debug(
-                            "stale subscriber loop exiting after pubsub detach, server_id=%s",
-                            self.server_id,
+                        Glug.get_instance().debug(
+                            f"stale subscriber loop exiting after pubsub detach, "
+                            f"server_id={self.server_id}"
                         )
                         return
 
                     if self._subscriber_callback is None:
-                        MutyLogger.get_instance().info(
-                            "subscriber loop exiting because shutdown detached pubsub, server_id=%s",
-                            self.server_id,
+                        Glug.get_instance().info(
+                            f"subscriber loop exiting because shutdown detached pubsub, "
+                            f"server_id={self.server_id}"
                         )
                         return
 
-                    MutyLogger.get_instance().warning(
-                        "redis pubsub lost its subscribed connection, recreating: %s",
-                        ex,
+                    Glug.get_instance().warning(
+                        f"redis pubsub lost its subscribed connection, recreating: {ex}"
                     )
                     try:
                         await self._recreate_pubsub()
                     except Exception:
-                        MutyLogger.get_instance().exception("failed to recreate pubsub")
+                        Glug.get_instance().exception("failed to recreate pubsub")
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2.0, 30.0)
                 except (RedisConnectionError, asyncio.IncompleteReadError) as ex:
-                    MutyLogger.get_instance().warning(
-                        "redis pubsub connection error, will reconnect: %s", ex
+                    Glug.get_instance().warning(
+                        f"redis pubsub connection error, will reconnect: {ex}"
                     )
                     try:
                         await self._recreate_pubsub()
                     except Exception:
-                        MutyLogger.get_instance().exception("failed to recreate pubsub")
+                        Glug.get_instance().exception("failed to recreate pubsub")
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2.0, 30.0)
                 except Exception as ex:
-                    MutyLogger.get_instance().exception(
-                        "error in subscriber loop: %s", ex
-                    )
+                    Glug.get_instance().exception(f"error in subscriber loop: {ex}")
                     await asyncio.sleep(1.0)
 
         except asyncio.CancelledError:
-            MutyLogger.get_instance().info(
-                "subscriber loop stopped for channels: %s, %s",
-                _MAIN_REDIS_CHANNEL,
-                _CLIENT_DATA_REDIS_CHANNEL,
+            Glug.get_instance().info(
+                f"subscriber loop stopped for channels: {_MAIN_REDIS_CHANNEL}, "
+                f"{_CLIENT_DATA_REDIS_CHANNEL}"
             )
         finally:
             # wait for in-flight handler tasks to finish
@@ -1318,10 +1282,8 @@ class GulpRedis:
                     GulpMetrics.redis_subscriber_errors_total.inc()
                 except Exception:
                     pass
-            MutyLogger.get_instance().exception(
-                "ERROR in subscriber callback for channel %s: %s",
-                channel,
-                ex,
+            Glug.get_instance().exception(
+                f"ERROR in subscriber callback for channel {channel}: {ex}"
             )
         finally:
             self._handler_semaphore.release()
@@ -1367,7 +1329,7 @@ class GulpRedis:
                 and self._task_type_from_stream(stream) in known_types
             )
         except Exception:
-            MutyLogger.get_instance().exception("failed to read task streams")
+            Glug.get_instance().exception("failed to read task streams")
 
         if task_type:
             stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
@@ -1382,9 +1344,7 @@ class GulpRedis:
             try:
                 depth += int(await self._redis.xlen(stream_key))
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to read task queue depth for %s", stream_key
-                )
+                Glug.get_instance().exception(f"failed to read task queue depth for {stream_key}")
         return depth
 
     @staticmethod
@@ -1421,9 +1381,7 @@ class GulpRedis:
         try:
             types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
         except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to read known task types for metrics"
-            )
+            Glug.get_instance().exception("failed to read known task types for metrics")
             types = set()
 
         for t in types:
@@ -1451,8 +1409,8 @@ class GulpRedis:
                                 metrics["oldest_queued_age_msec"], age
                             )
                 except Exception:
-                    MutyLogger.get_instance().exception(
-                        "failed to collect task stream depth for %s", stream_key
+                    Glug.get_instance().exception(
+                        f"failed to collect task stream depth for {stream_key}"
                     )
                 try:
                     pending_info = await self._redis.xpending(
@@ -1471,12 +1429,12 @@ class GulpRedis:
                             )
                 except ResponseError as ex:
                     if "NOGROUP" not in str(ex):
-                        MutyLogger.get_instance().exception(
-                            "failed to collect task pending depth for %s", stream_key
+                        Glug.get_instance().exception(
+                            f"failed to collect task pending depth for {stream_key}"
                         )
                 except Exception:
-                    MutyLogger.get_instance().exception(
-                        "failed to collect task pending depth for %s", stream_key
+                    Glug.get_instance().exception(
+                        f"failed to collect task pending depth for {stream_key}"
                     )
             snapshot["task_types"][task_type] = metrics
 
@@ -1533,11 +1491,9 @@ class GulpRedis:
                 outcome=outcome,
             ).inc(amount)
         except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to record task transition metric action=%s task_type=%s outcome=%s",
-                action,
-                task_type,
-                outcome,
+            Glug.get_instance().exception(
+                f"failed to record task transition metric action={action} "
+                f"task_type={task_type} outcome={outcome}"
             )
 
     @classmethod
@@ -1613,10 +1569,8 @@ class GulpRedis:
                         "nogroup_xdel",
                     )
                 except Exception:
-                    MutyLogger.get_instance().exception(
-                        "failed to xdel %s %s after missing consumer group",
-                        stream_name,
-                        msg_id,
+                    Glug.get_instance().exception(
+                        f"failed to xdel {stream_name} {msg_id} after missing consumer group"
                     )
                     self._record_task_transition(
                         "ack_delete",
@@ -1624,8 +1578,8 @@ class GulpRedis:
                         "nogroup_xdel_error",
                     )
             else:
-                MutyLogger.get_instance().exception(
-                    "failed to ack/delete task %s %s: %s", stream_name, msg_id, ex
+                Glug.get_instance().exception(
+                    f"failed to ack/delete task {stream_name} {msg_id}: {ex}"
                 )
                 self._record_task_transition(
                     "ack_delete",
@@ -1633,9 +1587,7 @@ class GulpRedis:
                     "error",
                 )
         except Exception as ex:
-            MutyLogger.get_instance().exception(
-                "failed to ack/delete task %s %s: %s", stream_name, msg_id, ex
-            )
+            Glug.get_instance().exception(f"failed to ack/delete task {stream_name} {msg_id}: {ex}")
             self._record_task_transition(
                 "ack_delete",
                 self._task_type_from_stream(stream_name),
@@ -1660,10 +1612,9 @@ class GulpRedis:
         stream_name = task.get("__redis_stream__")
         msg_id = task.get("__redis_message_id__")
         if not stream_name or not msg_id:
-            MutyLogger.get_instance().warning(
-                "task_ack_delete called without Redis envelope metadata: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
+            Glug.get_instance().warning(
+                "task_ack_delete called without Redis envelope metadata: "
+                f"task_type={task.get('task_type')} req_id={task.get('req_id')}"
             )
             self._record_task_transition(
                 "ack_delete",
@@ -1685,10 +1636,9 @@ class GulpRedis:
         msg_id = task.get("__redis_message_id__")
         consumer_name = task.get("__redis_consumer_name__") or self.server_id
         if not stream_name or not msg_id:
-            MutyLogger.get_instance().warning(
-                "task_refresh_lease called without Redis envelope metadata: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
+            Glug.get_instance().warning(
+                "task_refresh_lease called without Redis envelope metadata: "
+                f"task_type={task.get('task_type')} req_id={task.get('req_id')}"
             )
             return False
 
@@ -1701,30 +1651,22 @@ class GulpRedis:
                 message_ids=[msg_id],
             )
             if not claimed:
-                MutyLogger.get_instance().warning(
-                    "task lease refresh found no pending entry: stream=%s msg_id=%s task_type=%s req_id=%s",
-                    stream_name,
-                    msg_id,
-                    task.get("task_type"),
-                    task.get("req_id"),
+                Glug.get_instance().warning(
+                    f"task lease refresh found no pending entry: stream={stream_name} "
+                    f"msg_id={msg_id} task_type={task.get('task_type')} "
+                    f"req_id={task.get('req_id')}"
                 )
                 return False
             return True
         except ResponseError as ex:
             if "NOGROUP" not in str(ex):
-                MutyLogger.get_instance().exception(
-                    "failed to refresh task lease for %s %s: %s",
-                    stream_name,
-                    msg_id,
-                    ex,
+                Glug.get_instance().exception(
+                    f"failed to refresh task lease for {stream_name} {msg_id}: {ex}"
                 )
             return False
         except Exception as ex:
-            MutyLogger.get_instance().exception(
-                "failed to refresh task lease for %s %s: %s",
-                stream_name,
-                msg_id,
-                ex,
+            Glug.get_instance().exception(
+                f"failed to refresh task lease for {stream_name} {msg_id}: {ex}"
             )
             return False
 
@@ -1739,12 +1681,7 @@ class GulpRedis:
             stream_name = stream_name.decode()
         if isinstance(msg_id, bytes):
             msg_id = msg_id.decode()
-        MutyLogger.get_instance().warning(
-            "dropping queued task %s %s: %s",
-            stream_name,
-            msg_id,
-            reason,
-        )
+        Glug.get_instance().warning(f"dropping queued task {stream_name} {msg_id}: {reason}")
         self._record_task_transition(
             "drop",
             self._task_type_from_stream(stream_name),
@@ -1762,10 +1699,9 @@ class GulpRedis:
         stream_name = task.get("__redis_stream__")
         msg_id = task.get("__redis_message_id__")
         if not stream_name or not msg_id:
-            MutyLogger.get_instance().warning(
-                "task_mark_failed called without Redis envelope metadata: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
+            Glug.get_instance().warning(
+                "task_mark_failed called without Redis envelope metadata: "
+                f"task_type={task.get('task_type')} req_id={task.get('req_id')}"
             )
             self._record_task_transition(
                 "failure",
@@ -1794,9 +1730,7 @@ class GulpRedis:
         # tasks must have a task_type; push only to the type-specific stream
         ttype = task.get("task_type")
         if not ttype:
-            MutyLogger.get_instance().error(
-                "task missing 'task_type', not enqueued: %s", task
-            )
+            Glug.get_instance().error("task missing 'task_type', not enqueued", detail=task)
             self._record_task_transition("enqueue", "unknown", "missing_task_type")
             return
 
@@ -1826,16 +1760,13 @@ class GulpRedis:
             raise
         except Exception:
             # best-effort: log and continue
-            MutyLogger.get_instance().exception(
-                "failed to push task into role-specific stream '%s'", stream_key
+            Glug.get_instance().exception(
+                f"failed to push task into role-specific stream '{stream_key}'"
             )
             self._record_task_transition("enqueue", ttype, "error")
 
-        MutyLogger.get_instance().debug(
-            "enqueued task_type=%s on %s, task=%s",
-            ttype,
-            stream_key,
-            muty.string.make_shorter(str(task), max_len=260),
+        Glug.get_instance().debug(
+            f"enqueued task_type={ttype} on {stream_key}", detail=task
         )
 
     async def task_enqueue_many(self, tasks: list[dict]) -> None:
@@ -1887,20 +1818,17 @@ class GulpRedis:
         try:
             await pipe.execute()
         except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to enqueue %d task_type=%s messages", len(tasks), task_type
+            Glug.get_instance().exception(
+                f"failed to enqueue {len(tasks)} task_type={task_type} messages"
             )
             self._record_task_transition("enqueue", task_type, "error")
             raise
 
         for _ in tasks:
             self._record_task_transition("enqueue", task_type, "queued")
-        MutyLogger.get_instance().debug(
-            "enqueued %d task_type=%s messages with stable wake stream=%s request_stream=%s",
-            len(tasks),
-            task_type,
-            stable_stream,
-            request_stream,
+        Glug.get_instance().debug(
+            f"enqueued {len(tasks)} task_type={task_type} messages with stable wake "
+            f"stream={stable_stream} request_stream={request_stream}"
         )
 
     async def task_dequeue_batch(
@@ -1964,9 +1892,7 @@ class GulpRedis:
             except Exception as ex:
                 if isinstance(ex, ResponseError) and "NOGROUP" in str(ex):
                     continue
-                MutyLogger.get_instance().exception(
-                    "error reading from stream %s: %s", stream, ex
-                )
+                Glug.get_instance().exception(f"error reading from stream {stream}: {ex}")
                 continue
             items.extend(await self._decode_task_entries(entries))
 
@@ -1989,8 +1915,8 @@ class GulpRedis:
                         self._task_envelope(task, stream_name, msg_id, self.server_id)
                     )
                 except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        "invalid task payload in stream %s: %s", stream_name, ex
+                    Glug.get_instance().exception(
+                        f"invalid task payload in stream {stream_name}: {ex}"
                     )
                     await self._drop_task(
                         stream_name, msg_id, f"invalid task payload: {ex}"
@@ -2058,7 +1984,7 @@ class GulpRedis:
         except Exception as ex:
             if isinstance(ex, ResponseError) and "NOGROUP" in str(ex):
                 return None
-            MutyLogger.get_instance().exception("error in task_pop_blocking: %s", ex)
+            Glug.get_instance().exception(f"error in task_pop_blocking: {ex}")
             await asyncio.sleep(0.5)
             return None
 
@@ -2091,13 +2017,13 @@ class GulpRedis:
             except ResponseError as ex:
                 if "NOGROUP" in str(ex):
                     continue
-                MutyLogger.get_instance().exception(
-                    "error cleaning stale pending tasks from %s: %s", stream, ex
+                Glug.get_instance().exception(
+                    f"error cleaning stale pending tasks from {stream}: {ex}"
                 )
                 continue
             except Exception as ex:
-                MutyLogger.get_instance().exception(
-                    "error cleaning stale pending tasks from %s: %s", stream, ex
+                Glug.get_instance().exception(
+                    f"error cleaning stale pending tasks from {stream}: {ex}"
                 )
                 continue
 
@@ -2122,11 +2048,8 @@ class GulpRedis:
                     await self.task_ack_delete(envelope)
                     dropped.append(envelope)
                 except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        "invalid task payload in stale pending message %s/%s: %s",
-                        stream,
-                        msg_id,
-                        ex,
+                    Glug.get_instance().exception(
+                        f"invalid task payload in stale pending message {stream}/{msg_id}: {ex}"
                     )
                     await self._drop_task(
                         stream,
@@ -2142,10 +2065,8 @@ class GulpRedis:
                     "dropped",
                     amount=len(claimed_msgs),
                 )
-                MutyLogger.get_instance().warning(
-                    "dropped %d stale pending task(s) from %s",
-                    len(claimed_msgs),
-                    stream,
+                Glug.get_instance().warning(
+                    f"dropped {len(claimed_msgs)} stale pending task(s) from {stream}"
                 )
 
         return dropped
@@ -2210,14 +2131,10 @@ class GulpRedis:
                     pipe.xdel(stream, *ids_to_del)
                     await pipe.execute()
                     await self._remove_empty_batch_stream(stream)
-                    MutyLogger.get_instance().debug(
-                        "purged %d task(s) from %s", removed, stream
-                    )
+                    Glug.get_instance().debug(f"purged {removed} task(s) from {stream}")
                     removed_total += removed
                 except Exception:
-                    MutyLogger.get_instance().exception(
-                        "failed to xdel ids on %s", stream
-                    )
+                    Glug.get_instance().exception(f"failed to xdel ids on {stream}")
 
         return removed_total
 
@@ -2244,17 +2161,15 @@ class GulpRedis:
                         if isinstance(deleted, int):
                             total_deleted += deleted
                     except Exception:
-                        MutyLogger.get_instance().exception(
+                        Glug.get_instance().exception(
                             "failed to delete key batch during cleanup"
                         )
                 if cursor == 0:
                     break
         except Exception:
-            MutyLogger.get_instance().exception(
-                "error during cleanup_redis scan/delete"
-            )
+            Glug.get_instance().exception("error during cleanup_redis scan/delete")
 
-        MutyLogger.get_instance().info("cleanup_redis removed %d keys", total_deleted)
+        Glug.get_instance().info(f"cleanup_redis removed {total_deleted} keys")
         return total_deleted
 
     async def cleanup_consumers_for_server(self, server_id: str) -> None:
@@ -2286,11 +2201,9 @@ class GulpRedis:
                         continue
                     pending = consumer.get("pending", consumer.get(b"pending", 0))
                     if int(pending or 0) > 0:
-                        MutyLogger.get_instance().warning(
-                            "retaining task consumer %s on %s with %s pending entries",
-                            server_id,
-                            stream,
-                            pending,
+                        Glug.get_instance().warning(
+                            f"retaining task consumer {server_id} on {stream} "
+                            f"with {pending} pending entries"
                         )
                         break
                     await self._redis.xgroup_delconsumer(
@@ -2346,9 +2259,7 @@ class GulpRedis:
                                     pass
                             break
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "error cleaning consumer for stream %s", stream
-                )
+                Glug.get_instance().exception(f"error cleaning consumer for stream {stream}")
 
     async def cleanup_dead_task_consumers(self) -> int:
         """Remove zero-pending task consumers whose server heartbeat expired."""
@@ -2377,7 +2288,7 @@ class GulpRedis:
                     )
                     removed += 1
                 except Exception:
-                    MutyLogger.get_instance().exception(
-                        "failed to remove dead task consumer %s from %s", name, stream
+                    Glug.get_instance().exception(
+                        f"failed to remove dead task consumer {name} from {stream}"
                     )
         return removed

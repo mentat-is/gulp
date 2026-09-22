@@ -16,7 +16,6 @@ import muty.file
 import muty.string
 import orjson
 import yaml
-from muty.log import MutyLogger
 from sigma.backends.opensearch import OpensearchLuceneBackend
 from sigma.conversion.base import Backend
 from sigma.rule import SigmaRule
@@ -33,6 +32,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpQuery
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.structs import GulpMappingParameters, GulpProgressCallback
 
 
@@ -64,9 +64,7 @@ async def _read_sigma_mappings_from_file(
     mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
     sigma_mappings = mapping_file_obj.sigma_mappings
     if not sigma_mappings:
-        MutyLogger.get_instance().warning(
-            "mapping file %s has no sigma mappings!", mapping_file
-        )
+        Glug.get_instance().warning(f"mapping file {mapping_file} has no sigma mappings")
         return None
     return sigma_mappings
 
@@ -107,9 +105,8 @@ async def get_sigma_mappings(
 
     if not sigma_mappings:
         # no sigma mappings found
-        MutyLogger.get_instance().warning(
-            "no sigma mappings found in mapping parameters or mapping file: %s",
-            m.mapping_file,
+        Glug.get_instance().warning(
+            f"no sigma mappings found in mapping parameters or mapping file: {m.mapping_file}"
         )
         return None
     return sigma_mappings
@@ -171,12 +168,12 @@ async def _cache_get(
         client = GulpRedis.get_instance().client()
         raw = await client.get(key)
         if not raw:
-            # MutyLogger.get_instance().debug("sigma cache miss key=%s", key)
+            # Glug.get_instance().debug(f"sigma cache miss key={key}")
             return None
-        # MutyLogger.get_instance().debug("sigma cache hit key=%s", key)
+        # Glug.get_instance().debug(f"sigma cache hit key={key}")
         return orjson.loads(raw)
     except Exception:
-        MutyLogger.get_instance().exception("error reading sigma cache key %s", key)
+        Glug.get_instance().exception(f"error reading sigma cache key {key}")
         return None
 
 
@@ -193,9 +190,7 @@ async def _cache_get_or_claim(key: str) -> dict | None:
                 lock_key, b"1", ex=_SIGMA_CACHE_LOCK_TTL_SEC, nx=True
             )
         except Exception:
-            MutyLogger.get_instance().exception(
-                "error claiming sigma cache key %s", key
-            )
+            Glug.get_instance().exception(f"error claiming sigma cache key {key}")
             return None
         if claimed:
             # ponytail: a batch taking over 60 seconds may be converted twice;
@@ -218,7 +213,7 @@ async def _cache_set(
         client = GulpRedis.get_instance().client()
         await client.set(key, orjson.dumps(value), ex=ttl)
     except Exception:
-        MutyLogger.get_instance().exception("error setting sigma cache key %s", key)
+        Glug.get_instance().exception(f"error setting sigma cache key {key}")
 
 
 def _use_this_sigma(
@@ -329,11 +324,9 @@ def _sigma_rule_to_gulp_query(
         tags=rule_tags,
         q=q,
     )
-    MutyLogger.get_instance().debug(
-        "converted sigma rule: name=%s, id=%s, q=%s",
-        rule_name,
-        rule_id,
-        muty.string.make_shorter(str(qq), 260),
+    Glug.get_instance().debug(
+        f"converted sigma rule: name={rule_name}, id={rule_id}",
+        detail=qq.model_dump(exclude_none=True),
     )
     return qq
 
@@ -500,7 +493,7 @@ def _map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
     try:
         sigma_dict = yaml.safe_load(sigma_yaml)
     except yaml.YAMLError as e:
-        MutyLogger.get_instance().error("failed to parse sigma yaml: %s", e)
+        Glug.get_instance().exception(f"failed to parse sigma yaml: {e}")
         raise
 
     # create field mapping dictionary from source yml fields to mapped fields
@@ -515,9 +508,7 @@ def _map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
 
     # process detection section where field names are used
     if "detection" not in sigma_dict:
-        MutyLogger.get_instance().warning(
-            "sigma rule has no detection section:\n%s", sigma_yaml
-        )
+        Glug.get_instance().warning(f"sigma rule has no detection section:\n{sigma_yaml}")
         return sigma_yaml
 
     # fix detection part for elasticsearch/opensearch
@@ -543,7 +534,7 @@ def _map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
 
     # convert back to yaml
     s = yaml.dump(sigma_dict, sort_keys=False)
-    # MutyLogger.get_instance().debug("mapped sigma:\n%s", s)
+    # Glug.get_instance().debug(f"mapped sigma:\n{s}")
     return s
 
 
@@ -568,7 +559,7 @@ async def sigma_to_tags(sigma: str) -> list[str]:
     # just load the sigma and extract the tags
     r: SigmaRule = SigmaRule.from_yaml(sigma)
     q: GulpQuery = _sigma_rule_to_gulp_query(r, sigma, q=None)
-    MutyLogger.get_instance().debug("extracted tags from sigma rule:\n%s", q.tags)
+    Glug.get_instance().debug(f"extracted tags from sigma rule:\n{q.tags}")
     return q.tags
 
 
@@ -666,20 +657,20 @@ async def sigmas_to_queries(
         # get all source ids, if not provided
         flt: GulpCollabFilter = GulpCollabFilter(operation_ids=[operation_id])
         srcs = await GulpSource.get_by_filter(sess, flt=flt, user_id=user_id)
-        MutyLogger.get_instance().warning(
-            "using all sources for user %s: %s", user_id, src_ids
-        )
+        # no source_ids filter was given at this point, so log after resolving it below
+        # instead of echoing the (still empty) src_ids parameter here
+        Glug.get_instance().warning(f"no source ids given, using all sources for user {user_id}")
     else:
         # get the given sources
         srcs = await GulpSource.get_by_ids_ordered(sess, src_ids)
         found_ids = {s.id for s in srcs if s}
         for src_id in src_ids:
             if src_id not in found_ids:
-                MutyLogger.get_instance().warning(
-                    "source %s not found for user %s, skipping", src_id, user_id
+                Glug.get_instance().warning(
+                    f"source {src_id} not found for user {user_id}, skipping"
                 )
     src_ids: list[str] = [s.id for s in srcs]
-    MutyLogger.get_instance().debug(f"src_ids= {src_ids}")
+    Glug.get_instance().debug(f"src_ids= {src_ids}")
     # precompute source_id->mapping_parameters map
     mp_by_source_id: list = []
     for src in srcs:
@@ -747,7 +738,7 @@ async def sigmas_to_queries(
         # check if we have a cached converted query for this rule with the same parameters
         cached = await _cache_get(cache_key)
         if cached is not None:
-            # MutyLogger.get_instance().debug("cache hit for sigma rule %d/%d: %s (count_only=%r)", count, total, cache_key, count_only)
+            # Glug.get_instance().debug(f"cache hit for sigma rule {count}/{total}: {cache_key} (count_only={count_only!r})")
             if count_only:
                 count_only_queries += cached.get("count", 0)
                 continue
@@ -800,19 +791,17 @@ async def sigmas_to_queries(
                 # transform the sigma rule considering source mappings: i.e. if the sigma rule have EventId in the conditions, we want it
                 # to be "event.code" in ECS, so we need to apply the mapping first
                 final_sigma_yml = _map_sigma_fields_to_ecs(yml, mappings[mapping_id])
-                # MutyLogger.get_instance().debug(
-                #     "sigma_convert_default, final sigma rule yml:\n%s", final_sigma_yml
+                # Glug.get_instance().debug(
+                #     f"sigma_convert_default, final sigma rule yml:\n{final_sigma_yml}"
                 # )
                 qs: list[dict] = backend.convert_rule(
                     SigmaRule.from_yaml(final_sigma_yml), output_format=output_format
                 )
             except:
                 # skip this rule
-                MutyLogger.get_instance().exception(
-                    "failed to convert sigma %s ***ORIGINAL***:\n\n%s\n***PATCHED***:%s",
-                    rule.title or rule.name,
-                    yml,
-                    final_sigma_yml,
+                Glug.get_instance().exception(
+                    f"failed to convert sigma rule: {rule.title or rule.name}",
+                    detail={"original_yml": yml, "patched_yml": final_sigma_yml},
                 )
                 continue
 
@@ -883,11 +872,9 @@ async def sigmas_to_queries(
             },
         )
 
-        MutyLogger.get_instance().info(
-            '******* converted sigma rule "%s": current=%d, total=%d *******',
-            rule.name or rule.title,
-            len(gulp_queries),
-            total,
+        Glug.get_instance().info(
+            f'converted sigma rule "{rule.name or rule.title}": '
+            f"current={len(gulp_queries)}, total={total}"
         )
 
         # for query in gulp_queries:
@@ -901,14 +888,14 @@ async def sigmas_to_queries(
         )
 
     if count_only:
-        MutyLogger.get_instance().warning(
-            "count_only requested, total sigma rules converted to queries: %d",
-            count_only_queries,
+        # INFO, not WARNING: count_only is a normal request mode, not a degraded condition
+        Glug.get_instance().info(
+            f"count_only requested, total sigma rules converted to queries: {count_only_queries}"
         )
         return count_only_queries
 
     if not len(gulp_queries):
-        MutyLogger.get_instance().warning(
+        Glug.get_instance().warning(
             "no sigma rules converted to queries (all filtered out?)"
         )
 

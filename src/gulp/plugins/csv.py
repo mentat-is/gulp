@@ -28,7 +28,6 @@ from datetime import datetime
 import aiofiles
 import muty.os
 import muty.string
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -86,7 +85,7 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: dict, record_idx: int, **kwargs
     ) -> GulpDocument:
-        # MutyLogger.get_instance().debug("processing record:\n%s" % (orjson.dumps(record, option=orjson.OPT_INDENT_2).decode()))
+        # Glug.get_instance().debug("processing record", detail=record)
 
         # get raw csv line (then remove it)
         event_original: str = record["__line__"]

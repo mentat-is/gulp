@@ -11,7 +11,6 @@ import mailbox
 from contextlib import closing
 from typing import Any, override
 
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (

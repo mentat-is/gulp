@@ -25,7 +25,6 @@ from typing import Any, override
 import aiofiles
 import muty.crypto
 import muty.dict
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (

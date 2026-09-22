@@ -17,7 +17,8 @@ from importlib import resources as impresources
 
 import json5
 import muty.file
-from muty.log import MutyLogger
+
+from gulp.glug import Glug
 
 
 class GulpConfig:
@@ -88,17 +89,44 @@ class GulpConfig:
             n = minimum
         return n
 
+    # config keys known to hold a URL that may embed credentials (user:pass@host).
+    _SENSITIVE_URL_KEYS = ("postgres_url", "redis_url", "s3_url", "opensearch_url")
+
+    @staticmethod
+    def _masked_url(url: str) -> str:
+        """
+        strips embedded credentials from a URL for safe logging.
+
+        Args:
+            url (str): the URL, possibly with embedded user:password.
+
+        Returns:
+            str: the URL with credentials removed (host/port/path/query kept as-is).
+        """
+        from urllib.parse import urlsplit, urlunsplit
+
+        parts = urlsplit(url)
+        netloc = parts.hostname or ""
+        if parts.port:
+            netloc += f":{parts.port}"
+        return urlunsplit(parts._replace(netloc=netloc))
+
     def dump_config(self):
         """
         Dumps the configuration dictionary to the logger.
         """
-        MutyLogger.get_instance().info(
-            "working_dir=%s, configuration read from %s:\n%s"
-            % (
-                self._working_dir,
-                self._config_file_path,
-                json5.dumps(self._config, indent=2),
-            )
+        # never log config values verbatim: several keys are URLs that embed
+        # credentials (postgres_url, opensearch_url, ...) — mask them
+        # unconditionally (not just outside dev_mode) before the full dict
+        # goes into detail=, same principle as ServerUtils._SENSITIVE_PARAM_NAMES.
+        redacted = dict(self._config)
+        for key in self._SENSITIVE_URL_KEYS:
+            if redacted.get(key):
+                redacted[key] = self._masked_url(redacted[key])
+        Glug.get_instance().debug(
+            f"working_dir={self._working_dir}, "
+            f"configuration read from {self._config_file_path}",
+            detail=redacted,
         )
 
     def _read_config(self) -> None:
@@ -109,7 +137,7 @@ class GulpConfig:
         """
         config_file_path = self.path_config()
 
-        # MutyLogger.get_instance().info("configuration path: %s" % (config_file_path))
+        # Glug.get_instance().debug(f"configuration path: {config_file_path}")
 
         # note that we use prints here since this is called before the logger is initialized
         if not os.path.exists(config_file_path):
@@ -174,16 +202,16 @@ class GulpConfig:
         addr = os.getenv("GULP_BIND_TO_ADDR")
         port = os.getenv("GULP_BIND_TO_PORT")
         if addr and port:
-            MutyLogger.get_instance().debug("bind_to (from env): %s:%s" % (addr, port))
+            Glug.get_instance().debug(f"bind_to (from env): {addr}:{port}")
             return (addr, int(port))
 
         # get from configuration "bind_to
         p = self._config.get("bind_to", None)
         if p is None:
-            MutyLogger.get_instance().debug("bind_to not set, using default!")
+            Glug.get_instance().debug("bind_to not set, using default")
             p = "0.0.0.0:8080"
 
-        MutyLogger.get_instance().debug("bind_to: %s" % (p))
+        Glug.get_instance().debug(f"bind_to: {p}")
         splitted = p.split(":")
         if len(splitted) != 2:
             raise ValueError("invalid bind_to format: %s" % (p))
@@ -197,11 +225,9 @@ class GulpConfig:
         n = self._config.get("index_template_default_total_fields_limit", None)
         if not n:
             n = 10000
-            MutyLogger.get_instance().debug("using default total fields limit")
+            Glug.get_instance().debug("using default total fields limit")
 
-        MutyLogger.get_instance().debug(
-            "index_template_default_total_fields_limit: %d" % (n)
-        )
+        Glug.get_instance().debug(f"index_template_default_total_fields_limit: {n}")
         return n
 
     def index_template_default_refresh_interval(self) -> str:
@@ -211,13 +237,11 @@ class GulpConfig:
         n = self._config.get("index_template_default_refresh_interval", None)
         if not n:
             n = "5s"
-            MutyLogger.get_instance().debug(
+            Glug.get_instance().debug(
                 "using default refresh interval for index template"
             )
 
-        MutyLogger.get_instance().debug(
-            "index_template_default_refresh_interval: %s" % (n)
-        )
+        Glug.get_instance().debug(f"index_template_default_refresh_interval: {n}")
         return n
 
     def ingestion_allow_unmapped_fields(self) -> bool:
@@ -234,8 +258,8 @@ class GulpConfig:
         n = self._config.get("ingestion_raw_update_stats_chunk_frequency", 10)
         if not n:
             n = 10
-            MutyLogger.get_instance().debug(
-                "using default chunk frequency for raw ingestion stats update=%d" % (n)
+            Glug.get_instance().debug(
+                f"using default chunk frequency for raw ingestion stats update={n}"
             )
         return n
 
@@ -328,9 +352,9 @@ class GulpConfig:
         n = self._config.get("token_ttl", None)
         if not n:
             n = 604800
-            MutyLogger.get_instance().debug(
-                "using default number of seconds for token expiration=%d (%f days)"
-                % (n, n / 86400)
+            Glug.get_instance().debug(
+                f"using default number of seconds for token expiration={n} "
+                f"({n / 86400:f} days)"
             )
         return n
 
@@ -341,9 +365,9 @@ class GulpConfig:
         n = self._config.get("token_admin_ttl", None)
         if not n:
             n = 600
-            MutyLogger.get_instance().debug(
-                "using default number of seconds for admin token expiration=%d (%f days)"
-                % (n, n / 86400)
+            Glug.get_instance().debug(
+                f"using default number of seconds for admin token expiration={n} "
+                f"({n / 86400:f} days)"
             )
         return n
 
@@ -386,9 +410,7 @@ class GulpConfig:
         """
         n = self._config.get("debug_collab", False)
         if n:
-            MutyLogger.get_instance().warning(
-                "!!!WARNING!!! COLLAB API DEBUG MODE ACTIVE!"
-            )
+            Glug.get_instance().warning("collab API debug mode active")
         return n
 
     def debug_enrich_dry_run(self) -> bool:
@@ -397,8 +419,8 @@ class GulpConfig:
         """
         n = self._config.get("debug_enrich_dry_run", False)
         if n:
-            MutyLogger.get_instance().warning(
-                "!!!WARNING!!! ENRICH DRY RUN MODE active, no real update will happen!"
+            Glug.get_instance().warning(
+                "enrich dry run mode active, no real update will happen"
             )
         return n
 
@@ -408,9 +430,7 @@ class GulpConfig:
         """
         n = self._config.get("debug_no_token_expiration", False)
         if n:
-            MutyLogger.get_instance().warning(
-                "!!!WARNING!!! debug_no_token_expiration is set to True !"
-            )
+            Glug.get_instance().warning("debug_no_token_expiration is set to True")
         return n
 
     def stats_ttl(self) -> int:
@@ -420,9 +440,9 @@ class GulpConfig:
         n = self._config.get("stats_ttl", None)
         if n is None:
             n = 86400
-            MutyLogger.get_instance().debug(
-                "using default number of seconds for stats expiration=%d (%d days)"
-                % (n, n / 86400)
+            Glug.get_instance().debug(
+                f"using default number of seconds for stats expiration={n} "
+                f"({n // 86400} days)"
             )
         return n
 
@@ -445,8 +465,8 @@ class GulpConfig:
         if __debug__:
             n = self._config.get("debug_allow_any_token_as_admin", False)
             if n:
-                MutyLogger.get_instance().warning(
-                    "!!!WARNING!!! debug_allow_any_token_as_admin is set to True !"
+                Glug.get_instance().warning(
+                    "debug_allow_any_token_as_admin is set to True"
                 )
         return n
 
@@ -460,7 +480,7 @@ class GulpConfig:
         if __debug__:
             n = self._config.get("debug_abort_on_opensearch_ingestion_error", True)
 
-        # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
+        # Glug.get_instance().warning("debug_abort_on_opensearch_ingestion_error is set to True")
         return n
 
     def workers_concurrency_max(self) -> int:
@@ -493,10 +513,7 @@ class GulpConfig:
         n = self._config.get("workers_max", 0)
         if not n:
             n = multiprocessing.cpu_count()
-            """MutyLogger.get_instance().debug(
-                "using default number of processes for ingestion (=number of cores=%d)."
-                % (n)
-            )"""
+            # Glug.get_instance().debug(f"using default number of processes for ingestion (=number of cores={n})")
         return n
 
     def parallel_processes_respawn_after_tasks(self) -> int:
@@ -507,15 +524,16 @@ class GulpConfig:
         n = self._config.get("parallel_processes_respawn_after_tasks", 100)
         if n == -1:
             # -1 means never respawn
-            MutyLogger.get_instance().warning(
-                "parallel_processes_respawn_after_tasks is set to -1, never respawning processes."
+            Glug.get_instance().warning(
+                "parallel_processes_respawn_after_tasks is set to -1, "
+                "never respawning processes"
             )
             return 0
 
         if n < 100:
-            MutyLogger.get_instance().warning(
-                "parallel_processes_respawn_after_tasks n=%d too low, set to 100 (minimum)"
-                % (n)
+            Glug.get_instance().warning(
+                f"parallel_processes_respawn_after_tasks n={n} too low, "
+                "set to 100 (minimum)"
             )
             n = 100
 
@@ -530,9 +548,7 @@ class GulpConfig:
             n = self._config.get("debug_allow_insecure_passwords", False)
 
         if n:
-            MutyLogger.get_instance().warning(
-                "!!!WARNING!!! debug_allow_insecure_passwords is set to True !"
-            )
+            Glug.get_instance().warning("debug_allow_insecure_passwords is set to True")
         return n
 
     def postgres_adaptive_pool_size(self) -> bool:
@@ -625,10 +641,7 @@ class GulpConfig:
             min_ttl = 30000
 
         if configured_interval > min_ttl:
-            """MutyLogger.get_instance().warning(
-                "postgres_user_session_touch_interval_ms (%d) is greater than half of the minimum token TTL, adjusting to %d"
-                % (configured_interval, min_ttl)
-            )"""
+            # Glug.get_instance().warning(f"postgres_user_session_touch_interval_ms ({configured_interval}) is greater than half of the minimum token TTL, adjusting to {min_ttl}")
             return min_ttl
         return configured_interval
 
@@ -881,9 +894,8 @@ class GulpConfig:
             return 20
 
         if n > 50:
-            MutyLogger.get_instance().warning(
-                "!!!WARNING!!! query_history_max_size value too big (%d), set to max(50)!"
-                % (n)
+            Glug.get_instance().warning(
+                f"query_history_max_size value too big ({n}), set to max (50)"
             )
             n = 50
 

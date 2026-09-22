@@ -12,6 +12,7 @@ capabilities for the application.
 
 import asyncio
 from contextlib import suppress
+import logging
 import os
 import time
 from typing import Any, Awaitable, Callable, Sequence
@@ -26,7 +27,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 from opensearchpy import RequestError
 from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
@@ -46,6 +46,7 @@ from gulp.api.server.structs import (
 )
 from gulp.api.ws_api import GulpConnectedSockets, GulpRedisBroker
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import (
@@ -68,9 +69,9 @@ class GulpServer:
         self._initialized: bool = True
         self._app: FastAPI = None
         self.server_id: str = muty.string.generate_unique()
-        self._logger_file_path: str = None
-        self._log_to_syslog: tuple[str, str] = None
         self._log_level: int = None
+        self._log_dir: str = None
+        self._dev_mode: bool = False
         self._reset_collab: bool = False
         self._create_operation: str = None
         self._lifespan_task: asyncio.Task = None
@@ -114,15 +115,15 @@ class GulpServer:
         unload extension plugins
         """
         if self._extension_plugins:
-            MutyLogger.get_instance().debug(
-                "unloading %d extension plugins ...", len(self._extension_plugins)
+            Glug.get_instance().debug(
+                f"unloading {len(self._extension_plugins)} extension plugins"
             )
             for p in self._extension_plugins:
                 try:
                     await p.unload()
                 except Exception:
-                    MutyLogger.get_instance().exception(
-                        "failed to unload extension plugin %s", p.name
+                    Glug.get_instance().exception(
+                        f"failed to unload extension plugin {p.name}"
                     )
             self._extension_plugins = []
 
@@ -130,14 +131,14 @@ class GulpServer:
         """
         load available extension plugins
         """
-        MutyLogger.get_instance().debug("loading extension plugins ...")
+        Glug.get_instance().debug("loading extension plugins")
 
         # default
         p = GulpConfig.get_instance().path_plugins_default()
         path_extension = os.path.join(p, "extension")
         files: list[str] = await muty.file.list_directory_async(path_extension, "*.py*")
-        MutyLogger.get_instance().debug(
-            "found %d extensions in default path: %s", len(files), path_extension
+        Glug.get_instance().debug(
+            f"found {len(files)} extensions in default path: {path_extension}"
         )
 
         # extras, if any
@@ -147,8 +148,8 @@ class GulpServer:
             ff: list[str] = await muty.file.list_directory_async(
                 path_extension, "*.py*"
             )
-            MutyLogger.get_instance().debug(
-                "found %d extensions in extra path: %s", len(ff), path_extension
+            Glug.get_instance().debug(
+                f"found {len(ff)} extensions in extra path: {path_extension}"
             )
             files.extend(ff)
 
@@ -173,8 +174,8 @@ class GulpServer:
         for f in files:
             basename = os.path.splitext(os.path.basename(f))[0].lower()
             if basename in seen:
-                MutyLogger.get_instance().warning(
-                    "skipping extension plugin %s, already loaded same basename", f
+                Glug.get_instance().warning(
+                    f"skipping extension plugin {f}, already loaded same basename"
                 )
                 continue
             seen.add(basename)
@@ -182,17 +183,16 @@ class GulpServer:
             # load
             try:
                 p = await GulpPluginBase.load(f, extension=True)
-            except Exception as ex:
+            except Exception:
                 # plugin failed to load
-                MutyLogger.get_instance().error(
-                    "failed to load (extension) plugin file: %s", f
+                Glug.get_instance().exception(
+                    f"failed to load (extension) plugin file: {f}"
                 )
-                MutyLogger.get_instance().exception(ex)
                 continue
             self._extension_plugins.append(p)
             count += 1
 
-        MutyLogger.get_instance().debug("loaded %d extension plugins" % (count))
+        Glug.get_instance().debug(f"loaded {count} extension plugins")
 
     async def _bad_request_exception_handler(
         self, r: Request, ex: Any
@@ -324,37 +324,57 @@ class GulpServer:
 
     def start(
         self,
-        logger_file_path: str = None,
         level: int = None,
         reset_collab: bool = False,
         create_operation: str = None,
-        log_to_syslog: tuple[str, str] = None,
+        log_dir: str = None,
+        dev_mode: bool = False,
     ):
         """
         starts the server.
 
         Args:
-            logger_file_path (str, optional): path to the logger file for logging to file, cannot be used with log_to_syslog.
             level (int, optional): the log level.
             reset_collab (bool, optional): if True, reset the collab database
             create_operation (str, optional): the operation to be re/created (--create)
-            log_to_syslog (tuple, optional): if set, logs to syslog at the specified address, facility.
-                if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
-                cannot be used with logger_file_path.
+            log_dir (str, optional): base directory for glug's per-process JSON log files, written in
+                addition to glug's always-on stdout output (human-readable, colorized). Defaults to None
+                (stdout only) — see plans/log-revolution.md, "Output su stdout vs file".
+            dev_mode (bool, optional): glug dev_mode. Defaults to False.
         """
-        self._logger_file_path = logger_file_path
-        self._log_to_syslog = log_to_syslog
         self._log_level = level
+        self._log_dir = log_dir
+        self._dev_mode = dev_mode
         self._reset_collab = reset_collab
         self._create_operation = create_operation
+
+        # bootstrap glug for the main process here, as the very first thing: every
+        # log call below (including the rest of this synchronous method, which
+        # runs before uvicorn.run() ever triggers _lifespan_handler) must already
+        # see the requested --log-level/--dev-mode, not the bare-instance INFO
+        # default a call site gets when nothing has configured Glug yet.
+        # _lifespan_handler reconfigures it again with the same values once the
+        # event loop is running — cheap and idempotent, kept as a safety net for
+        # any bare Glug.get_instance() a migrated call site may have created
+        # between this point and then.
+        Glug.get_instance(
+            name="glug",
+            log_dir=self._log_dir,
+            level=self._log_level or logging.INFO,
+            dev_mode=self._dev_mode,
+            process_role="main",
+            reconfigure=True,
+        )
 
         # read configuration
         cfg = GulpConfig.get_instance()
 
-        # dump environment variables and configuration
-        MutyLogger.get_instance().info("environment variables:")
-        for k, v in os.environ.items():
-            MutyLogger.get_instance().info("%s=%s" % (k, v))
+        # dump environment variables and configuration: env vars routinely carry secrets
+        # (DB passwords, API keys, embedded-credential URLs), so this is dev_mode-only via
+        # detail= (decision 16) instead of the previous unconditional per-var INFO dump.
+        Glug.get_instance().debug(
+            f"environment: {len(os.environ)} variables set", detail=dict(os.environ)
+        )
         cfg.dump_config()
 
         # init fastapi
@@ -397,13 +417,9 @@ class GulpServer:
         self._add_routers()
 
         address, port = GulpConfig.get_instance().bind_to()
-        MutyLogger.get_instance().info(
-            "starting server at %s, port=%d, logger_file_path=%s, reset_collab=%r, create_operation=%s ...",
-            address,
-            port,
-            logger_file_path,
-            reset_collab,
-            create_operation,
+        Glug.get_instance().info(
+            f"starting server at {address}, port={port}, reset_collab={reset_collab!r}, "
+            f"create_operation={create_operation}"
         )
 
         # write pidfile so other invocations can stop this instance
@@ -414,9 +430,9 @@ class GulpServer:
             )
             with open(pidfile, "w", encoding="utf-8") as f:
                 f.write(str(os.getpid()))
-            MutyLogger.get_instance().info("wrote pidfile=%s", pidfile)
+            Glug.get_instance().info(f"wrote pidfile={pidfile}")
         except Exception:
-            MutyLogger.get_instance().exception("failed to write pidfile")
+            Glug.get_instance().exception("failed to write pidfile")
 
         uvicorn.run(
             self._app,
@@ -466,19 +482,17 @@ class GulpServer:
                     throw_if_not_found=False,
                 )
                 if not stats:
-                    MutyLogger.get_instance().warning(
-                        "failed task has no request stats: task_type=%s req_id=%s",
-                        task.get("task_type"),
-                        req_id,
+                    Glug.get_instance().warning(
+                        f"failed task has no request stats: "
+                        f"task_type={task.get('task_type')} req_id={req_id}"
                     )
                     return
 
                 if stats.status != GulpRequestStatus.ONGOING.value:
-                    MutyLogger.get_instance().warning(
-                        "failed task request stats already terminal: task_type=%s req_id=%s status=%s",
-                        task.get("task_type"),
-                        req_id,
-                        stats.status,
+                    Glug.get_instance().warning(
+                        f"failed task request stats already terminal: "
+                        f"task_type={task.get('task_type')} req_id={req_id} "
+                        f"status={stats.status}"
                     )
                     return
 
@@ -490,10 +504,9 @@ class GulpServer:
                     errors=[reason],
                 )
         except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to mark task request stats failed: task_type=%s req_id=%s",
-                task.get("task_type"),
-                req_id,
+            Glug.get_instance().exception(
+                f"failed to mark task request stats failed: "
+                f"task_type={task.get('task_type')} req_id={req_id}"
             )
 
     def _run_claimed_task(self, task: dict) -> Awaitable[Any]:
@@ -537,8 +550,8 @@ class GulpServer:
             redis_nodes = max(1, int(redis_info.get("cluster_known_nodes", 1)))
         except Exception as ex:
             redis_nodes = 1
-            MutyLogger.get_instance().warning(
-                "failed to inspect Redis node count, assuming one node: %s", ex
+            Glug.get_instance().warning(
+                f"failed to inspect Redis node count, assuming one node: {ex}"
             )
 
         try:
@@ -548,8 +561,8 @@ class GulpServer:
             opensearch_nodes = max(1, len(opensearch_info.get("nodes", {})))
         except Exception as ex:
             opensearch_nodes = 1
-            MutyLogger.get_instance().warning(
-                "failed to inspect OpenSearch node count, assuming one node: %s", ex
+            Glug.get_instance().warning(
+                f"failed to inspect OpenSearch node count, assuming one node: {ex}"
             )
 
         try:
@@ -564,8 +577,8 @@ class GulpServer:
                 postgres_nodes = max(1, int(result.scalar_one()))
         except Exception as ex:
             postgres_nodes = 1
-            MutyLogger.get_instance().warning(
-                "failed to inspect PostgreSQL node count, assuming one node: %s", ex
+            Glug.get_instance().warning(
+                f"failed to inspect PostgreSQL node count, assuming one node: {ex}"
             )
 
         # calculate weighted concurrency based on node counts, with OpenSearch and PostgreSQL weighted higher than Redis
@@ -575,14 +588,10 @@ class GulpServer:
             16 * (3 * opensearch_nodes + 3 * postgres_nodes + redis_nodes) // 7
         )
         cfg.config()["workers_concurrency_max"] = concurrency
-        MutyLogger.get_instance().info(
-            "resolved workers_concurrency_max=%d "
-            "(base=16, weights: opensearch_nodes=%d*3, "
-            "postgres_nodes=%d*3, redis_nodes=%d*1)",
-            concurrency,
-            opensearch_nodes,
-            postgres_nodes,
-            redis_nodes,
+        Glug.get_instance().info(
+            f"resolved workers_concurrency_max={concurrency} "
+            f"(base=16, weights: opensearch_nodes={opensearch_nodes}*3, "
+            f"postgres_nodes={postgres_nodes}*3, redis_nodes={redis_nodes}*1)"
         )
 
     @staticmethod
@@ -671,8 +680,8 @@ class GulpServer:
                     _opensearch_state(),
                 )
         except Exception as ex:
-            MutyLogger.get_instance().warning(
-                "task scheduler health check failed, reducing concurrency: %s", ex
+            Glug.get_instance().warning(
+                f"task scheduler health check failed, reducing concurrency: {ex}"
             )
             return True, 1, {}
 
@@ -731,10 +740,9 @@ class GulpServer:
                 task_coros.append((obj, self._run_claimed_task(obj)))
             except ValueError as ex:
                 reason = str(ex)
-                MutyLogger.get_instance().warning(
-                    "unknown task_type while processing %s task: %r",
-                    source,
-                    obj.get("task_type"),
+                Glug.get_instance().warning(
+                    f"unknown task_type while processing {source} task: "
+                    f"{obj.get('task_type')!r}"
                 )
                 failure_state = await redis_inst.task_mark_failed(obj, reason)
                 if failure_state == "failed":
@@ -750,12 +758,10 @@ class GulpServer:
         )
         for (obj, _), res in zip(task_coros, task_results):
             if isinstance(res, Exception) or res is False:
-                MutyLogger.get_instance().exception(
-                    "error while awaiting %s task for task_type=%s req_id=%s: %s",
-                    source,
-                    obj.get("task_type"),
-                    obj.get("req_id"),
-                    res,
+                Glug.get_instance().error(
+                    f"error while awaiting {source} task for "
+                    f"task_type={obj.get('task_type')} req_id={obj.get('req_id')}",
+                    exc_info=res if isinstance(res, Exception) else None,
                 )
                 reason = repr(res)
                 failure_state = await redis_inst.task_mark_failed(
@@ -781,7 +787,7 @@ class GulpServer:
         query_tuning_active = False
         last_health_check = 0.0
         last_upload_cleanup = time.monotonic()
-        MutyLogger.get_instance().info("STARTING task scheduler loop ...")
+        Glug.get_instance().info("starting task scheduler loop")
 
         in_flight: set[asyncio.Task[None]] = set()
         query_in_flight: set[asyncio.Task[None]] = set()
@@ -796,9 +802,7 @@ class GulpServer:
                 try:
                     task.result()
                 except Exception as ex:
-                    MutyLogger.get_instance().exception(
-                        "error while dispatching queued task: %s", ex
-                    )
+                    Glug.get_instance().exception(f"error while dispatching queued task: {ex}")
 
         def _start_dispatch_task(
             redis_inst: GulpRedis,
@@ -844,13 +848,12 @@ class GulpServer:
                             under_pressure,
                         )
                         if new_limit != limit:
-                            MutyLogger.get_instance().warning(
-                                "adjusted task dispatch concurrency from %d to %d to fit service capacity ceiling=%d (under_pressure=%r, service_state=%s)",
-                                limit,
-                                new_limit,
-                                service_ceiling,
-                                under_pressure,
-                                state,
+                            Glug.get_instance().warning(
+                                f"adjusted task dispatch concurrency from {limit} to "
+                                f"{new_limit} to fit service capacity "
+                                f"ceiling={service_ceiling} "
+                                f"(under_pressure={under_pressure!r})",
+                                detail=state,
                             )
                             limit = new_limit
                         if not query_demand:
@@ -871,12 +874,10 @@ class GulpServer:
                                 recovery_step=1,
                             )
                         if new_query_limit != query_limit:
-                            MutyLogger.get_instance().info(
-                                "query dispatch concurrency %d -> %d, pressure=%r, services=%s",
-                                query_limit,
-                                new_query_limit,
-                                under_pressure,
-                                state,
+                            Glug.get_instance().info(
+                                f"query dispatch concurrency {query_limit} -> "
+                                f"{new_query_limit}, pressure={under_pressure!r}",
+                                detail=state,
                             )
                             query_limit = new_query_limit
                         last_health_check = now
@@ -889,9 +890,8 @@ class GulpServer:
                         try:
                             failed = await redis_inst.task_drop_stale_pending()
                             if failed:
-                                MutyLogger.get_instance().warning(
-                                    "dropped %d stale pending task(s)",
-                                    len(failed),
+                                Glug.get_instance().warning(
+                                    f"dropped {len(failed)} stale pending task(s)"
                                 )
                                 reason = "task abandoned by worker"
                                 for obj in failed:
@@ -899,17 +899,17 @@ class GulpServer:
                                         obj, reason
                                     )
                         except Exception:
-                            MutyLogger.get_instance().exception(
+                            Glug.get_instance().exception(
                                 "error during stale pending task cleanup"
                             )
                         try:
                             removed = await redis_inst.cleanup_dead_task_consumers()
                             if removed:
-                                MutyLogger.get_instance().info(
-                                    "removed %d dead empty task consumer(s)", removed
+                                Glug.get_instance().info(
+                                    f"removed {removed} dead empty task consumer(s)"
                                 )
                         except Exception:
-                            MutyLogger.get_instance().exception(
+                            Glug.get_instance().exception(
                                 "error during dead task consumer cleanup"
                             )
 
@@ -972,11 +972,9 @@ class GulpServer:
                                         task_types=non_query_types,
                                     )
                                 )
-                            MutyLogger.get_instance().debug(
-                                "dispatching %d task(s), in_flight=%d, capacity=%d",
-                                len(batch),
-                                len(in_flight),
-                                limit,
+                            Glug.get_instance().debug(
+                                f"dispatching {len(batch)} task(s), "
+                                f"in_flight={len(in_flight)}, capacity={limit}"
                             )
                             for obj in batch:
                                 _start_dispatch_task(
@@ -996,10 +994,10 @@ class GulpServer:
                         )
 
                 except asyncio.CancelledError:
-                    MutyLogger.get_instance().debug("task scheduler loop cancelled!")
+                    Glug.get_instance().debug("task scheduler loop cancelled")
                     break
-                except Exception as ex:
-                    MutyLogger.get_instance().exception(ex)
+                except Exception:
+                    Glug.get_instance().exception("error in task scheduler loop")
                     await asyncio.sleep(1.0)
         finally:
             pending_dispatches = tuple(in_flight)
@@ -1007,7 +1005,7 @@ class GulpServer:
                 task.cancel()
             if pending_dispatches:
                 await asyncio.gather(*pending_dispatches, return_exceptions=True)
-            MutyLogger.get_instance().info("EXITING task scheduler loop ...")
+            Glug.get_instance().info("exiting task scheduler loop")
 
     @staticmethod
     def spawn_bg_task(coro, name: str = None) -> bool:
@@ -1037,22 +1035,18 @@ class GulpServer:
             try:
                 _coro = _make_coro_from_input()
                 await _coro
-            except Exception as ex:
-                MutyLogger.get_instance().exception(
-                    "***ERROR*** in background task: %s", ex
-                )
+            except Exception:
+                Glug.get_instance().exception(f"error in background task: {name}")
             finally:
-                MutyLogger.get_instance().debug(
-                    "background task name=%s completed!", name
-                )
+                Glug.get_instance().debug(f"background task name={name} completed")
 
         if name:
             # check if a task with the same name already exists in the current process
             for t in asyncio.all_tasks():
                 if t.get_name() == name and not t.done():
-                    MutyLogger.get_instance().warning(
-                        "a task with the same name (%s) already exists, not spawning another one!",
-                        name,
+                    Glug.get_instance().warning(
+                        f"a task with the same name ({name}) already exists, "
+                        "not spawning another one"
                     )
                     # if the caller passed an already-created coroutine object, make
                     # sure we close it to avoid leaking an un-awaited coroutine.
@@ -1103,12 +1097,9 @@ class GulpServer:
         if not process.is_main_process():
             raise RuntimeError("cannot spawn worker task from a worker process!")
 
-        MutyLogger.get_instance().debug(
-            muty.string.make_shorter(
-                "spawning worker task, func=%s, args=%s, kwargs=%s, wait=%r"
-                % (func, args, kwargs, wait),
-                max_len=260,
-            )
+        Glug.get_instance().debug(
+            f"spawning worker task, func={func}, wait={wait!r}",
+            detail={"args": args, "kwargs": kwargs},
         )
 
         coro = process.process_pool.apply(func, args=args, kwds=kwargs)
@@ -1133,16 +1124,14 @@ class GulpServer:
                         await worker_task
                     except asyncio.CancelledError:
                         raise
-                    except Exception as ex:
-                        MutyLogger.get_instance().exception(
-                            "***ERROR*** in cancelled worker task: %s", ex
-                        )
+                    except Exception:
+                        Glug.get_instance().exception("error in cancelled worker task")
                     finally:
                         if cancel_cleanup:
                             try:
                                 await cancel_cleanup()
                             except Exception:
-                                MutyLogger.get_instance().exception(
+                                Glug.get_instance().exception(
                                     "failed to clean up cancelled worker task"
                                 )
 
@@ -1150,10 +1139,8 @@ class GulpServer:
                 process._worker_result_tasks.add(drain_task)
                 drain_task.add_done_callback(process._worker_result_tasks.discard)
                 raise
-            except Exception as ex:
-                MutyLogger.get_instance().exception(
-                    "***ERROR*** in (awaited) worker task: %s", ex
-                )
+            except Exception:
+                Glug.get_instance().exception("error in (awaited) worker task")
                 raise
 
         # fire and forget (just use spawn_bg_task to schedule the coro)
@@ -1167,7 +1154,7 @@ class GulpServer:
         """
         called when lifespan handler returns from yield, to cleanup the MAIN process
         """
-        MutyLogger.get_instance().debug("MAIN process cleanup initiated!")
+        Glug.get_instance().debug("MAIN process cleanup initiated")
 
         # Close resources in dependency order. Each step is isolated so one
         # cleanup failure cannot prevent later resources from closing.
@@ -1177,9 +1164,7 @@ class GulpServer:
             try:
                 await cleanup()
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "MAIN process cleanup failed for %s", name
-                )
+                Glug.get_instance().exception(f"MAIN process cleanup failed for {name}")
 
         await cleanup_step(
             "connected sockets",
@@ -1193,16 +1178,14 @@ class GulpServer:
         if self._poll_tasks_task:
 
             async def stop_dispatcher() -> None:
-                MutyLogger.get_instance().debug("cancelling poll_tasks task ...")
+                Glug.get_instance().debug("cancelling poll_tasks task")
                 self._poll_tasks_task.cancel()
                 try:
                     await asyncio.wait_for(self._poll_tasks_task, timeout=5.0)
                 except asyncio.CancelledError:
                     return
                 except asyncio.TimeoutError:
-                    MutyLogger.get_instance().warning(
-                        "poll_tasks task cancellation timed out"
-                    )
+                    Glug.get_instance().warning("poll_tasks task cancellation timed out")
 
             await cleanup_step("task dispatcher", stop_dispatcher)
 
@@ -1236,9 +1219,7 @@ class GulpServer:
         )
         await cleanup_step("Redis", lambda: GulpRedis.get_instance().shutdown())
 
-        MutyLogger.get_instance().info(
-            "MAIN process cleanup DONE (server_id=%s)", self.server_id
-        )
+        Glug.get_instance().info(f"MAIN process cleanup done (server_id={self.server_id})")
         # Remove pidfile if it exists.
         try:
             pidfile = muty.file.safe_path_join(
@@ -1247,9 +1228,9 @@ class GulpServer:
             )
             if os.path.exists(pidfile):
                 os.remove(pidfile)
-                MutyLogger.get_instance().info("removed pidfile=%s", pidfile)
+                Glug.get_instance().info(f"removed pidfile={pidfile}")
         except Exception:
-            MutyLogger.get_instance().exception("failed to remove pidfile")
+            Glug.get_instance().exception("failed to remove pidfile")
 
     async def _test(self):
         # to quick test code snippets, called by lifespan_handler
@@ -1257,7 +1238,7 @@ class GulpServer:
         from gulp.api.opensearch_api import GulpOpenSearch
         api = GulpOpenSearch.get_instance()
         p = await api.index_template_get("test_operation")
-        MutyLogger.get_instance().info(orjson.dumps(p, option=orjson.OPT_INDENT_2).decode())
+        Glug.get_instance().info("index template", detail=p)
         """
         return
 
@@ -1287,11 +1268,9 @@ class GulpServer:
             # Force creating a default operation on first run.
             self._create_operation = "test_operation"
 
-        MutyLogger.get_instance().warning(
-            "******** first_run=%r, _reset_collab=%r, _create_operation=%s ********",
-            first_run,
-            self._reset_collab,
-            self._create_operation,
+        Glug.get_instance().info(
+            f"first_run={first_run!r}, _reset_collab={self._reset_collab!r}, "
+            f"_create_operation={self._create_operation}"
         )
 
         # Initialize the OpenSearch client.
@@ -1306,6 +1285,14 @@ class GulpServer:
         # Initialize Redis pub/sub for worker-to-main and instance communication.
         redis_broker = GulpRedisBroker.get_instance()
         await redis_broker.initialize()
+
+        # Start glug's live level/dev_mode reconfig subscriber now that Redis is
+        # ready — glug itself was already bootstrapped at the top of
+        # _lifespan_handler, before any of this method's own logging ran.
+        from gulp.glug import reconfig as glug_reconfig
+
+        await glug_reconfig.sync_from_persisted_state()
+        await glug_reconfig.start_subscriber()
 
         # Initialize collaboration data and create the requested operation.
         try:
@@ -1336,8 +1323,8 @@ class GulpServer:
         await main_process.finish_initialization(
             self.server_id,
             log_level=self._log_level,
-            logger_file_path=self._logger_file_path,
-            log_to_syslog=self._log_to_syslog,
+            log_dir=self._log_dir,
+            dev_mode=self._dev_mode,
         )
 
         if __debug__:
@@ -1349,17 +1336,14 @@ class GulpServer:
         num_workers: int = cfg.workers_max()
         dispatch_concurrency: int = self._task_dispatch_capacity()
         ingest_concurrency: int = max(1, num_workers)
-        MutyLogger.get_instance().debug(
-            "startup concurrency: queued Redis task dispatches<=%d "
-            "(worker_processes=%d * workers_concurrency_max=%d)",
-            dispatch_concurrency,
-            num_workers,
-            child_concurrency,
+        Glug.get_instance().debug(
+            f"startup concurrency: queued Redis task dispatches<={dispatch_concurrency} "
+            f"(worker_processes={num_workers} * "
+            f"workers_concurrency_max={child_concurrency})"
         )
-        MutyLogger.get_instance().debug(
-            "startup ingest concurrency: ingest execution<=%d (worker_processes=%d)",
-            ingest_concurrency,
-            num_workers,
+        Glug.get_instance().debug(
+            f"startup ingest concurrency: ingest execution<={ingest_concurrency} "
+            f"(worker_processes={num_workers})"
         )
         # Start the dequeue task for long-running work.
         self._poll_tasks_task = asyncio.create_task(self._dispatch_tasks())
@@ -1377,7 +1361,22 @@ class GulpServer:
 
     async def _lifespan_handler(self, app: FastAPI):
         """Initialize FastAPI services and always release acquired resources."""
-        MutyLogger.get_instance().info("gULP main server process is starting!")
+        # Bootstrap glug for the main process as the very first thing: every
+        # log call from here on (including the rest of this handler and all of
+        # _startup()) must already see the requested --log-level/--dev-mode,
+        # not the bare-instance INFO default a call site gets when nothing has
+        # configured Glug yet. The Redis-dependent half of glug's bootstrap
+        # (persisted-state sync, live reconfig subscriber) still happens later
+        # in _startup(), once Redis is actually initialized.
+        Glug.get_instance(
+            name="glug",
+            log_dir=self._log_dir,
+            level=self._log_level or logging.INFO,
+            dev_mode=self._dev_mode,
+            process_role="main",
+            reconfigure=True,
+        )
+        Glug.get_instance().info("gULP main server process is starting")
 
         try:
             await self._startup()
@@ -1386,37 +1385,38 @@ class GulpServer:
             try:
                 yield
             except asyncio.CancelledError:
-                MutyLogger.get_instance().warning(
-                    "CancelledError caught in _lifespan handler!"
-                )
+                Glug.get_instance().warning("CancelledError caught in _lifespan handler")
         finally:
             # Startup failures and normal shutdown share the same cleanup path.
-            MutyLogger.get_instance().info("gulp shutting down!")
+            Glug.get_instance().info("gulp shutting down")
             # Stop Prometheus collection independently from other resources.
             try:
                 if GulpConfig.get_instance().prometheus_enabled():
                     await GulpMetrics.get_instance().stop_collect_loop()
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to stop Prometheus collection"
-                )
+                Glug.get_instance().exception("failed to stop Prometheus collection")
             # Delete pending stats created by this instance only.
             try:
                 if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
                     await GulpRequestStats.purge_ongoing_requests(self.server_id)
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to purge pending request stats"
-                )
+                Glug.get_instance().exception("failed to purge pending request stats")
+            # Stop the glug reconfig subscriber, if it was started.
+            try:
+                from gulp.glug import reconfig as glug_reconfig
+
+                await glug_reconfig.stop_subscriber()
+            except Exception:
+                Glug.get_instance().exception("failed to stop glug reconfig subscriber")
             # Clean up main-process resources even when initialization failed.
             await self._cleanup()
             # Workers are stopped before their shared multiprocess metrics directory is removed.
             try:
                 cleanup_prometheus()
             except Exception:
-                MutyLogger.get_instance().exception("failed to clean up Prometheus")
-            MutyLogger.get_instance().info(
-                "MAIN process cleanup complete, exiting lifespan handler ..."
+                Glug.get_instance().exception("failed to clean up Prometheus")
+            Glug.get_instance().info(
+                "MAIN process cleanup complete, exiting lifespan handler"
             )
 
     async def _reset_first_run(self) -> None:
@@ -1427,7 +1427,7 @@ class GulpServer:
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             await muty.file.delete_file_or_dir(check_first_run_file)
-            MutyLogger.get_instance().warning("deleted: %s", check_first_run_file)
+            Glug.get_instance().warning(f"deleted: {check_first_run_file}")
 
     def _check_first_run(self) -> bool:
         """
@@ -1440,14 +1440,14 @@ class GulpServer:
         config_directory = GulpConfig.get_instance().path_working_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
-            MutyLogger.get_instance().debug(
-                "NOT FIRST RUN, first run file exists: %s", check_first_run_file
+            Glug.get_instance().debug(
+                f"not first run, first run file exists: {check_first_run_file}"
             )
             return False
 
         # create firstrun file
-        MutyLogger.get_instance().warning(
-            "FIRST RUN! first run file does not exist: %s", check_first_run_file
+        Glug.get_instance().info(
+            f"first run, first run file does not exist: {check_first_run_file}"
         )
         with open(check_first_run_file, "w", encoding="utf-8") as f:
             f.write("gulp!")

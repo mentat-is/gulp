@@ -1275,7 +1275,7 @@ async def test_task_reads_ignore_stream_deleted_after_discovery(
         side_effect=ResponseError("NOGROUP No such key or consumer group")
     )
     logger = MagicMock()
-    monkeypatch.setattr(redis_api_module.MutyLogger, "get_instance", lambda: logger)
+    monkeypatch.setattr(redis_api_module.Glug, "get_instance", lambda: logger)
     sleep = AsyncMock()
     monkeypatch.setattr(redis_api_module.asyncio, "sleep", sleep)
 

@@ -8,10 +8,10 @@ import signal
 import time
 
 import art
-from muty.log import MutyLogger
 
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 
 # just for quick testing from the command line
 __RUN_TESTS__ = os.getenv("INTERNAL_TEST", "0") == "1"
@@ -29,7 +29,7 @@ async def async_test():
     #         raise JSendException("this is the jsend exceptiom", req_id="1234") from ex
     # except Exception as ex:
     #     # this will be logged
-    #     MutyLogger.get_instance().exception(ex)
+    #     Glug.get_instance().exception(str(ex))
     #     print("-----")
     #     print(ex.to_string())
     pass
@@ -57,25 +57,30 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "--log-to-file",
-        action="store_true",
-        default=False,
-        help="also outputs log (in addition to stdout) to $GULP_WORKING_DIR/logs/gulp.log (rotating every 4mb). Cannot be used with --log-to-syslog.",
-    )
-    parser.add_argument(
-        "--log-to-syslog",
-        help="also outputs log (in addition to stdout) to syslog, default address=(either /var/log or /var/run/syslog, depending on what is available), default facility=1 (LOG_LOCAL_0). Cannot be used with --log-to-file.",
-        nargs="*",
-        metavar=("address", "facility"),
-        default=None,
-    )
-    parser.add_argument(
         "--log-level",
         nargs=1,
         metavar=("level"),
         help='select log level, default="debug".',
         choices=["critical", "error", "warning", "info", "debug"],
         default=["debug"],
+    )
+    parser.add_argument(
+        "--dev-mode",
+        help="enables glug dev_mode: forces DEBUG level and unlocks extra diagnostic content in glug-migrated "
+        "call sites, independently of --log-level. Togglable at runtime via Redis (see plans/log-revolution.md).",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--log-dir",
+        help="base directory for glug's per-process JSON log files, written to "
+        "<log-dir>/<hostname>/gulp-main.log or gulp-worker-<pid>.log, IN ADDITION to glug's always-on "
+        "stdout output (human-readable, colorized) — never instead of it. Omit to keep stdout only; pass "
+        "this when the JSON files themselves need to be persisted to disk too (e.g. for a log-shipping "
+        "sidecar, or the future audit plugin, see plans/log-revolution.md).",
+        nargs=1,
+        metavar=("path"),
+        default=None,
     )
     parser.add_argument(
         "--reset-collab",
@@ -108,40 +113,7 @@ def main():
     print(". command line args (sys.argv):\n%s" % (sys.argv))
     print(". command line args (parsed):\n%s" % (args))
 
-    # reconfigure logger
-    logs_path: str = GulpConfig.get_instance().path_logs()
     lv: str = logging.getLevelNamesMapping()[args.log_level[0].upper()]
-    logger_file_path: str = (
-        os.path.join(logs_path, "gulp.log") if args.log_to_file else None
-    )
-
-    # post-process log_to_syslog to always be a tuple of two elements (possibly None)
-    log_to_syslog: tuple[str, str]
-    if args.log_to_syslog and len(args.log_to_syslog) > 2:
-        print(
-            "ERROR: log_to_syslog can only have 0, 1 or 2 arguments, got %d"
-            % len(args.log_to_syslog)
-        )
-        return 1
-
-    if args.log_to_syslog is None:
-        # no syslog logging
-        log_to_syslog = None
-    elif len(args.log_to_syslog) == 0:
-        # no args means default syslog settings
-        log_to_syslog = (None, None)
-    elif len(args.log_to_syslog) == 1:
-        log_to_syslog = (args.log_to_syslog[0], None)
-    else:
-        log_to_syslog = (args.log_to_syslog[0], args.log_to_syslog[1])
-    print(". log_to_syslog:", log_to_syslog)
-    MutyLogger.get_instance(
-        "gulp",
-        logger_file_path=logger_file_path,
-        level=lv,
-        log_to_syslog=log_to_syslog,
-        reconfigure=True,
-    )
     if __RUN_TESTS__:
         # test stuff
         asyncio.run(async_test())
@@ -221,7 +193,7 @@ def main():
                         "Failed to remove pidfile, it may have already been removed: %s"
                         % (pidfile_path)
                     )"""
-            MutyLogger.get_instance().info("Stopped %d gulp instances !" % (len(pids)))
+            Glug.get_instance().info(f"stopped {len(pids)} gulp instances")
             return 0
         else:
             create_operation: str = None
@@ -231,15 +203,15 @@ def main():
             # default
             print("%s\n%s" % (banner, ver))
             GulpServer.get_instance().start(
-                logger_file_path=logger_file_path,
                 level=lv,
                 reset_collab=args.reset_collab,
                 create_operation=create_operation,
-                log_to_syslog=log_to_syslog,
+                log_dir=args.log_dir[0] if args.log_dir else None,
+                dev_mode=args.dev_mode,
             )
-    except Exception as ex:
+    except Exception:
         # print exception and exit
-        MutyLogger.get_instance().exception(ex)
+        Glug.get_instance().exception("fatal error in main()")
         return 1
 
     # done

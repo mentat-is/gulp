@@ -9,11 +9,10 @@ import re
 
 from typing import override, Any, Optional
 
-from muty.log import MutyLogger
-
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.glug import Glug
 from gulp.plugin import (
     GulpPluginBase,
     GulpPluginType,
@@ -63,7 +62,7 @@ class Plugin(GulpPluginBase):
                 mapped = await self._process_key(k, v, d, **kwargs)
                 d.update(mapped)
             except Exception as ex:
-                MutyLogger.get_instance().warning(
+                Glug.get_instance().warning(
                     f"cannot map {k} with value: {v} inside GulpDocument, error: {ex}"
                 )
 
@@ -145,7 +144,7 @@ class Plugin(GulpPluginBase):
             try:
                 record = await self._parse_line(row, doc_idx)
             except Exception as ex:
-                MutyLogger.get_instance().warning(
+                Glug.get_instance().warning(
                     f"cannot parse line: {row}, error: {ex}"
                 )
                 continue

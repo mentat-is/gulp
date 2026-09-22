@@ -22,12 +22,12 @@ from urllib.parse import urlparse
 
 import aiohttp
 import muty.dict
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
@@ -107,7 +107,7 @@ class Plugin(GulpPluginBase):
     def _check_query_status(self, js: dict) -> bool:
         qs: str = js.get("query_status", "error")
         if qs != "ok":
-            MutyLogger.get_instance().warning(
+            Glug.get_instance().warning(
                 f"abuse.ch query returned non-ok status: {qs}"
             )
             return False
@@ -133,10 +133,10 @@ class Plugin(GulpPluginBase):
                     js = await resp.json()
                     if not self._check_query_status(js):
                         return None
-                    MutyLogger.get_instance().debug(f"url found for url='{url}': {js}")
+                    Glug.get_instance().debug(f"url found for url='{url}': {js}")
                     return js
 
-                MutyLogger.get_instance().warning(
+                Glug.get_instance().warning(
                     f"url not found for url='{url}', status={resp.status}"
                 )
                 return None
@@ -158,12 +158,12 @@ class Plugin(GulpPluginBase):
                     js = await resp.json()
                     if not self._check_query_status(js):
                         return None
-                    MutyLogger.get_instance().debug(
+                    Glug.get_instance().debug(
                         f"hash found for hash='{h}' and hash_type='{hash_algo}': {js}"
                     )
                     return js
 
-                MutyLogger.get_instance().warning(
+                Glug.get_instance().warning(
                     f"url not found for url='{h}', status={resp.status}"
                 )
                 return None
@@ -220,7 +220,7 @@ class Plugin(GulpPluginBase):
                                 "sha256": 64,
                             }
                             if len(f) not in hash_len_map.values():
-                                MutyLogger.get_instance().warning(
+                                Glug.get_instance().warning(
                                     f"unable to autodetect hash type for field='{field}' with value='{f}' (len={len(f)}), skipping"
                                 )
                                 await asyncio.sleep(
@@ -230,12 +230,12 @@ class Plugin(GulpPluginBase):
                             for h, l in hash_len_map.items():
                                 if len(f) == l:
                                     h_to_use = h
-                                    MutyLogger.get_instance().debug(
+                                    Glug.get_instance().debug(
                                         f"autodetected hash type='{h_to_use}' for field='{field}' with value='{f}'"
                                     )
                                     break
                         else:
-                            MutyLogger.get_instance().debug(
+                            Glug.get_instance().debug(
                                 f"using provided hash type='{h_to_use}' for field='{field}' with value='{f}'"
                             )
                         # get hash

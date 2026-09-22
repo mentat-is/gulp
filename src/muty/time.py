@@ -2,6 +2,7 @@
 time utilities
 """
 
+import logging
 import math
 import os
 import time
@@ -10,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 import ntplib
 from dateutil import parser, tz
 from dateutil.parser._parser import ParserError
-from muty.log import MutyLogger
+
+_logger = logging.getLogger(__name__)
 
 MICROSECONDS_TO_NANOSECONDS = 1_000
 MILLISECONDS_TO_NANOSECONDS = 1000_000
@@ -216,7 +218,7 @@ def ensure_iso8601(
     """
     # check if time_str is in iso8601 format
     if check_iso8601(time_str):
-        # MutyLogger.get_instance().warning("time_str is already in iso8601 format: %s" % (time_str))
+        # _logger.debug("time_str is already in iso8601 format: %s", time_str)
         return time_str
 
     if time_str.isdigit():
@@ -457,8 +459,11 @@ def string_to_nanos_from_unix_epoch(
                 dt = datetime.strptime(s, format_string)
             except Exception:
                 # if strptime fails, fall back to dateutil's parser...
-                MutyLogger.get_instance().warning(
-                    "Failed to parse time string '%s' with format '%s', falling back to dateutil.parser.parse" % (s, format_string)
+                _logger.warning(
+                    "failed to parse time string '%s' with format '%s', "
+                    "falling back to dateutil.parser.parse",
+                    s,
+                    format_string,
                 )
                 dt = parser.parse(
                     s,

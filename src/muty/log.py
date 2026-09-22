@@ -1,4 +1,11 @@
-"""logging utilities"""
+"""logging utilities
+
+NOTE: as of the log-revolution migration (see gulp's plans/log-revolution.md),
+nothing in this repo (src/gulp/, src/muty/) calls MutyLogger anymore — gulp's
+own application code uses gulp.glug.Glug instead. MutyLogger is kept here,
+unchanged, only for backward compatibility with external/paid plugins outside
+this repo that may still import and use it directly.
+"""
 
 import asyncio
 import inspect
