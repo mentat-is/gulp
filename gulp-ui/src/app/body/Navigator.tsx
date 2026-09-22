@@ -302,7 +302,7 @@ export function Navigator({
 	/**
 	 * Triggers the search based on the current mode and value.
 	 * For 'files' mode, it updates the global timeline filter.
-	 * For 'events' mode, it updates OpenSearch filters and triggers a refetch.
+	 * For 'events' mode, it refetches OpenSearch results in the current viewport.
 	 * @param value The search term.
 	 * @param mode The current filter mode ('files' or 'events').
 	 * @returns Nothing.
@@ -362,7 +362,6 @@ export function Navigator({
 						ids: sources.map((s: Source.Type) => s.id),
 						queriesBySourceId,
 					});
-					scrollStore.setScroll(0, -26);
 				}
 			}
 		},

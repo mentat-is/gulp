@@ -8,6 +8,7 @@ import { Navigator } from "@/app/body/Navigator";
 import type { Filter } from "@/entities/Filter";
 import type { Query } from "@/entities/Query";
 import type { Source } from "@/entities/Source";
+import { scrollStore } from "@/store/scroll.store";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
 	.IS_REACT_ACT_ENVIRONMENT = true;
@@ -171,6 +172,7 @@ describe("Navigator query submission", () => {
 	beforeEach(() => {
 		mockSources = [];
 		mockApp.timeline.filter = "";
+		scrollStore.setScroll(0, -26);
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -179,6 +181,7 @@ describe("Navigator query submission", () => {
 	afterEach(() => {
 		act(() => root.unmount());
 		container.remove();
+		scrollStore.setScroll(0, -26);
 	});
 
 	/** Renders the Navigator and lets its initial effects settle. */
@@ -298,6 +301,25 @@ describe("Navigator query submission", () => {
 			field: "event.original",
 			value: regexp,
 		});
+	});
+
+	it("keeps both timeline scroll axes when applying an event query", async () => {
+		mockSources = [{
+			id: "visible-source" as Source.Id,
+			appliedQuery: { string: "", filters: [] },
+		}];
+		scrollStore.setScroll(480, 118);
+		await renderNavigator();
+
+		await act(async () => {
+			mockInput.onChange?.({
+				target: { value: "login failed" },
+			} as React.ChangeEvent<HTMLInputElement>);
+		});
+		await act(async () => clickSearch());
+
+		expect(mockRefetch).toHaveBeenCalledTimes(1);
+		expect(scrollStore.getSnapshot()).toEqual({ x: 480, y: 118 });
 	});
 
 	it("removes only the Navigator filter when an empty search is submitted", async () => {
