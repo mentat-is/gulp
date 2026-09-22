@@ -406,6 +406,16 @@
   remain anywhere in the log; re-ran `pytest tests/unit/` (564/564) and an integration smoke
   batch (`test_db.py`, `test_collab.py`, `test_users.py`, `test_plugins.py` — 34 passed), no
   regressions.
+- reverted the `_GlugForwardingHandler` wrapper above: the plugins actually producing the
+  pipe-delimited `MutyLogger` output (`webhook.py`, `oauth.py`, and everything else under
+  `gulp-paid-plugins/`) turned out to belong to `gulp-paid-plugins`, a separate git repo
+  that `CLAUDE.md` explicitly says is "maintained like `src/gulp/plugins/`" — i.e. in scope
+  for this migration, unlike `gulp-ui`/`gulp-collector`/`gulp-licensing`. Forwarding
+  `MutyLogger` to `Glug` was the wrong fix for that: it papered over paid plugins never
+  having been migrated. `src/muty/log.py` is back to the plain, unmodified `MutyLogger`
+  kept only for any genuinely third-party/unmaintained plugin outside both repos; the real
+  fix is migrating `gulp-paid-plugins` itself to call `Glug` directly (289 call sites across
+  43 files, tracked separately).
 - fixed `docker-entrypoint.sh` leaving the bind-mounted working directory
   root-owned when Docker auto-creates a missing host mount path as root
   regardless of the container's own user, blocking `GULP_RUNTIME_USER` from
