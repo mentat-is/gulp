@@ -486,6 +486,19 @@
     the real requested level, not silently dropped or unconditionally spammed like the old
     `print()`s), no root-logger pollution. An integration smoke batch (`test_db.py`,
     `test_collab.py`, `test_users.py` — 23 passed) confirmed no regressions.
+- added `funcName` to `Glug`'s console line (`module:funcName:line` instead of
+  `module:line`), after the user asked for a field-by-field comparison against `MutyLogger`'s
+  original format string to double check nothing else was missing following the earlier
+  `proc=`/`task=` removal — confirmed every other field is still captured, just redistributed
+  (JSON has `func`/`pid`/`thread_id`/`async_task_name`/`process_role`/`hostname`, console
+  stays terse by design); `funcName` was the one field that had never been on the console at
+  all, in any revision, so it was a plain gap rather than an intentional omission. Fixed a
+  test (`test_console_hint_rendered_only_when_given`) that asserted a bare `"hint" not in
+  output` substring check, which broke once `funcName` started including the calling test
+  function's own name (which happens to contain "hint"); tightened it to check for the
+  actual rendered `"→ hint:"` marker instead. Validated: `pytest tests/unit/` (564/564,
+  including the fixed test) and a live restart confirming the new field renders correctly
+  (e.g. `gulp.api.server_api:start:420`, `gulp.api.collab_api:_create_engine:194`).
 - fixed `docker-entrypoint.sh` leaving the bind-mounted working directory
   root-owned when Docker auto-creates a missing host mount path as root
   regardless of the container's own user, blocking `GULP_RUNTIME_USER` from

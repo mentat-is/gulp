@@ -65,7 +65,10 @@ class GlugConsoleFormatter(logging.Formatter):
         # trying it live.
         dim = _DIM if self._use_color else ""
         dim_reset = _RESET if dim else ""
-        header = f"{time_str} {color}{record.levelname:<8}{reset} {module_name}:{record.lineno}"
+        header = (
+            f"{time_str} {color}{record.levelname:<8}{reset} "
+            f"{module_name}:{record.funcName}:{record.lineno}"
+        )
 
         context = getattr(record, "context", {}) or {}
         ctx_str = " ".join(f"{k}={v}" for k, v in context.items() if v is not None)

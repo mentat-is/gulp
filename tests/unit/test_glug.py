@@ -260,7 +260,10 @@ def test_console_hint_rendered_only_when_given(capsys: pytest.CaptureFixture):
     glug = _fresh_console_glug()
 
     glug.warning("disk usage high")
-    assert "hint" not in capsys.readouterr().out
+    # check for the actual rendered hint marker, not a bare "hint" substring: the console
+    # line now includes the calling function's name (funcName), and this test's own name
+    # happens to contain "hint"
+    assert "→ hint:" not in capsys.readouterr().out
 
     glug.error("bulk ingestion failed", hint="check that OpenSearch is reachable")
     assert "hint: check that OpenSearch is reachable" in capsys.readouterr().out
