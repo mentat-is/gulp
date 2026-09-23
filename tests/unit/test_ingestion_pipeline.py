@@ -35,7 +35,7 @@ def pipeline_plugin(monkeypatch) -> tuple[_IngestionPlugin, MagicMock, MagicMock
     plugin = _IngestionPlugin(
         "/tmp/test_ingestion_pipeline.py", "test_ingestion_pipeline"
     )
-    plugin._sess = MagicMock()
+    plugin._sess = MagicMock(commit=AsyncMock())
     plugin._stats = MagicMock(
         status=GulpRequestStatus.ONGOING,
         update_ingestion_stats=AsyncMock(return_value={"status": "ongoing"}),
@@ -277,6 +277,62 @@ async def test_filtered_empty_chunk_still_observes_cancellation(
 
     opensearch.bulk_ingest_prepared.assert_not_awaited()
     assert plugin._records_processed_total == 2
+    plugin._sess.commit.assert_awaited_once_with()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pipeline_enabled", [False, True])
+async def test_cancellation_poll_transaction_closes_before_next_record(
+    pipeline_plugin, monkeypatch, pipeline_enabled: bool
+) -> None:
+    """Cancellation polling cannot hold a transaction during record parsing."""
+    from gulp import plugin as plugin_module
+
+    plugin, opensearch, _config = pipeline_plugin
+    plugin._pipeline_enabled = pipeline_enabled
+    transaction_open = False
+    observed: list[str] = []
+
+    async def bulk(_index, prepared, **_kwargs):
+        return 0, list(prepared.documents), 0
+
+    async def is_canceled(_sess, _req_id):
+        nonlocal transaction_open
+        assert transaction_open is False
+        transaction_open = True
+        observed.append("cancellation-check")
+        return False
+
+    async def commit():
+        nonlocal transaction_open
+        assert transaction_open is True
+        transaction_open = False
+        observed.append("commit")
+
+    async def record_to_documents(_record, record_idx, **_kwargs):
+        if record_idx == 2:
+            assert transaction_open is False
+            observed.append("next-record")
+        return [{"_id": str(record_idx), "event.sequence": record_idx}]
+
+    opensearch.bulk_ingest_prepared.side_effect = bulk
+    plugin._sess.commit.side_effect = commit
+    plugin._record_to_gulp_documents_wrapper.side_effect = record_to_documents
+    monkeypatch.setattr(plugin_module.GulpRequestStats, "is_canceled", is_canceled)
+
+    await plugin.process_record("zero", 0)
+    await plugin.process_record("one", 1)
+    if pipeline_enabled:
+        await plugin._acknowledge_pipeline_chunk(update_stats=True)
+
+    assert transaction_open is False
+    await plugin.process_record("two", 2)
+
+    assert observed == ["cancellation-check", "commit", "next-record"]
+    assert plugin._stats.update_ingestion_stats.await_count == 1
+    assert plugin._records_processed_total == 2
+    assert plugin._records_ingested_total == 2
 
 
 @pytest.mark.unit

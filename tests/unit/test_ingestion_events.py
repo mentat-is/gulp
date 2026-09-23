@@ -26,7 +26,7 @@ def plugin(monkeypatch) -> _IngestionPlugin:
     instance = _IngestionPlugin(
         "/tmp/test_ingestion_events.py", "test_ingestion_events"
     )
-    instance._sess = MagicMock()
+    instance._sess = MagicMock(commit=AsyncMock())
     instance._docs_buffer = [{"event": {"original": "value"}}]
     instance._index = "test-index"
     instance._operation_id = "operation"

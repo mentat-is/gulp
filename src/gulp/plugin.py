@@ -1170,6 +1170,9 @@ class GulpPluginBase(ABC):
             await self._flush_pending_ingestion_stats()
         if chunk.documents:
             canceled = await GulpRequestStats.is_canceled(self._sess, self._req_id)
+            # The cancellation SELECT starts a transaction. Close it before a
+            # plugin spends an unbounded amount of time building the next chunk.
+            await self._sess.commit()
             if canceled:
                 self._req_canceled = True
                 MutyLogger.get_instance().warning(

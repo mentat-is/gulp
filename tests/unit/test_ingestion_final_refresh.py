@@ -95,6 +95,7 @@ async def test_last_raw_chunk_emits_terminal_packet_when_all_docs_are_skipped(
     plugin._raw_ingestion = True
     plugin._last_raw_chunk = True
     plugin._docs_buffer = [{"_id": "skipped"}]
+    plugin._sess = MagicMock(commit=AsyncMock())
 
     opensearch = MagicMock(
         prepare_bulk_ingest=AsyncMock(
