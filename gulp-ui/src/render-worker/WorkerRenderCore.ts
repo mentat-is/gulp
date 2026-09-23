@@ -20,6 +20,10 @@ import {
 	RENDER_CACHE_WARNING_ICON_KEY,
 	RENDER_CACHE_WARNING_ICON_SIZE,
 } from "./RenderCacheWarning";
+import {
+	getCanvasDataAreaBounds,
+	TIMELINE_RULER_HEIGHT_PX,
+} from "@/app/body/CanvasViewport";
 
 const ROW_HEIGHT = 48;
 const ROW_CENTER_OFFSET = 24;
@@ -28,7 +32,6 @@ const NOTE_OFFSET = -NOTE_SIZE / 2;
 const HIGHLIGHT_ALPHA = "29";
 const GRAPH_DRAWABLE_HEIGHT = 47;
 const GRAPH_SEMI_LOG_BASE = 10;
-const RULER_HEIGHT = 25;
 const MAX_DENSE_COLOR_RANGE = 8_192;
 const MAX_SPARSE_COLOR_CACHE_SIZE = 4_096;
 
@@ -146,7 +149,6 @@ interface SourceColorCache {
 interface HighlightLayoutCache {
 	revision: number;
 	records: readonly RenderHighlightRecord[];
-	depths: readonly number[];
 	colors: readonly string[];
 }
 
@@ -1884,30 +1886,30 @@ export class WorkerRenderCore {
 	}
 
 	/**
-	 * Draws nested translucent highlight ranges with deterministic overlap depths.
+	 * Draws translucent highlight ranges across the complete timeline data area.
 	 * @param state Current timeline transform and canvas dimensions.
 	 * @returns Nothing.
 	 */
 	private drawHighlights(state: RenderFrameState): void {
 		const layout = this.getHighlightLayout(state.revisions.overlays);
 		const highlights = layout.records;
+		const dataArea = getCanvasDataAreaBounds(state.height);
 		for (let index = 0; index < highlights.length; index++) {
 			const highlight = highlights[index];
 			const startX = this.getPixelPosition(highlight.start, state);
 			const endX = this.getPixelPosition(highlight.end, state);
-			const depth = layout.depths[index];
 			this.context.fillStyle = layout.colors[index];
 			this.context.fillRect(
 				startX,
-				32 * (depth + 1),
+				dataArea.top,
 				endX - startX,
-				state.height - 40 * (depth + 1),
+				dataArea.height,
 			);
 		}
 	}
 
 	/**
-	 * Returns revision-scoped highlight depths and composed alpha colors.
+	 * Returns revision-scoped highlight records and composed alpha colors.
 	 * @param revision Current aggregate overlay revision.
 	 * @returns Immutable highlight paint layout.
 	 */
@@ -1922,7 +1924,6 @@ export class WorkerRenderCore {
 		const layout = {
 			revision,
 			records,
-			depths: this.computeHighlightDepths(records),
 			colors: records.map((highlight) =>
 				highlight.color.startsWith("#") && highlight.color.length === 7
 					? `${highlight.color}${HIGHLIGHT_ALPHA}`
@@ -1931,31 +1932,6 @@ export class WorkerRenderCore {
 		};
 		this.highlightLayoutCache = layout;
 		return layout;
-	}
-
-	/**
-	 * Computes the lowest non-conflicting vertical depth for every highlight.
-	 * @param highlights Highlight records in paint order.
-	 * @returns Depth index for each highlight.
-	 */
-	private computeHighlightDepths(
-		highlights: readonly RenderHighlightRecord[],
-	): number[] {
-		const depths: number[] = [];
-		for (let index = 0; index < highlights.length; index++) {
-			const used = new Set<number>();
-			for (let priorIndex = 0; priorIndex < index; priorIndex++) {
-				const overlaps = !(
-					highlights[index].end <= highlights[priorIndex].start ||
-					highlights[index].start >= highlights[priorIndex].end
-				);
-				if (overlaps) used.add(depths[priorIndex]);
-			}
-			let depth = 0;
-			while (used.has(depth)) depth++;
-			depths.push(depth);
-		}
-		return depths;
 	}
 
 	/**
@@ -2693,9 +2669,9 @@ export class WorkerRenderCore {
 				: state.palette.backgroundSecondary;
 			this.context.fillRect(
 				section.position,
-				RULER_HEIGHT,
+				TIMELINE_RULER_HEIGHT_PX,
 				nextPosition - section.position,
-				state.height - RULER_HEIGHT,
+				state.height - TIMELINE_RULER_HEIGHT_PX,
 			);
 			this.context.beginPath();
 			this.context.moveTo(section.position, 0);
@@ -2766,7 +2742,7 @@ export class WorkerRenderCore {
 				section.position,
 				0,
 				nextPosition - section.position,
-				RULER_HEIGHT,
+				TIMELINE_RULER_HEIGHT_PX,
 			);
 			this.context.fillStyle = state.palette.fontAccent;
 			this.context.textAlign = "left";
@@ -2785,13 +2761,13 @@ export class WorkerRenderCore {
 			);
 			this.context.beginPath();
 			this.context.moveTo(section.position, 0);
-			this.context.lineTo(section.position, RULER_HEIGHT + 1);
+			this.context.lineTo(section.position, TIMELINE_RULER_HEIGHT_PX + 1);
 			this.context.strokeStyle = state.palette.border;
 			this.context.stroke();
 		}
 		this.context.beginPath();
-		this.context.moveTo(0, RULER_HEIGHT);
-		this.context.lineTo(state.width, RULER_HEIGHT);
+		this.context.moveTo(0, TIMELINE_RULER_HEIGHT_PX);
+		this.context.lineTo(state.width, TIMELINE_RULER_HEIGHT_PX);
 		this.context.strokeStyle = state.palette.border;
 		this.context.stroke();
 	}

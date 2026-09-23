@@ -134,6 +134,12 @@ remove the container with `docker container rm some_container_id` and run the co
 
 #### ingestion
 
+- Chunk cancellation checks close their PostgreSQL read transaction before
+  parsing resumes. If an ingestion still reports
+  `IdleInTransactionSessionTimeout`, capture the worker traceback and inspect
+  `pg_stat_activity`; increasing `postgres_idle_in_transaction_session_timeout_ms`
+  only hides a transaction-lifecycle problem.
+
 - error `elastic_transport.ConnectionTimeout: Connection timed out` usually means your opensearch istance is not keeping up with ingestion:
   - increase `ingestion_request_timeout` (**almost always this is the easiest solution**) **OR**
   - scale up OpenSearch and increase `workers_max` only when the cluster can absorb more concurrent ingest work **OR**

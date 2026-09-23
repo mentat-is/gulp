@@ -1,9 +1,11 @@
 import {
+	getCanvasDataAreaBounds,
 	getCanvasPointerPosition,
 	getCanvasSourceRowIndex,
 	getCanvasSurfaceGeometry,
 	getCanvasViewportSourceIds,
 	getCanvasViewportSourceRange,
+	TIMELINE_RULER_HEIGHT_PX,
 } from "@/app/body/CanvasViewport";
 import type { Source } from "@/entities/Source";
 import { createEmptyQueryCacheState } from "@/entities/QueryCache";
@@ -22,6 +24,12 @@ function createSource(id: string): Source.Type {
 }
 
 describe("Canvas viewport source range", () => {
+	it("reserves only the ruler while keeping the full data-area height", () => {
+		expect(TIMELINE_RULER_HEIGHT_PX).toBe(25);
+		expect(getCanvasDataAreaBounds(96)).toEqual({ top: 25, height: 71 });
+		expect(getCanvasDataAreaBounds(20)).toEqual({ top: 25, height: 0 });
+	});
+
 	it("keeps client pointer coordinates fractional and relative to the canvas content", () => {
 		expect(
 			getCanvasPointerPosition(110.75, 96.5, {

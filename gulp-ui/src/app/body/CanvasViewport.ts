@@ -2,8 +2,30 @@ import type { Source } from "@/entities/Source";
 import type { XY } from "@/dto/XY.dto";
 
 export const CANVAS_SOURCE_ROW_HEIGHT = 48;
+/** Height reserved for the timeline ruler above the drawable data area. */
+export const TIMELINE_RULER_HEIGHT_PX = 25;
 /** Two source rows retained above and below the visible viewport. */
 export const CANVAS_SOURCE_OVERSCAN = CANVAS_SOURCE_ROW_HEIGHT * 2;
+
+/** Vertical bounds available to overlays below the timeline ruler. */
+export interface CanvasDataAreaBounds {
+	top: number;
+	height: number;
+}
+
+/**
+ * Returns the full-height timeline data area below the ruler.
+ * @param canvasHeight Current Canvas height in pixels.
+ * @returns Top offset and non-negative drawable height.
+ */
+export function getCanvasDataAreaBounds(
+	canvasHeight: number,
+): CanvasDataAreaBounds {
+	return {
+		top: TIMELINE_RULER_HEIGHT_PX,
+		height: Math.max(0, canvasHeight - TIMELINE_RULER_HEIGHT_PX),
+	};
+}
 
 /** Inclusive source-index range intersecting the vertically rendered Canvas area. */
 export interface CanvasViewportSourceRange {

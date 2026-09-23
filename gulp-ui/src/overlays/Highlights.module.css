@@ -18,7 +18,6 @@
 
 .scrollContent {
   inset: 0;
-  width: 100%;
   height: 100%;
   transform: translate3d(var(--highlight-scroll-offset, 0px), 0, 0);
   will-change: transform;
@@ -85,19 +84,10 @@
   background: var(--highlight-background, transparent);
   border-radius: 4px;
   border: 1px solid var(--variant);
-  height: calc(100% - calc(20px * 2 * (var(--index, 0) + 1)));
-  top: calc(32px * (var(--index, 0) + 1));
+  height: calc(100% - var(--highlight-ruler-height, 25px));
+  top: var(--highlight-ruler-height, 25px);
   overflow: hidden;
   z-index: var(--index);
-}
-
-.overlay[aria-storyline] .highlight {
-  height: calc(100% - calc(12px * 2 * (var(--index, 0) + 1)));
-  top: calc(12px * (var(--index, 0) + 1));
-}
-
-.highlight.minified {
-  height: calc(100% - 106px);
 }
 
 .deleteButton {
@@ -105,6 +95,8 @@
 }
 
 .highlightLabel {
+  top: var(--highlight-label-top, 0px);
+  left: 0;
   background: var(--highlight-label-background);
   color: var(--highlight-label-text);
 }

@@ -29,6 +29,7 @@ import {
 	getRenderCacheWarningRect,
 	RENDER_CACHE_WARNING_COLOR,
 } from "@/render-worker/RenderCacheWarning";
+import { getCanvasDataAreaBounds } from "@/app/body/CanvasViewport";
 
 const NOTE_SIZE = 32;
 const NOTE_OFFSET = (NOTE_SIZE / 2) * -1;
@@ -615,35 +616,37 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 	};
 
 	/* HIGHLIGHT MANAGEMENT */
-	public highlight = (
-		x: number,
-		width: number,
-		index: number,
-		color: string,
-	) => {
+	/**
+	 * Paints one highlight across the complete timeline data area.
+	 * @param x Left Canvas coordinate.
+	 * @param width Highlight width in Canvas pixels.
+	 * @param color Highlight fill color.
+	 * @returns Nothing.
+	 */
+	public highlight = (x: number, width: number, color: string): void => {
 		if (color.startsWith("#")) {
 			// Add 16% alpha (hex 29) if it's a 6-digit hex
 			this.ctx.fillStyle = color.length === 7 ? color + ALPHA_HIGHLIGHT : color;
 		} else {
 			this.ctx.fillStyle = color;
 		}
-		const y = 32 * (index + 1);
-
-		const height = this.ctx.canvas.height - 20 * 2 * (index + 1);
-
-		this.ctx.fillRect(x, y, width, height);
+		const dataArea = getCanvasDataAreaBounds(this.ctx.canvas.height);
+		this.ctx.fillRect(x, dataArea.top, width, dataArea.height);
 	};
 
-	public drawHighlights = () => {
+	/**
+	 * Draws every selected highlight using the current horizontal transform.
+	 * @returns Nothing.
+	 */
+	public drawHighlights = (): void => {
 		const highlights = Highlight.Entity.selected(this.info.app);
-		const depths = Highlight.Entity.computeDepths(highlights);
 
-		highlights.forEach((highlight, i) => {
+		highlights.forEach((highlight) => {
 			const xStart = this.getPixelPosition(highlight.time_range[0]);
 			const xEnd = this.getPixelPosition(highlight.time_range[1]);
 			const width = xEnd - xStart;
 
-			this.highlight(xStart, width, depths[i], highlight.color);
+			this.highlight(xStart, width, highlight.color);
 		});
 	};
 

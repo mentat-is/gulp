@@ -5,6 +5,7 @@ import { Internal } from '@/entities/addon/Internal'
 import { formatTimestampInTimeZone } from '@/timeZone'
 import { getDateFormat } from '@/ui/utils'
 import { addMilliseconds, differenceInMilliseconds } from 'date-fns'
+import { TIMELINE_RULER_HEIGHT_PX } from '@/app/body/CanvasViewport'
 
 interface RulerDrawerConstructor {
   ctx: CanvasRenderingContext2D
@@ -196,19 +197,28 @@ export class RulerDrawer implements RulerDrawerConstructor {
     return [optimalInterval, _unit, _value]
   }
 
-  separator() {
+  /**
+   * Draws the horizontal separator below the timeline ruler.
+   * @returns Nothing.
+   */
+  separator(): void {
     this.ctx.beginPath()
-    this.ctx.moveTo(0, 25)
-    this.ctx.lineTo(this.ctx.canvas.width, 25)
+    this.ctx.moveTo(0, TIMELINE_RULER_HEIGHT_PX)
+    this.ctx.lineTo(this.ctx.canvas.width, TIMELINE_RULER_HEIGHT_PX)
     this.ctx.strokeStyle = Color.Themer.theme.BORDER
     this.ctx.stroke()
   }
 
-  private wall(props: Pick<RulerSectionProps, 'even' | 'position'>) {
+  /**
+   * Draws one full-height ruler wall below the header.
+   * @param props Alternating color and horizontal position metadata.
+   * @returns Nothing.
+   */
+  private wall(props: Pick<RulerSectionProps, 'even' | 'position'>): void {
     this.ctx.fillStyle = props.even ? Color.Themer.theme.BACKGROUND_ACCENT : Color.Themer.theme.BACKGROUND_SECOND
     this.ctx.fillRect(
       props.position,
-      25,
+      TIMELINE_RULER_HEIGHT_PX,
       this.ctx.canvas.width,
       this.ctx.canvas.height,
     )
@@ -233,10 +243,10 @@ export class RulerDrawer implements RulerDrawerConstructor {
    * @param nextPosition Optional x coordinate of the following section.
    * @returns Nothing.
    */
-  section(props: RulerSectionProps, nextPosition?: number) {
+  section(props: RulerSectionProps, nextPosition?: number): void {
     const sectionWidth = (nextPosition ?? this.ctx.canvas.width) - props.position;
     this.ctx.fillStyle = props.even ? Color.Themer.theme.BACKGROUND_ACCENT : Color.Themer.theme.BACKGROUND_SECOND
-    this.ctx.fillRect(props.position, 0, sectionWidth, 25)
+    this.ctx.fillRect(props.position, 0, sectionWidth, TIMELINE_RULER_HEIGHT_PX)
     const timeUnit = props.format || 'MMM yyyy'
     const label = formatTimestampInTimeZone(
       props.timestamp,
@@ -256,7 +266,7 @@ export class RulerDrawer implements RulerDrawerConstructor {
     )
     this.ctx.beginPath()
     this.ctx.moveTo(props.position, 0)
-    this.ctx.lineTo(props.position, 26)
+    this.ctx.lineTo(props.position, TIMELINE_RULER_HEIGHT_PX + 1)
     this.ctx.strokeStyle = Color.Themer.theme.BORDER
     this.ctx.stroke()
   }

@@ -1272,7 +1272,7 @@ describe("WorkerRenderCore", () => {
 		}
 	});
 
-	it("recomputes highlight depth only when its overlay revision changes", async () => {
+	it("draws overlapping highlights across the complete data area", async () => {
 		const source = createRenderSource("source-highlight-cache", 0);
 		const highlights = [
 			{ id: "highlight-a", start: 100, end: 600, color: "#ff0000" },
@@ -1284,27 +1284,27 @@ describe("WorkerRenderCore", () => {
 			overlays: { highlights: { revision: 1, records: highlights } },
 		});
 		repository.setFrameState(createFrameState([source.id]));
-		const renderCore = new WorkerRenderCore(
-			createRecordingContext(),
-			repository,
-			{ requestAsset: jest.fn() },
-		);
-		const renderCoreMethods = renderCore as unknown as {
-				computeHighlightDepths: (
-					records: typeof highlights,
-				) => number[];
-			};
-		const originalComputeDepths =
-			renderCoreMethods.computeHighlightDepths.bind(renderCore);
-		let computeDepthCount = 0;
-		renderCoreMethods.computeHighlightDepths = (records): number[] => {
-			computeDepthCount++;
-			return originalComputeDepths(records);
-		};
+		const context = createRecordingContext();
+		const renderCore = new WorkerRenderCore(context, repository, {
+			requestAsset: jest.fn(),
+		});
 
 		renderCore.render(100, DirtyCanvas.Overlays);
-		renderCore.render(101, DirtyCanvas.Viewport);
-		expect(computeDepthCount).toBe(1);
+		const initialFillRectCalls = (
+			context.fillRect as unknown as {
+				mock: { calls: Array<[number, number, number, number]> };
+			}
+		).mock.calls;
+		expect(
+			initialFillRectCalls.some(
+				(call) => call.join(":") === [100, 25, 500, 71].join(":"),
+			),
+		).toBe(true);
+		expect(
+			initialFillRectCalls.some(
+				(call) => call.join(":") === [300, 25, 500, 71].join(":"),
+			),
+		).toBe(true);
 
 		await repository.applyDataPatch({
 			globalRevision: 2,
@@ -1327,8 +1327,16 @@ describe("WorkerRenderCore", () => {
 			}),
 		);
 		renderCore.render(102, DirtyCanvas.Overlays);
-
-		expect(computeDepthCount).toBe(2);
+		const refreshedFillRectCalls = (
+			context.fillRect as unknown as {
+				mock: { calls: Array<[number, number, number, number]> };
+			}
+		).mock.calls;
+		expect(
+			refreshedFillRectCalls.some(
+				(call) => call.join(":") === [900, 25, 50, 71].join(":"),
+			),
+		).toBe(true);
 	});
 
 	it("preserves the legacy magnifier crop at the right and bottom edges", () => {

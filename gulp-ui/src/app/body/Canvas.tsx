@@ -49,6 +49,7 @@ import {
 	projectLocalPointerTimestamp,
 } from "@/components/PointerPosition.store";
 import { Highlights } from "@/overlays/Highlights";
+import { getHighlightTimelineWidth } from "@/overlays/HighlightLayout";
 import { Stack } from "@/ui/Stack";
 import { Spinner } from "@/ui/Spinner";
 import { Source } from "@/entities/Source";
@@ -470,6 +471,31 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const observedFlagSignatureRef = useRef<string>("");
 
 	/**
+	 * Publishes the live virtual timeline width to the DOM highlight layer.
+	 * @param scale Current transient or settled timeline scale.
+	 * @returns Nothing.
+	 */
+	const synchronizeHighlightTimelineWidth = useCallback(
+		(scale: number): void => {
+			const renderSurface = render_surface_ref.current;
+			if (!renderSurface) return;
+			const timelineWidth = getHighlightTimelineWidth(
+				renderSurface.clientWidth,
+				scale,
+			);
+			const value = `${timelineWidth}px`;
+			if (
+				renderSurface.style.getPropertyValue("--highlight-timeline-width") ===
+				value
+			) {
+				return;
+			}
+			renderSurface.style.setProperty("--highlight-timeline-width", value);
+		},
+		[],
+	);
+
+	/**
 	 * Publishes renderer selection changes to state, refs, and diagnostics together.
 	 * @param status Requested backend, active backend, and optional fallback reason.
 	 * @returns Nothing.
@@ -829,6 +855,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		if (!render_surface_ref.current || !ctx || !canvas_ref.current) {
 			return;
 		}
+		synchronizeHighlightTimelineWidth(scaleRef.current);
 
 		const app = Info.app; // Capture current state for this frame
 
@@ -1602,7 +1629,9 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	useEffect(() => {
 		const el = render_surface_ref.current;
 		if (!el) return;
+		synchronizeHighlightTimelineWidth(scaleRef.current);
 		const observer = new ResizeObserver(() => {
+			synchronizeHighlightTimelineWidth(scaleRef.current);
 			if (rendererBackendRef.current === "worker") {
 				handleWorkerResizeRef.current();
 				return;
@@ -1613,7 +1642,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		return () => {
 			observer.disconnect();
 		};
-	}, []);
+	}, [synchronizeHighlightTimelineWidth]);
 
 	useEffect(() => {
 		if (theme) {
@@ -2525,6 +2554,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				dirtyMask |= DirtyCanvas.Viewport;
 				scrollStore.setScroll(nextScrollX, nextScrollY);
 			}
+			synchronizeHighlightTimelineWidth(nextScale);
 
 			if (batch.pointer) {
 				const pointerSurface = canvas_ref.current;
@@ -2746,6 +2776,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			move,
 			pointerPositionStore,
 			scaleCommitGuard,
+			synchronizeHighlightTimelineWidth,
 			workerProjectionScheduler,
 			updateCacheWarningTooltip,
 		],
@@ -3706,13 +3737,14 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			scale: nextScale,
 			scrollX: nextScrollX,
 		};
+		synchronizeHighlightTimelineWidth(nextScale);
 		inputCoordinator.invalidate(DirtyCanvas.Size | DirtyCanvas.Viewport);
 
 		if (previousSize && previousSize.width !== nextSize.width) {
 			Info.setTimelineScale(nextScale);
 			scrollStore.setScrollX(nextScrollX);
 		}
-	}, [Info, inputCoordinator]);
+	}, [Info, inputCoordinator, synchronizeHighlightTimelineWidth]);
 	handleWorkerResizeRef.current = handleWorkerResize;
 
 	useLayoutEffect(() => {

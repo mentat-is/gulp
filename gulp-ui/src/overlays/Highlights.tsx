@@ -17,11 +17,18 @@ import { Color } from '@/entities/Color';
 import { ColorPicker, ColorPickerPopover, ColorPickerTrigger } from '@/ui/Color';
 import { Label } from '@/ui/Label';
 import { Locale } from '@/locales';
-import { getHighlightLayout, shouldTranslateHighlightOverlay } from './HighlightLayout';
+import {
+  getHighlightCssPosition,
+  getHighlightLayout,
+  shouldTranslateHighlightOverlay,
+} from './HighlightLayout';
 import type { HighlightLayout } from './HighlightLayout';
 import { highlightRegistry } from './HighlightRegistry';
+import { DataStore } from '@/store/DataStore';
+import { TIMELINE_RULER_HEIGHT_PX } from '@/app/body/CanvasViewport';
 
 const HIGHLIGHT_VARIANTS = new Set<string>(Badge.Variants);
+const HIGHLIGHT_LABEL_OFFSET_PX = 32;
 
 interface HighlightColors {
   badgeVariant: NonNullable<Badge.Variant> | undefined;
@@ -253,19 +260,28 @@ export namespace Highlights {
       const scrollContentRef = useRef<HTMLDivElement>(null);
 
       // Recompute document-space geometry after a renderless settled zoom commit.
-      useSyncExternalStore(
+      const settledTimelineScale = useSyncExternalStore(
         Info.subscribeTimelineScale,
         Info.getTimelineScaleSnapshot,
         Info.getTimelineScaleSnapshot,
       );
+      const overlayDataVersion = useSyncExternalStore(
+        DataStore.subscribeOverlays,
+        DataStore.getOverlaysSnapshot,
+        DataStore.getOverlaysSnapshot,
+      );
 
-      const highlights = useMemo(() => Highlight.Entity.selected(app), [app.timeline.renderVersion, app.target.operations]);
+      const highlights = useMemo(
+        () => Highlight.Entity.selected(app),
+        [app.timeline.renderVersion, app.target.operations, overlayDataVersion],
+      );
 
       const computedDepths = useMemo(() => Highlight.Entity.computeDepths(highlights), [highlights]);
 
       const frameMin = frame?.min ?? app.timeline.frame.min;
       const frameMax = frame?.max ?? app.timeline.frame.max;
-      const resolvedLayoutWidth = layoutWidth ?? Info.width;
+      const canvasViewportWidth = Info.width / Math.max(app.timeline.scale, 0.01);
+      const resolvedLayoutWidth = layoutWidth ?? canvasViewportWidth * settledTimelineScale;
       const layouts = useMemo(
         () => highlights.map((highlight) => (
           getHighlightLayout(highlight, frameMin, frameMax, resolvedLayoutWidth)
@@ -334,6 +350,9 @@ export namespace Highlights {
             pos='absolute'
             className={s.scrollContent}
             style={{
+              width: layoutWidth === undefined
+                ? `var(--highlight-timeline-width, ${resolvedLayoutWidth}px)`
+                : `${resolvedLayoutWidth}px`,
               '--highlight-scroll-offset': `${-initialViewportOffset}px`,
             } as HighlightCssProperties}
           >
@@ -380,12 +399,13 @@ export namespace Highlights {
     const { t } = Locale.use();
     const highlightColors = useMemo(() => getHighlightColors(highlight.color), [highlight.color]);
     const rendersNative = native || layoutWidth !== undefined;
+    const resolvedLayoutWidth = layoutWidth ?? Info.width;
     const resolvedLayout = useMemo(
       () => layout ?? getHighlightLayout(
         highlight,
         frame.min ?? app.timeline.frame.min,
         frame.max ?? app.timeline.frame.max,
-        layoutWidth ?? Info.width,
+        resolvedLayoutWidth,
       ),
       [
         app.timeline.frame.max,
@@ -393,22 +413,29 @@ export namespace Highlights {
         frame.max,
         frame.min,
         highlight,
-        Info.width,
         layout,
-        layoutWidth,
+        resolvedLayoutWidth,
       ],
+    );
+    const horizontalPosition = getHighlightCssPosition(
+      resolvedLayout,
+      resolvedLayoutWidth,
+      native,
     );
 
     return (
       <Stack
         pos='absolute'
         className={cn(className, s.highlight)}
+        data-highlight
         style={{
           ...style,
-          '--highlight-left': `${resolvedLayout.left}px`,
-          '--highlight-width': `${resolvedLayout.width}px`,
+          '--highlight-left': horizontalPosition.left,
+          '--highlight-width': horizontalPosition.width,
           '--variant': highlightColors.borderColor,
           '--index': index,
+          '--highlight-ruler-height': `${TIMELINE_RULER_HEIGHT_PX}px`,
+          '--highlight-label-top': `${index * HIGHLIGHT_LABEL_OFFSET_PX}px`,
           '--highlight-fade': highlightColors.fadeColor,
           '--highlight-background': rendersNative ? highlightColors.fillColor : 'transparent',
           '--highlight-label-background': highlightColors.labelBackground,
@@ -418,7 +445,7 @@ export namespace Highlights {
         ai='flex-start'
         {...props}
       >
-        <Stack className={s.highlightLabel}>
+        <Stack pos='absolute' className={s.highlightLabel}>
           <Badge
             className={cn(s.title, highlightColors.isLiteral && s.literalTitle)}
             data-type='badge'
