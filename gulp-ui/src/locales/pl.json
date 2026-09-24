@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "Maks. liczba dokumentów",
     "dashboard.noData": "Brak danych",
     "dashboard.noFields": "Brak dostępnych pól",
+    "dashboard.selectAtLeastOneSource": "Wybierz co najmniej jedno źródło",
     "dashboard.percent": "Procent",
     "dashboard.rareValues": "Rzadkie wartości",
     "dashboard.runAggregation": "Uruchom agregację",

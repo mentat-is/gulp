@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "Max. documentaantal",
     "dashboard.noData": "Geen gegevens",
     "dashboard.noFields": "Geen velden beschikbaar",
+    "dashboard.selectAtLeastOneSource": "Selecteer ten minste één bron",
     "dashboard.percent": "Percentage",
     "dashboard.rareValues": "Zeldzame waarden",
     "dashboard.runAggregation": "Aggregatie uitvoeren",

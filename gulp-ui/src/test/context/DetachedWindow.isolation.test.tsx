@@ -25,6 +25,8 @@ let mockApp: App.Type;
 const mockDocsById = new Map<Doc.Id, Doc.Type>();
 const mockSetDialogsDocked = jest.fn();
 const mockSpawnBanner = jest.fn<void, [ReactNode]>();
+const mockSpawnDialog = jest.fn<void, [ReactNode]>();
+const mockFocusCanvasOnEvent = jest.fn<void, [number, boolean, Source.Id]>();
 const mockFilterCondition = { id: "detached-filter" };
 const mockMainQuery = {
 	string: "",
@@ -48,7 +50,7 @@ jest.mock("@/context/Application.context", () => ({
 			Info: mockInfo,
 			app: mockApp,
 			spawnBanner: mockSpawnBanner,
-			spawnDialog: jest.fn(),
+			spawnDialog: mockSpawnDialog,
 			setDialogsDocked: mockSetDialogsDocked,
 		}),
 	},
@@ -307,6 +309,11 @@ describe("DetachedWindow coordinator client isolation", () => {
 	const originalCancelIdleCallback = window.cancelIdleCallback;
 	const originalWindowOpen = window.open;
 	const originalWindowFocus = window.focus;
+	const originalFocusCanvasOnEvent = (
+		window as Window & {
+			focusCanvasOnEvent?: (timestamp: number, onLeft?: boolean, sourceId?: Source.Id) => void;
+		}
+	).focusCanvasOnEvent;
 	const retainedBridges: WindowBridge.Bridge[] = [];
 	const idleCallbacks = new Map<number, IdleRequestCallback>();
 	const openedWindows: OpenedWindow[] = [];
@@ -432,6 +439,8 @@ describe("DetachedWindow coordinator client isolation", () => {
 		openedWindows.length = 0;
 		mockSetDialogsDocked.mock.calls.splice(0);
 		mockSpawnBanner.mock.calls.splice(0);
+		mockSpawnDialog.mock.calls.splice(0);
+		mockFocusCanvasOnEvent.mock.calls.splice(0);
 		Object.defineProperty(window, "open", {
 			configurable: true,
 			value: jest.fn<
@@ -456,6 +465,10 @@ describe("DetachedWindow coordinator client isolation", () => {
 		Object.defineProperty(window, "focus", {
 			configurable: true,
 			value: jest.fn(),
+		});
+		Object.defineProperty(window, "focusCanvasOnEvent", {
+			configurable: true,
+			value: mockFocusCanvasOnEvent,
 		});
 
 		localStorage.setItem("__token", "detached-isolation-token");
@@ -517,6 +530,22 @@ describe("DetachedWindow coordinator client isolation", () => {
 			configurable: true,
 			value: originalWindowFocus,
 		});
+		if (originalFocusCanvasOnEvent) {
+			Object.defineProperty(window, "focusCanvasOnEvent", {
+				configurable: true,
+				value: originalFocusCanvasOnEvent,
+			});
+		} else {
+			delete (
+				window as Window & {
+					focusCanvasOnEvent?: (
+						timestamp: number,
+						onLeft?: boolean,
+						sourceId?: Source.Id,
+					) => void;
+				}
+			).focusCanvasOnEvent;
+		}
 	});
 
 	it("does not replay Notes state when other clients register or refocus", async () => {
@@ -775,6 +804,25 @@ describe("DetachedWindow coordinator client isolation", () => {
 			),
 		).toBe(true);
 		expect(notesMessages).toEqual([]);
+
+		mockApp.target.files[0].settings.offset = 250;
+		mockFocusCanvasOnEvent.mock.calls.splice(0);
+		mockSpawnDialog.mock.calls.splice(0);
+		act(() => {
+			actionSender.send(WindowBridge.MessageType.NAVIGATE_TO_EVENT, {
+				docId: sourceEvents[4]._id,
+				operationId: OPERATION_ID,
+			});
+		});
+		await flushEventStoreReads();
+		expect(mockInfo.setTimelineTarget).toHaveBeenLastCalledWith(sourceEvents[4]);
+		expect(mockFocusCanvasOnEvent).toHaveBeenCalledWith(
+			sourceEvents[4].gulp_timestamp + 250,
+			false,
+			SOURCE_ID,
+		);
+		expect(mockSpawnDialog).toHaveBeenCalledTimes(1);
+		mockApp.target.files[0].settings.offset = 0;
 
 		const neighborReadCount = getNeighborsCalls.length;
 		dialogMessages.length = 0;

@@ -127,6 +127,7 @@ let mockHorizontalVirtualization: unknown;
 let mockSourceSelectionChange:
 	| ((sourceIds: Source.Id[]) => void)
 	| null = null;
+let mockSourceSelectorSearchable = false;
 const mockInfo = {
 	event_keys: async (source: Source.Type): Promise<Record<string, string>> => {
 		mockEventKeysCalls += 1;
@@ -181,10 +182,13 @@ jest.mock("@/entities/Source", () => ({
 		Select: {
 			Multi: ({
 				setSelected,
+				searchable,
 			}: {
 				setSelected: (sourceIds: Source.Id[]) => void;
+				searchable?: boolean;
 			}): null => {
 				mockSourceSelectionChange = setSelected;
+				mockSourceSelectorSearchable = searchable ?? false;
 				return null;
 			},
 		},
@@ -391,6 +395,7 @@ describe("TableViewWindow query stability", () => {
 		mockRenderedTableColumns = undefined;
 		mockHorizontalVirtualization = undefined;
 		mockSourceSelectionChange = null;
+		mockSourceSelectorSearchable = false;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -400,6 +405,15 @@ describe("TableViewWindow query stability", () => {
 		act(() => root.unmount());
 		container.remove();
 		jest.useRealTimers();
+	});
+
+	it("enables UI-only search in the source selector", async () => {
+		act(() => {
+			root.render(<TableViewWindow initialSourceId={SOURCE_ID} />);
+		});
+		await flushRequests();
+
+		expect(mockSourceSelectorSearchable).toBe(true);
 	});
 
 	it("does not reload metadata or events for a cloned equivalent app snapshot", async () => {

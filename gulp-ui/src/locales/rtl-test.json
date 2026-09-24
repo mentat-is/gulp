@@ -62,6 +62,7 @@
     "dashboard.maxDocCount": "الحد الأقصى لعدد المستندات",
     "dashboard.noData": "لا توجد بيانات",
     "dashboard.noFields": "لا توجد حقول متاحة",
+    "dashboard.selectAtLeastOneSource": "حدد مصدرًا واحدًا على الأقل",
     "dashboard.percent": "النسبة المئوية",
     "dashboard.rareValues": "القيم النادرة",
     "dashboard.runAggregation": "تشغيل التجميع",

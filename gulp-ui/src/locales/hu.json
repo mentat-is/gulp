@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "Max. dokumentumszám",
     "dashboard.noData": "Nincs adat",
     "dashboard.noFields": "Nincsenek elérhető mezők",
+    "dashboard.selectAtLeastOneSource": "Válasszon ki legalább egy forrást",
     "dashboard.percent": "Százalék",
     "dashboard.rareValues": "Ritka értékek",
     "dashboard.runAggregation": "Aggregáció futtatása",

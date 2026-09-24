@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "מספר מסמכים מרבי",
     "dashboard.noData": "אין נתונים",
     "dashboard.noFields": "אין שדות זמינים",
+    "dashboard.selectAtLeastOneSource": "בחר לפחות מקור אחד",
     "dashboard.percent": "אחוז",
     "dashboard.rareValues": "ערכים נדירים",
     "dashboard.runAggregation": "הפעל צבירה",

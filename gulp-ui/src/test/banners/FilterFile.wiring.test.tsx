@@ -50,6 +50,7 @@ let mockCapturedOptions: Record<string, string> | undefined;
 let mockCapturedFilters: Filter.Item[] | undefined;
 let mockSerializedQuery: Query.Type | undefined;
 let mockPersistedQuery: Query.Type | null = null;
+let mockSourceSelectorSearchable = false;
 let mockEventKeys = async (): Promise<Record<string, string>> => ({
 	"event.sequence": "long",
 	message: "text",
@@ -86,7 +87,12 @@ jest.mock("@/entities/Source", () => ({
 		Entity: {
 			id: (): Source.Type => mockSource,
 		},
-		Select: { Multi: (): null => null },
+		Select: {
+			Multi: ({ searchable = false }: { searchable?: boolean }): null => {
+				mockSourceSelectorSearchable = searchable;
+				return null;
+			},
+		},
 	},
 }));
 
@@ -209,6 +215,7 @@ describe("FilterFileBanner field catalog wiring", () => {
 		mockCapturedFilters = undefined;
 		mockSerializedQuery = undefined;
 		mockPersistedQuery = null;
+		mockSourceSelectorSearchable = false;
 		mockEventKeys = async (): Promise<Record<string, string>> => ({
 			"event.sequence": "long",
 			message: "text",
@@ -233,6 +240,7 @@ describe("FilterFileBanner field catalog wiring", () => {
 			"event.sequence": "long",
 			message: "text",
 		});
+		expect(mockSourceSelectorSearchable).toBe(true);
 	});
 
 	it("submits through the common batch entry without a redundant global render", async () => {

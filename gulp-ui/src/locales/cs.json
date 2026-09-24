@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "Max. počet dokumentů",
     "dashboard.noData": "Žádná data",
     "dashboard.noFields": "Nejsou dostupná žádná pole",
+    "dashboard.selectAtLeastOneSource": "Vyberte alespoň jeden zdroj",
     "dashboard.percent": "Procenta",
     "dashboard.rareValues": "Vzácné hodnoty",
     "dashboard.runAggregation": "Spustit agregaci",

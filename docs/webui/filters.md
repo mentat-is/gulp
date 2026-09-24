@@ -9,7 +9,8 @@ queries. The main filter UI is the Apply Filters banner.
 
 A filter is applied to one or more sources. The banner starts with the selected
 sources passed from the operation menu, source context menu, or previous filter
-history. Source changes update the query scope.
+history. The multi-select search filters visible source and context names without
+changing the selection. Source changes update the query scope.
 
 When filters are applied, the frontend caches the current source events for undo,
 stores the query against each selected source, refetches those sources, and
@@ -147,7 +148,9 @@ currently excluded by the timeline text filter or hidden-empty-source setting:
 
 The Table View window supports its own filter panel. In synced mode, it follows
 the global source filters and timeline range. In detached mode, it uses local
-search, local filters, date range controls, sorting, and pagination.
+search, local filters, date range controls, sorting, and pagination. Its source
+selector can filter the visible contexts and sources by name without changing
+the current selection or the scope of select-all and context actions.
 
 ![Table view](images/table-view.png)
 
@@ -155,5 +158,12 @@ search, local filters, date range controls, sorting, and pagination.
 
 The Dashboard window has a Data Explorer filter area. It can use selected sources,
 time range, text filter, and structured conditions to build dashboard queries.
+The source selector starts with the operation sources selected and supports an
+explicit empty selection. With no source selected, fixed and field aggregations
+remain paused and their result areas ask the analyst to select at least one
+source. Selecting a source resumes the fixed dashboards and any open field
+aggregation. Its search field filters the visible groups by context name or
+source name without changing the current selection; context and select-all
+actions continue to apply to their complete source sets.
 
 ![Dashboard fixed charts](images/dashboard-fixed.png)

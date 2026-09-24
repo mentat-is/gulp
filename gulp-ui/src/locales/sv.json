@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "Max dokumentantal",
     "dashboard.noData": "Ingen data",
     "dashboard.noFields": "Inga fält tillgängliga",
+    "dashboard.selectAtLeastOneSource": "Välj minst en källa",
     "dashboard.percent": "Procent",
     "dashboard.rareValues": "Sällsynta värden",
     "dashboard.runAggregation": "Kör aggregering",

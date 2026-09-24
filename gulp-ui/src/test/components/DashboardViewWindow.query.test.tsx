@@ -1,8 +1,10 @@
 import { act } from "react";
 import type {
 	ButtonHTMLAttributes,
+	Dispatch,
 	ReactElement,
 	ReactNode,
+	SetStateAction,
 } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -68,6 +70,11 @@ let mockApp = createApp(createSource());
 let mockEventKeysCalls = 0;
 let mockAggregationCalls = 0;
 let mockSpawnedBanner: ReactElement | null = null;
+let mockSourceSelectorProps: {
+	selected: Source.Id[];
+	setSelected: Dispatch<SetStateAction<Source.Id[]>>;
+	searchable?: boolean;
+} | null = null;
 const mockInfo = {
 	event_keys: async (): Promise<Record<string, string>> => {
 		mockEventKeysCalls += 1;
@@ -148,7 +155,16 @@ jest.mock("@/entities/Source", () => ({
 		Entity: {
 			pins: (sources: Source.Type[]): Source.Type[] => sources,
 		},
-		Select: { Multi: (): null => null },
+		Select: {
+			Multi: (props: {
+				selected: Source.Id[];
+				setSelected: Dispatch<SetStateAction<Source.Id[]>>;
+				searchable?: boolean;
+			}) => {
+				mockSourceSelectorProps = props;
+				return <div data-source-count={props.selected.length} />;
+			},
+		},
 	},
 }));
 
@@ -183,6 +199,17 @@ jest.mock("@/workers/DataWorker.class", () => ({
 	},
 }));
 
+jest.mock("@tanstack/react-virtual", () => ({
+	useVirtualizer: ({ count }: { count: number }) => ({
+		getTotalSize: (): number => count * 38,
+		getVirtualItems: () =>
+			Array.from({ length: count }, (_, index) => ({
+				index,
+				start: index * 38,
+			})),
+	}),
+}));
+
 jest.mock("@/components/DashboardChartAdapter", () => ({
 	Bar: (): null => null,
 	Line: (): null => null,
@@ -207,10 +234,12 @@ jest.mock("@/ui/Button", () => ({
 	Button: ({
 		children,
 		icon,
+		loading: _loading,
 		variant,
 		...props
 	}: ButtonHTMLAttributes<HTMLButtonElement> & {
 		icon?: string;
+		loading?: boolean;
 		variant?: string;
 	}) => <button {...props}>{children ?? icon}</button>,
 }));
@@ -260,6 +289,19 @@ async function flushRequests(): Promise<void> {
 	});
 }
 
+/**
+ * Applies a source selection through the mocked dashboard selector.
+ * @param sourceIds Source IDs to expose as selected.
+ * @returns Nothing.
+ */
+function selectDashboardSources(sourceIds: Source.Id[]): void {
+	if (!mockSourceSelectorProps) {
+		throw new Error("Expected the dashboard source selector to render");
+	}
+
+	act(() => mockSourceSelectorProps?.setSelected(sourceIds));
+}
+
 describe("DashboardViewWindow query stability", () => {
 	let container: HTMLDivElement;
 	let root: Root;
@@ -269,6 +311,7 @@ describe("DashboardViewWindow query stability", () => {
 		mockEventKeysCalls = 0;
 		mockAggregationCalls = 0;
 		mockSpawnedBanner = null;
+		mockSourceSelectorProps = null;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -356,5 +399,67 @@ describe("DashboardViewWindow query stability", () => {
 				"[data-tooltip-provider] [data-dashboard-filter-add]",
 			),
 		).not.toBeNull();
+	});
+
+	it("stops fixed aggregations while no sources are selected and resumes them on selection", async () => {
+		act(() => {
+			root.render(<DashboardViewWindow />);
+		});
+		await flushRequests();
+
+		expect(mockSourceSelectorProps?.selected).toEqual([SOURCE_ID]);
+		expect(mockSourceSelectorProps?.searchable).toBe(true);
+		expect(mockAggregationCalls).toBe(1);
+
+		selectDashboardSources([]);
+		await flushRequests();
+
+		expect(mockSourceSelectorProps?.selected).toEqual([]);
+		expect(mockAggregationCalls).toBe(1);
+		expect(container.textContent).toContain(
+			"dashboard.selectAtLeastOneSource",
+		);
+
+		selectDashboardSources([SOURCE_ID]);
+		await flushRequests();
+
+		expect(mockAggregationCalls).toBe(2);
+		expect(container.textContent).not.toContain(
+			"dashboard.selectAtLeastOneSource",
+		);
+	});
+
+	it("replaces field results while sources are empty and resumes the field aggregation", async () => {
+		act(() => {
+			root.render(<DashboardViewWindow />);
+		});
+		await flushRequests();
+
+		const fieldButton = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent?.includes("event.code"),
+		);
+		if (!fieldButton) {
+			throw new Error("Expected the available field button to render");
+		}
+
+		act(() => fieldButton.click());
+		await flushRequests();
+		expect(mockAggregationCalls).toBe(2);
+
+		selectDashboardSources([]);
+		await flushRequests();
+
+		expect(mockAggregationCalls).toBe(2);
+		expect(container.textContent).toContain(
+			"dashboard.selectAtLeastOneSource",
+		);
+
+		selectDashboardSources([SOURCE_ID]);
+		await flushRequests();
+
+		expect(mockAggregationCalls).toBe(4);
+		expect(container.textContent).not.toContain(
+			"dashboard.selectAtLeastOneSource",
+		);
 	});
 });

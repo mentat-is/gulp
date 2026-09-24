@@ -332,13 +332,13 @@ function resolveInitialRange(
  * Creates the initial filter state used by the Data Explorer.
  *
  * @param sources - Selected operation sources used to derive the default time range.
- * @returns Empty global filters scoped to the operation time range.
+ * @returns Global filters scoped to every currently selected operation source.
  */
 function createInitialFilterState(
 	sources: Source.Type[],
 ): AnalyticsFilterState {
 	return {
-		sourceIds: [],
+		sourceIds: sources.map((source) => source.id),
 		range: resolveInitialRange(sources),
 		textFilter: "",
 		filters: [],
@@ -483,17 +483,13 @@ function resolveDashboardSourceColor(
  * @param operationId - Selected operation identifier.
  * @param filterState - Global or dashboard-local filter state.
  * @param fieldTypeMap - Field type map used by the query builder conversion helpers.
- * @param defaultSourceIds - Source IDs selected in the main operation view.
  * @returns OpenSearch bool query object.
  */
 function buildAnalyticsQuery(
 	operationId: Operation.Id,
 	filterState: AnalyticsFilterState,
 	fieldTypeMap: Filter.Options,
-	defaultSourceIds: Source.Id[] = [],
 ): Record<string, unknown> {
-	const sourceIds =
-		filterState.sourceIds.length > 0 ? filterState.sourceIds : defaultSourceIds;
 	const bool: Record<
 		Filter.BoolOperator,
 		Record<string, unknown>[]
@@ -513,8 +509,8 @@ function buildAnalyticsQuery(
 		],
 	};
 
-	if (sourceIds.length > 0) {
-		bool.must.push({ terms: { "gulp.source_id": sourceIds } });
+	if (filterState.sourceIds.length > 0) {
+		bool.must.push({ terms: { "gulp.source_id": filterState.sourceIds } });
 	}
 
 	if (filterState.textFilter.trim()) {
@@ -967,7 +963,6 @@ function DashboardFilterEditor({
 	fieldOptions,
 	container,
 	availableSources,
-	inheritedSourceIds = [],
 	showSourceSelector = true,
 }: {
 	filterState: AnalyticsFilterState;
@@ -975,14 +970,9 @@ function DashboardFilterEditor({
 	fieldOptions: Filter.Options;
 	container: HTMLDivElement | null;
 	availableSources?: Source.Type[];
-	inheritedSourceIds?: Source.Id[];
 	showSourceSelector?: boolean;
 }) {
 	const { t } = Locale.use();
-	const selectedSourceIds =
-		filterState.sourceIds.length > 0
-			? filterState.sourceIds
-			: inheritedSourceIds;
 
 	const setSelectedSources = useCallback(
 		(action: React.SetStateAction<Source.Id[]>) => {
@@ -1036,9 +1026,10 @@ function DashboardFilterEditor({
 				<div className={s.filterControl}>
 					<Source.Select.Multi
 						sources={availableSources}
-						selected={selectedSourceIds}
+						selected={filterState.sourceIds}
 						setSelected={setSelectedSources}
-						placeholder={t("dashboard.sourcesPlaceholder")}
+						placeholder={t("source.selectSources")}
+						searchable
 					/>
 				</div>
 			) : null}
@@ -1092,7 +1083,6 @@ function DashboardFilterBanner({
 	fieldOptions,
 	container,
 	availableSources,
-	inheritedSourceIds,
 	showSourceSelector,
 }: {
 	title: string;
@@ -1101,7 +1091,6 @@ function DashboardFilterBanner({
 	fieldOptions: Filter.Options;
 	container: HTMLDivElement | null;
 	availableSources?: Source.Type[];
-	inheritedSourceIds?: Source.Id[];
 	showSourceSelector: boolean;
 }) {
 	const { destroyBanner } = Application.use();
@@ -1141,7 +1130,6 @@ function DashboardFilterBanner({
 					fieldOptions={fieldOptions}
 					container={container}
 					availableSources={availableSources}
-					inheritedSourceIds={inheritedSourceIds}
 					showSourceSelector={showSourceSelector}
 				/>
 			</TooltipProvider>
@@ -1160,21 +1148,15 @@ function DashboardFilterControls({
 	fieldOptions,
 	container,
 	availableSources,
-	inheritedSourceIds = [],
 }: {
 	filterState: AnalyticsFilterState;
 	setFilterState: React.Dispatch<React.SetStateAction<AnalyticsFilterState>>;
 	fieldOptions: Filter.Options;
 	container: HTMLDivElement | null;
 	availableSources?: Source.Type[];
-	inheritedSourceIds?: Source.Id[];
 }) {
 	const { spawnBanner } = Application.use();
 	const { t } = Locale.use();
-	const selectedSourceIds =
-		filterState.sourceIds.length > 0
-			? filterState.sourceIds
-			: inheritedSourceIds;
 
 	/**
 	 * Updates the global source selection while preserving the rest of the filters.
@@ -1212,7 +1194,6 @@ function DashboardFilterControls({
 				fieldOptions={fieldOptions}
 				container={container}
 				availableSources={availableSources}
-				inheritedSourceIds={inheritedSourceIds}
 				showSourceSelector={false}
 			/>,
 			"table",
@@ -1222,7 +1203,6 @@ function DashboardFilterControls({
 		container,
 		fieldOptions,
 		filterState,
-		inheritedSourceIds,
 		setFilterState,
 		spawnBanner,
 		t,
@@ -1237,9 +1217,10 @@ function DashboardFilterControls({
 			<div className={s.filterControl}>
 				<Source.Select.Multi
 					sources={availableSources}
-					selected={selectedSourceIds}
+					selected={filterState.sourceIds}
 					setSelected={setSelectedSources}
-					placeholder={t("dashboard.sourcesPlaceholder")}
+					placeholder={t("source.selectSources")}
+					searchable
 				/>
 			</div>
 			<Button
@@ -1443,8 +1424,8 @@ interface DashboardCardProps {
 	palette: ChartPalette;
 	sourceNameById: Map<string, string>;
 	sourceColorById: Map<string, string>;
-	defaultSourceIds: Source.Id[];
 	availableSources: Source.Type[];
+	aggregationsEnabled: boolean;
 }
 
 /**
@@ -1460,8 +1441,8 @@ const DashboardCard = memo(function DashboardCard({
 	palette,
 	sourceNameById,
 	sourceColorById,
-	defaultSourceIds,
 	availableSources,
+	aggregationsEnabled,
 }: DashboardCardProps) {
 	const { Info, app, spawnBanner } = Application.use();
 	const { t } = Locale.use();
@@ -1476,14 +1457,12 @@ const DashboardCard = memo(function DashboardCard({
 	const activeFilterState = customFiltersEnabled
 		? localFilterState
 		: globalFilterState;
+	const hasSelectedSources =
+		aggregationsEnabled && activeFilterState.sourceIds.length > 0;
 	const operationId = operation?.id;
 	const activeFilterSignature = useMemo(
 		() => serializeFilterState(activeFilterState),
 		[activeFilterState],
-	);
-	const defaultSourceIdsSignature = useMemo(
-		() => serializeSourceIds(defaultSourceIds),
-		[defaultSourceIds],
 	);
 	const dashboardAggregationSignature = useMemo(
 		() => serializeDashboardAggregations(dashboard),
@@ -1518,7 +1497,6 @@ const DashboardCard = memo(function DashboardCard({
 				fieldOptions={fieldTypeMap}
 				container={container}
 				availableSources={availableSources}
-				inheritedSourceIds={defaultSourceIds}
 				showSourceSelector
 			/>,
 			"table",
@@ -1528,7 +1506,6 @@ const DashboardCard = memo(function DashboardCard({
 		container,
 		customFiltersEnabled,
 		dashboard.name,
-		defaultSourceIds,
 		fieldTypeMap,
 		globalFilterState,
 		localFilterState,
@@ -1566,12 +1543,16 @@ const DashboardCard = memo(function DashboardCard({
 	}, [resetCustomFiltersToGlobal]);
 
 	useEffect(() => {
-		if (!operationId) return;
+		if (!operationId || !hasSelectedSources) {
+			setLoading(false);
+			setError(null);
+			setChartBuckets([]);
+			return;
+		}
 		const query = buildAnalyticsQuery(
 			operationId,
 			activeFilterState,
 			fieldTypeMap,
-			defaultSourceIds,
 		);
 		const body = buildDashboardAggregationBody(dashboard, query);
 		if (!body) return;
@@ -1628,7 +1609,7 @@ const DashboardCard = memo(function DashboardCard({
 		dashboard.dashboard,
 		dashboard.id,
 		dashboardAggregationSignature,
-		defaultSourceIdsSignature,
+		hasSelectedSources,
 		operationId,
 		relevantFieldTypesSignature,
 	]);
@@ -1758,7 +1739,11 @@ const DashboardCard = memo(function DashboardCard({
 				</Popover.Root>
 			</div>
 			<div className={s.chartArea}>
-				{loading ? (
+				{!hasSelectedSources ? (
+					<div className={s.placeholder}>
+						{t("dashboard.selectAtLeastOneSource")}
+					</div>
+				) : loading ? (
 					<div className={s.placeholder}>{t("dashboard.loading")}</div>
 				) : error ? (
 					<div className={s.placeholder}>{error}</div>
@@ -1871,12 +1856,10 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 		() => serializeSourceIds(operationSourceIds),
 		[operationSourceIds],
 	);
+	const hasSelectedSources = filterState.sourceIds.length > 0;
 	const fieldMetadataSourceIds = useMemo(
-		() =>
-			filterState.sourceIds.length > 0
-				? filterState.sourceIds
-				: operationSourceIds,
-		[filterState.sourceIds, operationSourceIds],
+		() => filterState.sourceIds,
+		[filterState.sourceIds],
 	);
 	const fieldMetadataSourceIdsSignature = useMemo(
 		() => serializeSourceIds(fieldMetadataSourceIds),
@@ -1906,9 +1889,11 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 		previousOperationIdRef.current = operation?.id;
 
 		setFilterState((prev) => {
-			const sourceIds = prev.sourceIds.filter((id) =>
-				operationSources.some((source) => source.id === id),
-			);
+			const sourceIds = isOperationChanged
+				? operationSourceIds
+				: prev.sourceIds.filter((id) =>
+						operationSources.some((source) => source.id === id),
+					);
 			const range = isOperationChanged
 				? resolveInitialRange(operationSources)
 				: prev.range;
@@ -1969,6 +1954,8 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 	}, [Info]);
 
 	useEffect(() => {
+		if (stableFieldMetadataSources.length === 0) return;
+
 		let cancelled = false;
 		runWithConcurrency(
 			stableFieldMetadataSources,
@@ -2053,12 +2040,17 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 			nextAggregationFunction: AggregationFunction,
 			options: ReturnType<typeof getFieldAggregationOptions>,
 		) => {
-			if (!operation || !isFieldAggregationAllowed(field)) return;
+			if (
+				!operation ||
+				!hasSelectedSources ||
+				!isFieldAggregationAllowed(field)
+			) {
+				return;
+			}
 			const query = buildAnalyticsQuery(
 				operation.id,
 				filterState,
 				fieldTypeMap,
-				operationSourceIds,
 			);
 			const body = buildFieldAggregationBody(
 				query,
@@ -2119,12 +2111,42 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 					}
 				});
 		},
-		[Info, fieldTypeMap, filterState, operation, operationSourceIds, t],
+		[Info, fieldTypeMap, filterState, hasSelectedSources, operation, t],
 	);
 
 	useEffect(() => {
 		return () => fieldAggregationControllerRef.current?.abort();
 	}, []);
+
+	const previouslyHadSelectedSourcesRef = useRef(hasSelectedSources);
+	useEffect(() => {
+		const previouslyHadSelectedSources =
+			previouslyHadSelectedSourcesRef.current;
+		previouslyHadSelectedSourcesRef.current = hasSelectedSources;
+
+		if (!hasSelectedSources) {
+			fieldAggregationControllerRef.current?.abort();
+			fieldAggregationControllerRef.current = null;
+			setAggregationLoading(false);
+			setAggregationError(null);
+			setFieldAggregationResult(null);
+			return;
+		}
+
+		if (!previouslyHadSelectedSources && selectedField) {
+			executeFieldAggregation(
+				selectedField,
+				aggregationFunction,
+				getFieldAggregationOptions(),
+			);
+		}
+	}, [
+		aggregationFunction,
+		executeFieldAggregation,
+		getFieldAggregationOptions,
+		hasSelectedSources,
+		selectedField,
+	]);
 
 	/**
 	 * Runs the selected field aggregation with the current visible control values.
@@ -2268,7 +2290,6 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 								fieldOptions={fieldTypeMap}
 								container={container}
 								availableSources={operationSources}
-								inheritedSourceIds={operationSourceIds}
 							/>
 						</div>
 						<div className={s.panel}>
@@ -2297,7 +2318,13 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 							<h3>{t("dashboard.fixedDashboards")}</h3>
 							<div className={s.cardGrid}>
 								{dashboards.length === 0 ? (
-									<div className={s.placeholder}>{t("dashboard.noData")}</div>
+									<div className={s.placeholder}>
+										{t(
+											hasSelectedSources
+												? "dashboard.noData"
+												: "dashboard.selectAtLeastOneSource",
+										)}
+									</div>
 								) : (
 									dashboards.map((dashboard) => (
 										<DashboardCard
@@ -2309,26 +2336,27 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 											palette={palette}
 											sourceNameById={sourceNameById}
 											sourceColorById={sourceColorById}
-											defaultSourceIds={operationSourceIds}
 											availableSources={operationSources}
+											aggregationsEnabled={hasSelectedSources}
 										/>
 									))
 								)}
-								{dashboardExtensions.map((extension) => (
-									<div
-										key={extension.filename}
-										className={s.dashboardCard}
-									>
-										<Extension.Component
-											name={extension.filename}
-											props={{
-												filterState,
-												fieldTypeMap,
-												fieldKeys,
-											}}
-										/>
-									</div>
-								))}
+								{hasSelectedSources &&
+									dashboardExtensions.map((extension) => (
+										<div
+											key={extension.filename}
+											className={s.dashboardCard}
+										>
+											<Extension.Component
+												name={extension.filename}
+												props={{
+													filterState,
+													fieldTypeMap,
+													fieldKeys,
+												}}
+											/>
+										</div>
+									))}
 							</div>
 						</section>
 						{selectedField ? (
@@ -2433,12 +2461,17 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 										icon="Play"
 										variant="secondary"
 										loading={aggregationLoading}
+										disabled={!hasSelectedSources}
 										onClick={runFieldAggregation}
 									>
 										{t("dashboard.runAggregation")}
 									</Button>
 								</div>
-								{aggregationLoading ? (
+								{!hasSelectedSources ? (
+									<div className={s.placeholder}>
+										{t("dashboard.selectAtLeastOneSource")}
+									</div>
+								) : aggregationLoading ? (
 									<div className={s.placeholder}>{t("dashboard.loading")}</div>
 								) : aggregationError ? (
 									<div className={s.placeholder}>{aggregationError}</div>

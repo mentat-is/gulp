@@ -195,7 +195,7 @@ The main coordinator validates and applies the requested action.
 
 | Message | Action |
 | --- | --- |
-| `NAVIGATE_TO_EVENT` | Selects an available event in the main tab or runs the event-fetch flow. |
+| `NAVIGATE_TO_EVENT` | Selects an available event, centers its source-offset-adjusted timeline position, and opens or updates Event Detail; missing events use the event-fetch flow. |
 | `EVENT_TARGET_REQUEST` | Sets or clears the selected event by ID. |
 | `FOCUS_TIMELINE_REQUEST` | Focuses the main Canvas on a timestamp and optional source. |
 | `TIMELINE_ZOOM_REQUEST` | Applies a validated timeline frame and scale. |
@@ -207,7 +207,9 @@ The main coordinator validates and applies the requested action.
 | `NOTES_RENDERED_SYNC_CHANGED` | Enables or disables Notes rendered-source synchronization. |
 
 Notes and Table row actions use `NAVIGATE_TO_EVENT`. Assistant event actions use
-the same path, while Assistant point, zoom, and filter tools use the dedicated
+the same path, including clickable Investigator Evidence references. The main
+coordinator owns event selection, offset-aware Canvas focus, and Event Detail
+replacement, while Assistant point, zoom, and filter tools use the dedicated
 focus, frame, and filter messages.
 
 Event action requests carry the event ID and only the primitive parameters

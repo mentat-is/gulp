@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "अधिकतम दस्तावेज़ गिनती",
     "dashboard.noData": "कोई डेटा नहीं",
     "dashboard.noFields": "कोई फ़ील्ड उपलब्ध नहीं",
+    "dashboard.selectAtLeastOneSource": "कम से कम एक स्रोत चुनें",
     "dashboard.percent": "प्रतिशत",
     "dashboard.rareValues": "दुर्लभ मान",
     "dashboard.runAggregation": "एग्रीगेशन चलाएँ",

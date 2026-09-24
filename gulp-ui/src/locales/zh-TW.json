@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "最大文件數",
     "dashboard.noData": "沒有資料",
     "dashboard.noFields": "沒有可用欄位",
+    "dashboard.selectAtLeastOneSource": "請至少選擇一個來源",
     "dashboard.percent": "百分比",
     "dashboard.rareValues": "稀有值",
     "dashboard.runAggregation": "執行聚合",

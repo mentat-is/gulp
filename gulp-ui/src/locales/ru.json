@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "Макс. число документов",
     "dashboard.noData": "Нет данных",
     "dashboard.noFields": "Нет доступных полей",
+    "dashboard.selectAtLeastOneSource": "Выберите хотя бы один источник",
     "dashboard.percent": "Процент",
     "dashboard.rareValues": "Редкие значения",
     "dashboard.runAggregation": "Запустить агрегацию",

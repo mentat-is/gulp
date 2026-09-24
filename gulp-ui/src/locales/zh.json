@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "最大文档数",
     "dashboard.noData": "无数据",
     "dashboard.noFields": "没有可用字段",
+    "dashboard.selectAtLeastOneSource": "请至少选择一个来源",
     "dashboard.percent": "百分比",
     "dashboard.rareValues": "稀有值",
     "dashboard.runAggregation": "运行聚合",

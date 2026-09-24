@@ -648,6 +648,7 @@ export function FilterFileBanner({
 							selected={fileIds}
 							setSelected={handleSourceChange}
 							placeholder={t("filterFile.selectSourcesPlaceholder")}
+							searchable
 						/>
 					),
 					[fileIds, handleSourceChange],

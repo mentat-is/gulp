@@ -1613,6 +1613,12 @@ function _({ children }: { children: ReactNode }) {
 							}
 
 							infoRef.current.setTimelineTarget(event);
+							const source = Source.Entity.id(
+								infoRef.current.app,
+								event["gulp.source_id"],
+							);
+							const renderedTimestamp =
+								event.gulp_timestamp + (source?.settings.offset ?? 0);
 							const focusCanvasOnEvent = (
 								window as Window & {
 									focusCanvasOnEvent?: (
@@ -1623,7 +1629,7 @@ function _({ children }: { children: ReactNode }) {
 								}
 							).focusCanvasOnEvent;
 							focusCanvasOnEvent?.(
-								event.gulp_timestamp,
+								renderedTimestamp,
 								false,
 								event["gulp.source_id"],
 							);

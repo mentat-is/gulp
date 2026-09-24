@@ -20,7 +20,15 @@ import {
 import { Request } from "./Request";
 import { Application } from "@/context/Application.context";
 import { Button } from "@/ui/Button";
-import { useMemo, useState, Fragment, ChangeEvent, useEffect, useRef } from "react";
+import {
+	useMemo,
+	useState,
+	Fragment,
+	ChangeEvent,
+	KeyboardEvent,
+	useEffect,
+	useRef,
+} from "react";
 import { Banner as UIBanner } from "@/ui/Banner";
 import { Toggle } from "@/ui/Toggle";
 import { Internal } from "./addon/Internal";
@@ -950,6 +958,7 @@ export namespace Source {
 				selected: Source.Id[];
 				setSelected: SetState<Source.Id[]>;
 				placeholder?: string;
+				searchable?: boolean;
 			}
 		}
 
@@ -959,6 +968,7 @@ export namespace Source {
 			isAllContextSelected: boolean;
 			isIndeterminate: boolean;
 			contextSources: Source.Type[];
+			visibleSources: Source.Type[];
 		}
 
 		/**
@@ -973,6 +983,7 @@ export namespace Source {
 			isAllContextSelected,
 			isIndeterminate,
 			contextSources,
+			visibleSources,
 		}: ContextGroupProps) {
 			const { app } = Application.use();
 			const [isCollapsed, setIsCollapsed] = useState(false);
@@ -1024,7 +1035,7 @@ export namespace Source {
 						{context.name}
 					</UISelect.Label>
 					{!isCollapsed &&
-						contextSources.map((source) => (
+						visibleSources.map((source) => (
 							<UISelect.Item
 								key={source.id}
 								value={source.id}
@@ -1055,15 +1066,24 @@ export namespace Source {
 			);
 		}
 
+		/**
+		 * Renders the shared multi-source selector with optional UI-only filtering.
+		 * @param props Available sources, controlled selection, and presentation options.
+		 * @returns Grouped source selection menu.
+		 */
 		export function Multi({
 			sources,
 			selected,
 			setSelected,
 			placeholder,
+			searchable = false,
 		}: Select.Multi.Props) {
 			const { app } = Application.use();
 			const { t } = Locale.use();
 			const appSources = app.target.files;
+			const [isOpen, setIsOpen] = useState(false);
+			const [search, setSearch] = useState("");
+			const searchInputRef = useRef<HTMLInputElement | null>(null);
 
 			const all = useMemo(
 				() =>
@@ -1099,6 +1119,27 @@ export namespace Source {
 				});
 				return groupedSources;
 			}, [all]);
+			const normalizedSearch = search.trim().toLowerCase();
+			const visibleContextGroups = useMemo(
+				() =>
+					availableContexts.flatMap((context) => {
+						const contextSources = sourcesByContext.get(context.id) ?? [];
+						const isContextMatch = context.name
+							.toLowerCase()
+							.includes(normalizedSearch);
+						const visibleSources =
+							!normalizedSearch || isContextMatch
+								? contextSources
+								: contextSources.filter((source) =>
+										source.name.toLowerCase().includes(normalizedSearch),
+									);
+
+						return visibleSources.length > 0
+							? [{ context, contextSources, visibleSources }]
+							: [];
+					}),
+				[availableContexts, normalizedSearch, sourcesByContext],
+			);
 
 			/**
 			 * Toggles every source in one context using constant-time membership checks.
@@ -1117,7 +1158,45 @@ export namespace Source {
 				setSelected(Array.from(nextSelected));
 			};
 
-			const [isOpen, setIsOpen] = useState(false);
+			useEffect(() => {
+				if (!isOpen || !searchable) return;
+
+				const focusTimeout = globalThis.setTimeout(() => {
+					searchInputRef.current?.focus({ preventScroll: true });
+				}, 0);
+
+				return () => globalThis.clearTimeout(focusTimeout);
+			}, [isOpen, searchable]);
+
+			/**
+			 * Tracks menu visibility and clears the presentation-only search filter.
+			 * @param open Whether the source selector is open.
+			 * @returns Nothing.
+			 */
+			const handleOpenChange = (open: boolean): void => {
+				setIsOpen(open);
+				setSearch("");
+			};
+
+			/**
+			 * Updates the source/context filter without changing the selected IDs.
+			 * @param event Search input change event.
+			 * @returns Nothing.
+			 */
+			const handleSearchChange = (event: ChangeEvent<HTMLInputElement>): void => {
+				setSearch(event.target.value);
+			};
+
+			/**
+			 * Keeps search keystrokes from triggering Radix Select typeahead behavior.
+			 * @param event Keyboard event emitted by the search input.
+			 * @returns Nothing.
+			 */
+			const handleSearchKeyDown = (
+				event: KeyboardEvent<HTMLInputElement>,
+			): void => {
+				event.stopPropagation();
+			};
 
 			/**
 			 * Resolves the text shown by the multi-select trigger.
@@ -1137,7 +1216,7 @@ export namespace Source {
 				<UISelect.Multi.Root
 					value={selected}
 					onValueChange={(selected) => setSelected(selected as Source.Id[])}
-					onOpenChange={setIsOpen}
+					onOpenChange={handleOpenChange}
 				>
 					<UISelect.Trigger>
 						<UISelect.Multi.Value
@@ -1149,6 +1228,22 @@ export namespace Source {
 					<UISelect.Content>
 						{isOpen && (
 							<>
+								{searchable ? (
+									<div className={s.multi_select_search}>
+										<Input
+											ref={searchInputRef}
+											size="sm"
+											icon="MagnifyingGlass"
+											value={search}
+											placeholder={t("common.search")}
+											aria-label={t("common.search")}
+											autoComplete="off"
+											spellCheck={false}
+											onChange={handleSearchChange}
+											onKeyDown={handleSearchKeyDown}
+										/>
+									</div>
+								) : null}
 								<UISelect.Multi.ToggleAll
 									label={
 										isAllSelected
@@ -1160,9 +1255,8 @@ export namespace Source {
 										setSelected(val ? all.map((s) => s.id) : [])
 									}
 								/>
-								{availableContexts.map((context, index) => {
-									const contextSources =
-										sourcesByContext.get(context.id) ?? [];
+								{visibleContextGroups.map((group, index) => {
+									const { context, contextSources, visibleSources } = group;
 									const selectedContextSourceCount = contextSources.reduce(
 										(count, source) =>
 											count + (selectedSet.has(source.id) ? 1 : 0),
@@ -1181,8 +1275,9 @@ export namespace Source {
 												isAllContextSelected={isAllContextSelected}
 												isIndeterminate={isIndeterminate}
 												contextSources={contextSources}
+												visibleSources={visibleSources}
 											/>
-											{index < availableContexts.length - 1 && (
+											{index < visibleContextGroups.length - 1 && (
 												<UISelect.Separator />
 											)}
 										</Fragment>

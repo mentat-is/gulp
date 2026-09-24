@@ -1318,6 +1318,7 @@ export function TableViewWindow({
 						selected={selectedSourceIds}
 						setSelected={handleSelectedSourcesChange}
 						placeholder={t("source.selectSources")}
+						searchable
 					/>
 				</div>
 				{!isSyncActive && (

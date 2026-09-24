@@ -873,6 +873,7 @@
     "dashboard.maxDocCount": "Număr max. de documente",
     "dashboard.noData": "Nu există date",
     "dashboard.noFields": "Nu există câmpuri disponibile",
+    "dashboard.selectAtLeastOneSource": "Selectați cel puțin o sursă",
     "dashboard.percent": "Procent",
     "dashboard.rareValues": "Valori rare",
     "dashboard.runAggregation": "Rulează agregarea",
