@@ -56,18 +56,21 @@ class GlugConsoleFormatter(logging.Formatter):
         color = self._use_color and _LEVEL_COLORS.get(record.levelno, "") or ""
         reset = _RESET if color else ""
 
-        # process_role/pid and the asyncio task name are deliberately left out
-        # of this stdout line — this formatter is for a human glancing at the
-        # console, and both fields are already in the JSON file
-        # (GlugJsonFormatter, "process_role"/"pid"/"async_task_name") for
-        # whatever actually parses logs. Keeping stdout terse was an explicit
-        # tradeoff the user made after seeing proc=/task= added and then
-        # trying it live.
+        # process_role/pid are deliberately left out of this stdout line — this
+        # formatter is for a human glancing at the console, and both fields are
+        # already in the JSON file (GlugJsonFormatter, "process_role"/"pid")
+        # for whatever actually parses logs. Keeping stdout terse was an
+        # explicit tradeoff the user made after seeing proc=/task= added and
+        # then trying it live. The asyncio task name was re-added later, on
+        # its own — shown only when set (e.g. not during sync startup code
+        # outside any task), so it stays out of the way otherwise.
         dim = _DIM if self._use_color else ""
         dim_reset = _RESET if dim else ""
+        task_name = getattr(record, "async_task_name", None)
+        task_suffix = f" task={task_name}" if task_name else ""
         header = (
             f"{time_str} {color}{record.levelname:<8}{reset} "
-            f"{module_name}:{record.funcName}:{record.lineno}"
+            f"{module_name}:{record.funcName}:{record.lineno}{task_suffix}"
         )
 
         context = getattr(record, "context", {}) or {}
