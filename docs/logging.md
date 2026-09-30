@@ -14,6 +14,7 @@
   - [Runtime reconfiguration](#runtime-reconfiguration)
   - [Process bootstrap: main and workers](#process-bootstrap-main-and-workers)
   - [Third-party loggers](#third-party-loggers)
+  - [Shipping logs to OpenSearch](#shipping-logs-to-opensearch)
   - [What about `muty`?](#what-about-muty)
   - [Known limitations](#known-limitations)
 
@@ -99,20 +100,26 @@ per line). One line per record, deliberately terse:
 
 ```text
 2026-09-22 12:41:41.011 INFO     gulp.api.server_api:start:420  starting server at 0.0.0.0, port=8080, reset_collab=True, create_operation=test_operation
+2026-09-30 10:19:35.434 INFO     gulp.api.server_api:_lifespan_handler:1387 task=Task-2  gULP main server process is starting
 ```
 
-`<timestamp> <LEVEL> <module>:<funcName>:<line>  <message>  {context k=v...}`
-— the message itself is colored by level (not just the level tag), so
-severity reads at a glance scrolling down a column of lines. A `hint=`, a
-`detail=` (only when `dev_mode` is on, pretty-printed, indented), and an
-exception traceback (when `exc_info` is set) each add their own indented
-lines below the header when present.
+`<timestamp> <LEVEL> <module>:<funcName>:<line>[ task=<name>]  <message>
+{context k=v...}` — the message itself is colored by level (not just the
+level tag), so severity reads at a glance scrolling down a column of
+lines. `task=` is the current asyncio task's name (e.g. `Task-2`), shown
+only when set — sync startup code running outside any task (before the
+event loop starts, e.g. `start()`'s own initial lines) omits it rather
+than showing a stale/empty value. A `hint=`, a `detail=` (only when
+`dev_mode` is on, pretty-printed, indented), and an exception traceback
+(when `exc_info` is set) each add their own indented lines below the
+header when present.
 
 Deliberately **not** on the console line: the process identity (which
-worker, PID) and the current asyncio task name. Early revisions tried
-adding them as `proc=`/`task=` key=value pairs; after trying it live, the
-call was that stdout should stay terse for a human — that information is
-one field away in the JSON file for whatever actually needs it.
+worker, PID). Early revisions tried adding it, alongside the task name, as
+`proc=`/`task=` key=value pairs; after trying it live, the call was that
+stdout should stay terse for a human — `proc=`/`pid` stayed out (still one
+field away in the JSON file for whatever needs it), while `task=` was
+brought back on its own in a later revision.
 
 ### JSON file
 
@@ -320,6 +327,68 @@ themselves, independent of gULP's own log level:
   `uvicorn.run(..., log_config=None)` (the `log_config=None` is required —
   otherwise uvicorn's own `logging.config.dictConfig()` call inside `run()`
   overwrites the handlers just attached).
+
+## Shipping logs to OpenSearch
+
+The JSON file (`--log-dir`) exists specifically so an external tool can
+tail it — gULP itself never writes to OpenSearch (or anywhere else) from
+inside `Glug`. That's a deliberate choice, not a missing feature: making a
+log call depend on a network write to OpenSearch would mean losing exactly
+the logs that would explain *why* OpenSearch is unreachable, and would turn
+every `Glug.get_instance().info(...)` call — today synchronous and
+local — into blocking network I/O.
+
+This repo ships a reference setup for [Fluent
+Bit](https://fluentbit.io/) — a small, dependency-free, single static
+binary built for exactly this (tailing rotating log files, buffering
+through backpressure, resuming after a restart without re-shipping or
+losing lines):
+
+- **`fluent-bit.conf`** / **`parsers.conf`** / **`fluent-bit-filters/`**
+  (repo root): tails every `<log_dir>/<hostname>/gulp-*.log`, routes each
+  record by its `level` field into one of two OpenSearch indices, and fixes
+  up the record's timestamp from Glug's own `timestamp_msec` field (Fluent
+  Bit's built-in time parsing only understands seconds-since-epoch, not
+  milliseconds — done via a small Lua filter,
+  `fluent-bit-filters/set_event_time.lua`).
+- **`gulp-internal-logs-info`**: `INFO` and above, retained 90 days —
+  enough to reconstruct what gULP itself did around a given incident.
+- **`gulp-internal-logs-debug`**: `DEBUG` only, retained 14 days — only
+  ever populated when a process runs with `--log-level debug`/`--dev-mode`,
+  much higher volume and much shorter useful lifetime than INFO+.
+- **`docker-compose.yml`**, profile **`logging`**: a `fluent-bit` service
+  mounting `${GULP_WORKING_DIR}/logs` (read-only) and shipping to the `os01`
+  service. Start it with:
+
+  ```bash
+  docker compose --profile logging up -d fluent-bit
+  ```
+
+- **`bootstrap_internal_logs_indices.sh`**: one-time setup against the
+  target OpenSearch cluster — creates the ISM rollover/retention policies,
+  the index templates (mapping every field `GlugJsonFormatter` writes), and
+  the two initial write-alias indices. Run once, before starting the
+  `fluent-bit` profile for the first time:
+
+  ```bash
+  OPENSEARCH_URL=http://localhost:9200 ./bootstrap_internal_logs_indices.sh
+  ```
+
+  Safe to re-run (every `PUT` either creates a resource or replaces it with
+  the same definition).
+
+**gULP's own `--log-dir` has no default** — pass it explicitly, pointing
+under the working directory so it's on the same host path
+`GULP_WORKING_DIR` already mounts (and therefore already reachable from
+the `fluent-bit` container too):
+
+```bash
+gulp --log-dir ~/.config/gulp/logs
+```
+
+See `plans/log-shipping.md` for the design discussion behind these
+choices (why not write to OpenSearch directly from `Glug`, why Fluent Bit
+over a custom script or cron, why the retention split by level).
 
 ## What about `muty`?
 

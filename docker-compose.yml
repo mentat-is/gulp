@@ -211,7 +211,37 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus_alerts.yml:/etc/prometheus/rules/gulp_alerts.yml:ro
       - prometheus_data:/prometheus
-      
+
+  ########################################
+  # log shipping (see docs/logging.md, "Shipping logs to OpenSearch")
+  ########################################
+  fluent-bit:
+    profiles: [ "logging" ]
+    image: fluent/fluent-bit:latest
+    container_name: fluent-bit
+    restart: unless-stopped
+    environment:
+      OPENSEARCH_HOST: os01
+      OPENSEARCH_PORT: 9200
+      OPENSEARCH_USER: ${OPENSEARCH_USER:-}
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:-}
+      # os01 above runs with the security plugin disabled by default (see
+      # its own DISABLE_SECURITY_PLUGIN) — flip these to On for a cluster
+      # with TLS/auth actually enabled.
+      OPENSEARCH_TLS: "Off"
+      OPENSEARCH_TLS_VERIFY: "Off"
+    depends_on:
+      - os01
+    volumes:
+      - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - ./fluent-bit-filters:/fluent-bit/etc/fluent-bit-filters:ro
+      # gulp's own --log-dir output, one subdirectory per hostname — same
+      # path already reachable from the host via GULP_WORKING_DIR, see
+      # docs/logging.md for how to point gulp's --log-dir here.
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/logs:/gulp-logs:ro
+      - fluent_bit_storage:/var/lib/fluent-bit/storage
+
 volumes:
   postgres_data:
   opensearch_data:
@@ -219,3 +249,4 @@ volumes:
   seaweedfs_data:
   prometheus_data:
   grafana_data:
+  fluent_bit_storage:

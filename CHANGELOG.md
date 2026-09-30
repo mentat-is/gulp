@@ -1,5 +1,20 @@
 # v2.0.0
 
+- added a reference Fluent Bit setup (`fluent-bit.conf`, `parsers.conf`,
+  `fluent-bit-filters/`, a new `docker-compose.yml` `logging` profile, and
+  `bootstrap_internal_logs_indices.sh`) to ship `Glug`'s per-process JSON
+  log files into two OpenSearch indices — `gulp-internal-logs-info`
+  (`INFO`+, 90-day retention) and `gulp-internal-logs-debug` (`DEBUG` only,
+  14-day retention, populated only under `--log-level debug`/`--dev-mode`).
+  Deliberately does not write to OpenSearch from inside `Glug` itself:
+  that would make every log call depend on network I/O to the one service
+  most likely to be the reason something needs logging in the first place,
+  and would turn a synchronous local call into blocking I/O. See
+  `docs/logging.md`, "Shipping logs to OpenSearch", and
+  `plans/log-shipping.md` for the design discussion (why Fluent Bit over a
+  custom script or cron, why the retention split by level, why the
+  ISM-managed rollover-alias indices are bootstrapped once outside gulp
+  rather than something gulp creates itself).
 - cached successful Web UI ingestion mapping discovery for the authenticated
   session, stopped persisting pending empty source-field catalogs, and preserved
   all structured query operators when field type metadata is unavailable.
