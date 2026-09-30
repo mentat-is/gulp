@@ -3,10 +3,15 @@
 - added a reference Fluent Bit setup (`fluent-bit.conf`, `parsers.conf`,
   `fluent-bit-filters/`, a new `docker-compose.yml` `logging` profile, and
   `bootstrap_internal_logs_indices.sh`) to ship `Glug`'s per-process JSON
-  log files into two OpenSearch indices — `gulp-internal-logs-info`
-  (`INFO`+, 90-day retention) and `gulp-internal-logs-debug` (`DEBUG` only,
-  14-day retention, populated only under `--log-level debug`/`--dev-mode`).
-  Deliberately does not write to OpenSearch from inside `Glug` itself:
+  log files into two OpenSearch indices — `.gulp-internal-logs-info`
+  (`INFO`+, 90-day retention) and `.gulp-internal-logs-debug` (`DEBUG`
+  only, 14-day retention, populated only under `--log-level
+  debug`/`--dev-mode`). Both are hidden system indices (leading `.`, plus
+  `"index.hidden": true` — the dot alone is only a naming convention, it
+  doesn't hide anything by itself): meant to be queried by a dedicated
+  future gulp plugin for system-log debugging/analysis, not stumbled into
+  while browsing operation data. Deliberately does not write to
+  OpenSearch from inside `Glug` itself:
   that would make every log call depend on network I/O to the one service
   most likely to be the reason something needs logging in the first place,
   and would turn a synchronous local call into blocking I/O. See

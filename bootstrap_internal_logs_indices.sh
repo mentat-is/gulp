@@ -29,6 +29,14 @@ put() {
     echo
 }
 
+# both indices are named with a leading "." — OpenSearch's system-index
+# convention (matching e.g. ".opendistro-ism-config" internally): combined
+# with "index.hidden": true below, they're excluded from default wildcard
+# listings/searches (_cat/indices, a plain "*" query) and queried only by
+# exact name/alias — these are gulp's own operational logs, meant for a
+# dedicated future gulp plugin doing system-log debugging/analysis, not
+# something to stumble into while browsing operation data.
+
 # shared field mapping for both indices — 1:1 with the JSON schema Glug
 # writes (src/gulp/glug/formatter.py, GlugJsonFormatter). "detail" is
 # free-form (dev_mode-only, decision 16 in plans/log-revolution.md) and
@@ -93,7 +101,7 @@ put "/_plugins/_ism/policies/gulp_internal_logs_info_policy" "$(cat <<EOF
       { "name": "delete", "actions": [ { "delete": {} } ] }
     ],
     "ism_template": [
-      { "index_patterns": ["gulp-internal-logs-info-*"], "priority": 100 }
+      { "index_patterns": [".gulp-internal-logs-info-*"], "priority": 100 }
     ]
   }
 }
@@ -102,10 +110,11 @@ EOF
 
 put "/_index_template/gulp-internal-logs-info-template" "$(cat <<EOF
 {
-  "index_patterns": ["gulp-internal-logs-info-*"],
+  "index_patterns": [".gulp-internal-logs-info-*"],
   "template": {
     "settings": {
-      "plugins.index_state_management.rollover_alias": "gulp-internal-logs-info"
+      "index.hidden": true,
+      "plugins.index_state_management.rollover_alias": ".gulp-internal-logs-info"
     },
     "mappings": ${MAPPINGS}
   },
@@ -114,8 +123,8 @@ put "/_index_template/gulp-internal-logs-info-template" "$(cat <<EOF
 EOF
 )"
 
-put "/gulp-internal-logs-info-000001" '{
-  "aliases": { "gulp-internal-logs-info": { "is_write_index": true } }
+put "/.gulp-internal-logs-info-000001" '{
+  "aliases": { ".gulp-internal-logs-info": { "is_write_index": true, "is_hidden": true } }
 }'
 
 # --- DEBUG index: same rollover shape, delete after 14 days ---
@@ -140,7 +149,7 @@ put "/_plugins/_ism/policies/gulp_internal_logs_debug_policy" "$(cat <<EOF
       { "name": "delete", "actions": [ { "delete": {} } ] }
     ],
     "ism_template": [
-      { "index_patterns": ["gulp-internal-logs-debug-*"], "priority": 100 }
+      { "index_patterns": [".gulp-internal-logs-debug-*"], "priority": 100 }
     ]
   }
 }
@@ -149,10 +158,11 @@ EOF
 
 put "/_index_template/gulp-internal-logs-debug-template" "$(cat <<EOF
 {
-  "index_patterns": ["gulp-internal-logs-debug-*"],
+  "index_patterns": [".gulp-internal-logs-debug-*"],
   "template": {
     "settings": {
-      "plugins.index_state_management.rollover_alias": "gulp-internal-logs-debug"
+      "index.hidden": true,
+      "plugins.index_state_management.rollover_alias": ".gulp-internal-logs-debug"
     },
     "mappings": ${MAPPINGS}
   },
@@ -161,8 +171,8 @@ put "/_index_template/gulp-internal-logs-debug-template" "$(cat <<EOF
 EOF
 )"
 
-put "/gulp-internal-logs-debug-000001" '{
-  "aliases": { "gulp-internal-logs-debug": { "is_write_index": true } }
+put "/.gulp-internal-logs-debug-000001" '{
+  "aliases": { ".gulp-internal-logs-debug": { "is_write_index": true, "is_hidden": true } }
 }'
 
 echo "done."

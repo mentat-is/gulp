@@ -351,11 +351,17 @@ losing lines):
   Bit's built-in time parsing only understands seconds-since-epoch, not
   milliseconds — done via a small Lua filter,
   `fluent-bit-filters/set_event_time.lua`).
-- **`gulp-internal-logs-info`**: `INFO` and above, retained 90 days —
+- **`.gulp-internal-logs-info`**: `INFO` and above, retained 90 days —
   enough to reconstruct what gULP itself did around a given incident.
-- **`gulp-internal-logs-debug`**: `DEBUG` only, retained 14 days — only
+- **`.gulp-internal-logs-debug`**: `DEBUG` only, retained 14 days — only
   ever populated when a process runs with `--log-level debug`/`--dev-mode`,
   much higher volume and much shorter useful lifetime than INFO+.
+- Both start with `.` and set `"index.hidden": true` — OpenSearch's
+  system-index convention: excluded from `_cat/indices` and a plain `*`
+  search by default, queried only by exact name/alias. These are gULP's
+  own operational logs, meant for a dedicated gulp plugin doing
+  system-log debugging/analysis, not something to run into while browsing
+  operation data.
 - **`docker-compose.yml`**, profile **`logging`**: a `fluent-bit` service
   mounting `${GULP_WORKING_DIR}/logs` (read-only) and shipping to the `os01`
   service. Start it with:
