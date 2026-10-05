@@ -685,7 +685,7 @@ export namespace Enrichment {
 								variant="dimmed"
 								name="Puzzle"
 							/>
-							{plugin ? plugin.filename : t("enrichment.selectPlugin")}
+							{plugin ? plugin.display_name : t("enrichment.selectPlugin")}
 						</Stack>
 					</Select.Trigger>
 					<Select.Content>
@@ -694,7 +694,7 @@ export namespace Enrichment {
 								key={p.filename}
 								value={p.filename}
 							>
-								{p.filename}
+								{p.display_name}
 							</Select.Item>
 						))}
 					</Select.Content>
