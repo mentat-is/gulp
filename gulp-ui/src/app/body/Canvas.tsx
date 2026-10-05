@@ -125,6 +125,7 @@ import { renderWindowProjectionBus } from "@/render-worker/RenderWindowProjectio
 import { SmartSocket } from "@/class/SmartSocket";
 import type { QueryRenderWindowDescriptor } from "@/event-stream";
 import {
+	getCanvasEventLookupPixels,
 	getCanvasEventTimestampRange,
 	isCanvasEventLookupSourceCurrent,
 	isCanvasPixelWithinEventSourceRange,
@@ -1426,13 +1427,19 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		}
 
 		const lookupGeometry = captureEventLookupGeometry(file);
+		const eventLookupPixels = getCanvasEventLookupPixels(
+			canvasHitX,
+			lookupGeometry.scrollX,
+		);
 		if (
-			!isCanvasPixelWithinEventSourceRange(
-				canvasHitX,
-				sourceSummary?.minTimestamp ?? file.timestamp.min,
-				sourceSummary?.maxTimestamp ?? file.timestamp.max,
-				lookupGeometry,
-				lookupGeometry.renderEngine === "graph" ? 16 : 0,
+			!eventLookupPixels.some((eventLookupPixel) =>
+				isCanvasPixelWithinEventSourceRange(
+					eventLookupPixel,
+					sourceSummary?.minTimestamp ?? file.timestamp.min,
+					sourceSummary?.maxTimestamp ?? file.timestamp.max,
+					lookupGeometry,
+					lookupGeometry.renderEngine === "graph" ? 16 : 0,
+				),
 			)
 		) {
 			if (preferExactEvent) await resolveOverlayClick();
@@ -1441,7 +1448,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 
 		const lookupViewportRevision = workerViewportRevisionRef.current;
 		let lookup = await queryEventPageByClickX(
-			canvasHitX,
+			eventLookupPixels[0],
 			file,
 			lookupGeometry,
 			interactionOperationEpoch,
@@ -1450,7 +1457,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		if (lookup === undefined) return;
 		if (lookup === null) {
 			lookup = await queryEventPageByClickX(
-				canvasHitX - 1,
+				eventLookupPixels[1],
 				file,
 				lookupGeometry,
 				interactionOperationEpoch,
@@ -1460,7 +1467,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		if (lookup === undefined) return;
 		if (lookup === null) {
 			lookup = await queryEventPageByClickX(
-				canvasHitX + 1,
+				eventLookupPixels[2],
 				file,
 				lookupGeometry,
 				interactionOperationEpoch,

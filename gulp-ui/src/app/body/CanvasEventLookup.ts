@@ -59,6 +59,22 @@ export function resolveCanvasInteractionPosition(
 }
 
 /**
+ * Resolves the renderer-owned event columns covered by one Canvas click.
+ * The primary column is snapped in virtual timeline space so fractional Canvas
+ * scroll remains part of the rendered coordinate.
+ * @param pointerX Fractional Canvas-relative pointer coordinate.
+ * @param scrollX Current horizontal Canvas scroll offset.
+ * @returns Primary event column followed by the existing left/right tolerance.
+ */
+export function getCanvasEventLookupPixels(
+	pointerX: number,
+	scrollX: number,
+): readonly [number, number, number] {
+	const primaryPixel = Math.floor(pointerX + scrollX) - scrollX;
+	return [primaryPixel, primaryPixel - 1, primaryPixel + 1];
+}
+
+/**
  * Returns the greatest representable float strictly smaller than a value.
  * @param value Exclusive upper bound produced by the inverse pixel transform.
  * @returns Adjacent lower IEEE-754 value.

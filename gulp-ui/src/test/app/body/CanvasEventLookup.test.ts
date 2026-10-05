@@ -1,4 +1,5 @@
 import {
+	getCanvasEventLookupPixels,
 	getCanvasEventPixel,
 	getCanvasEventTimestampRange,
 	isCanvasEventLookupSourceCurrent,
@@ -79,6 +80,85 @@ describe("Canvas exact event lookup transform", () => {
 			expect(range !== null).toBe(true);
 			expect(timestamp >= (range?.min ?? Number.POSITIVE_INFINITY)).toBe(true);
 			expect(timestamp <= (range?.max ?? Number.NEGATIVE_INFINITY)).toBe(true);
+		}
+	});
+
+	for (const visibleDuration of [2_000, 1_000, 500, 10]) {
+		it(`selects the renderer-owned column with a ${visibleDuration}-millisecond viewport`, () => {
+			const frameMin = 1_743_025_550_000;
+			const frameRange = 100_000;
+			const eventTimestamp = frameMin + frameRange / 2;
+			const scale = frameRange / visibleDuration;
+			const virtualEventPixel = Math.round(
+				((eventTimestamp - frameMin) / frameRange) * geometry.canvasWidth * scale,
+			);
+			const lookupGeometry = {
+				...geometry,
+				frameMin,
+				frameMax: frameMin + frameRange,
+				scale,
+				scrollX: virtualEventPixel - 500 + 0.25,
+				sourceOffset: 0,
+			};
+			const eventPixel = getCanvasEventPixel(
+				eventTimestamp,
+				lookupGeometry,
+			);
+
+			for (const pointerOffset of [0.1, 0.49, 0.51, 0.9]) {
+				const [primaryPixel] = getCanvasEventLookupPixels(
+					eventPixel + pointerOffset,
+					lookupGeometry.scrollX,
+				);
+				const range = getCanvasEventTimestampRange(
+					primaryPixel,
+					lookupGeometry,
+				);
+
+				expect(primaryPixel).toBe(eventPixel);
+				expect(eventTimestamp >= (range?.min ?? Number.POSITIVE_INFINITY)).toBe(
+					true,
+				);
+				expect(eventTimestamp <= (range?.max ?? Number.NEGATIVE_INFINITY)).toBe(
+					true,
+				);
+			}
+		});
+	}
+
+	it("selects a flagged event from each of its three painted columns", () => {
+		const eventTimestamp = 1_500;
+		const flaggedGeometry = { ...geometry, scrollX: 300.25 };
+		const eventPixel = getCanvasEventPixel(eventTimestamp, flaggedGeometry);
+
+		for (const pointerX of [
+			eventPixel - 0.5,
+			eventPixel + 0.5,
+			eventPixel + 1.5,
+		]) {
+			const lookupPixels = getCanvasEventLookupPixels(
+				pointerX,
+				flaggedGeometry.scrollX,
+			);
+			const matchingPixel = lookupPixels.find((pixel) => {
+				const range = getCanvasEventTimestampRange(pixel, flaggedGeometry);
+				return (
+					eventTimestamp >= (range?.min ?? Number.POSITIVE_INFINITY) &&
+					eventTimestamp <= (range?.max ?? Number.NEGATIVE_INFINITY)
+				);
+			});
+
+			expect(matchingPixel).toBe(eventPixel);
+			expect(
+				lookupPixels.some((pixel) =>
+					isCanvasPixelWithinEventSourceRange(
+						pixel,
+						eventTimestamp,
+						eventTimestamp,
+						flaggedGeometry,
+					),
+				),
+			).toBe(true);
 		}
 	});
 
