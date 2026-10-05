@@ -130,6 +130,11 @@ const contextMenuRadioItem = React.forwardRef<
 ))
 contextMenuRadioItem.displayName = ContextMenuPrimitive.RadioItem.displayName
 
+/**
+ * Renders a non-interactive menu label with item-aligned icon spacing.
+ * @param props Radix label props plus the optional icon and inset state.
+ * @returns A styled context-menu label.
+ */
 const contextMenuLabel = React.forwardRef<
   React.ElementRef<typeof ContextMenuPrimitive.Label>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Label> & {
@@ -142,7 +147,7 @@ const contextMenuLabel = React.forwardRef<
     className={cn(s.label, inset && s.labelInset, className)}
     {...props}
   >
-    {icon ? <Icon size={12} name={icon} color='currentColor' /> : null}
+    {icon ? <Icon name={icon} className={s.icon} color='currentColor' /> : null}
     {children}
   </ContextMenuPrimitive.Label>
 ))

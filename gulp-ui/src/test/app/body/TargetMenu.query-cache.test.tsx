@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { App } from "@/entities/App";
 import type { Query } from "@/entities/Query";
 import type { Source } from "@/entities/Source";
+import { Filter } from "@/entities/Filter";
 import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import { TargetMenu } from "@/app/body/Target.menu";
 
@@ -32,6 +33,60 @@ let mockSource: Source.Type;
 const mockApp = {
 	target: { files: [] as Source.Type[] },
 } as unknown as App.Type;
+const sourceLabelCases: ReadonlyArray<{
+	sourceName: string;
+	timelineLabel: Source.Type["settings"]["timeline_label"];
+	expectedLabel: string;
+}> = [
+	{
+		sourceName: "C:\\evidence\\windows.evtx",
+		timelineLabel: "filename",
+		expectedLabel: "windows.evtx",
+	},
+	{
+		sourceName: "/var/log/security/linux.json",
+		timelineLabel: "filename",
+		expectedLabel: "linux.json",
+	},
+	{
+		sourceName: "C:\\evidence\\windows.evtx",
+		timelineLabel: "full_path",
+		expectedLabel: "C:\\evidence\\windows.evtx",
+	},
+];
+const filterSummaryCases: ReadonlyArray<{
+	name: string;
+	query: Partial<Query.Type>;
+	description: string;
+}> = [
+	{
+		name: "text",
+		query: { text_filter: "needle", filters: [] },
+		description: 'Text: "needle"',
+	},
+	{
+		name: "structured",
+		query: {
+			text_filter: "",
+			filters: [
+				{
+					id: "target-menu-filter",
+					type: "eq",
+					operator: "must",
+					field: "event.code",
+					value: 4624,
+					enabled: true,
+				},
+			] as Query.Type["filters"],
+		},
+		description: "must eq event.code: 4624",
+	},
+	{
+		name: "manual",
+		query: { text_filter: "", filters: [], isManual: true, raw: {} },
+		description: "filter.manualQuery",
+	},
+];
 
 jest.mock("@/context/Application.context", () => ({
 	Application: {
@@ -83,10 +138,16 @@ jest.mock("@/ui/ContextMenu", () => ({
 	ContextMenuLabel: ({
 		children,
 		title,
+		icon,
 	}: {
 		children?: ReactNode;
 		title?: string;
-	}) => <div title={title}>{children}</div>,
+		icon?: string;
+	}) => (
+		<div data-context-menu-label="true" data-icon={icon} title={title}>
+			{children}
+		</div>
+	),
 	ContextMenuSeparator: (): null => null,
 	ContextMenuSub: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
 	ContextMenuSubContent: ({ children }: { children?: ReactNode }) => (
@@ -114,10 +175,28 @@ jest.mock("@/entities/Source", () => ({
 jest.mock("@/entities/Filter", () => ({
 	Filter: {
 		Entity: {
-			describe: (): string => "described applied query",
+			describe: jest.fn(),
 		},
 	},
 }));
+
+const mockDescribe = Filter.Entity.describe as typeof Filter.Entity.describe & {
+	mockImplementation: (
+		implementation: typeof Filter.Entity.describe,
+	) => void;
+};
+let describedQuery: Query.Type | null = null;
+
+/** Describes the user-controlled portion of a mocked applied query. */
+function describeAppliedQuery(query: Query.Type): string {
+	describedQuery = query;
+	if (query.text_filter?.trim()) return `Text: "${query.text_filter}"`;
+	if (query.filters.some((filter) => filter.enabled)) {
+		return "must eq event.code: 4624";
+	}
+	if (query.isManual) return "filter.manualQuery";
+	return "filter.noFiltersApplied";
+}
 
 jest.mock("@/dto/Engine.dto", () => ({ enginesBase: [] }));
 jest.mock("@/banners/FilterFile.banner", () => ({
@@ -160,7 +239,7 @@ function createSource(): Source.Type {
 		operation_id: "target-menu-operation",
 		selected: true,
 		pinned: false,
-		settings: { offset: 0 },
+		settings: { offset: 0, timeline_label: "filename" },
 		timestamp: { min: 1, max: 2 },
 		nanotimestamp: { min: 1n, max: 2n },
 		appliedQuery,
@@ -184,11 +263,24 @@ function getMenuButton(container: HTMLElement, icon: string): HTMLButtonElement 
 	return button;
 }
 
+/** Finds one mocked context-menu label by its optional icon identifier. */
+function getMenuLabel(
+	container: HTMLElement,
+	icon?: string,
+): HTMLDivElement | null {
+	const selector = icon
+		? `[data-context-menu-label="true"][data-icon="${icon}"]`
+		: '[data-context-menu-label="true"]';
+	return container.querySelector<HTMLDivElement>(selector);
+}
+
 describe("TargetMenu query-cache controls", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 
 	beforeEach(() => {
+		mockDescribe.mockImplementation(describeAppliedQuery);
+		describedQuery = null;
 		mockLoadings.byFileId.clear();
 		mockSource = createSource();
 		mockApp.target.files = [mockSource];
@@ -207,11 +299,14 @@ describe("TargetMenu query-cache controls", () => {
 
 		const undo = getMenuButton(container, "Undo");
 		const redo = getMenuButton(container, "Redo");
-		expect(
-			container.textContent?.includes(
-				"targetMenu.appliedQuery: failed-login cache",
-			),
-		).toBe(true);
+		const appliedQueryLabel = getMenuLabel(container, "Search");
+		expect(appliedQueryLabel?.textContent).toBe(
+			'targetMenu.appliedQuery: Text: "*failed login*"',
+		);
+		expect(appliedQueryLabel?.title).toBe(
+			'targetMenu.appliedQuery: Text: "*failed login*"',
+		);
+		expect(describedQuery?.source_config).toBe(undefined);
 		expect(
 			container.textContent?.includes("source.cacheWarning.queryMismatch"),
 		).toBe(true);
@@ -224,6 +319,64 @@ describe("TargetMenu query-cache controls", () => {
 			"undo",
 		);
 	});
+
+	for (const { sourceName, timelineLabel, expectedLabel } of sourceLabelCases) {
+		it(`shows ${sourceName} using the ${timelineLabel} Canvas label mode`, () => {
+			mockSource = {
+				...mockSource,
+				name: sourceName,
+				settings: {
+					...mockSource.settings,
+					timeline_label: timelineLabel,
+				},
+			};
+
+			act(() => root.render(<TargetMenu source={mockSource} />));
+
+			expect(getMenuLabel(container)?.textContent).toBe(expectedLabel);
+		});
+	}
+
+	it("omits only the applied-query row for a source-scoped query", () => {
+		mockSource = {
+			...mockSource,
+			appliedQuery: {
+				...mockSource.appliedQuery!,
+				string: "Sources: target-menu-source.csv",
+				text_filter: "",
+				filters: [],
+			},
+		};
+
+		act(() => root.render(<TargetMenu source={mockSource} />));
+
+		expect(getMenuLabel(container, "Search")).toBeNull();
+		expect(container.textContent).toContain("common.filters");
+		expect(getMenuButton(container, "Filter").disabled).toBe(false);
+		expect(getMenuButton(container, "X").disabled).toBe(false);
+		expect(mockDescribe).not.toHaveBeenCalled();
+	});
+
+	for (const { name, query, description } of filterSummaryCases) {
+		it(`shows the source-free ${name} filter summary`, () => {
+			mockSource = {
+				...mockSource,
+				appliedQuery: {
+					...mockSource.appliedQuery!,
+					...query,
+					string: "persisted source-inclusive label",
+				},
+			};
+
+			act(() => root.render(<TargetMenu source={mockSource} />));
+
+			const appliedQueryLabel = getMenuLabel(container, "Search");
+			const expectedLabel = `targetMenu.appliedQuery: ${description}`;
+			expect(appliedQueryLabel?.textContent).toBe(expectedLabel);
+			expect(appliedQueryLabel?.title).toBe(expectedLabel);
+			expect(describedQuery?.source_config).toBe(undefined);
+		});
+	}
 
 	it("routes source filter reset through the forced reset command", () => {
 		act(() => root.render(<TargetMenu source={mockSource} />));

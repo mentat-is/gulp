@@ -30,22 +30,42 @@ import { Filter } from "@/entities/Filter";
 import { Locale } from "@/locales";
 import { Request } from "@/entities/Request";
 import { requestStore, useRequestLoadings } from "@/store/request.store";
+import { getRenderSourceName } from "@/render-worker/RenderSourceLabel";
 
 interface TargetMenuProps {
 	source: Source.Type;
 }
 
+/**
+ * Renders the source-local Canvas context menu.
+ * @param source Source targeted by the menu actions.
+ * @returns Context-menu content for the selected source.
+ */
 export function TargetMenu({ source }: TargetMenuProps) {
 	const { Info, spawnBanner, spawnDialog, app } = Application.use();
 	const { t } = Locale.use();
 	const loadings = useRequestLoadings();
+	const displaySourceName = getRenderSourceName(source);
 	const hasOffset =
 		Number.isFinite(source.settings.offset) && source.settings.offset !== 0;
 	const cacheBusy =
 		source.queryCache.isActivating || Boolean(loadings.byFileId.get(source.id));
-	const appliedQuery = source.appliedQuery
-		? source.appliedQuery.string || Filter.Entity.describe(source.appliedQuery, app)
-		: t("filter.noFiltersApplied");
+	const appliedFilterQuery = source.appliedQuery
+		? { ...source.appliedQuery, source_config: undefined }
+		: null;
+	const hasAppliedFilters = appliedFilterQuery
+		? Boolean(
+				appliedFilterQuery.text_filter?.trim() ||
+					appliedFilterQuery.filters.some((filter) => filter.enabled) ||
+					appliedFilterQuery.isManual,
+			)
+		: false;
+	const appliedQueryLabel =
+		appliedFilterQuery && hasAppliedFilters
+			? t("targetMenu.appliedQuery", {
+					query: Filter.Entity.describe(appliedFilterQuery, app),
+				})
+			: null;
 	const cacheWarning = (() => {
 		switch (source.queryCache.warningReason) {
 			case "query-mismatch":
@@ -105,7 +125,7 @@ export function TargetMenu({ source }: TargetMenuProps) {
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<ContextMenuLabel className={s.cm_title}>
-							{source.name}
+							{displaySourceName}
 						</ContextMenuLabel>
 					</TooltipTrigger>
 					<TooltipContent>{source.name}</TooltipContent>
@@ -157,9 +177,15 @@ export function TargetMenu({ source }: TargetMenuProps) {
 			<ContextMenuSeparator />
 			<ContextMenuGroup>
 				<ContextMenuLabel>{t("common.filters")}</ContextMenuLabel>
-				<ContextMenuLabel icon="Search" title={appliedQuery}>
-					{t("targetMenu.appliedQuery", { query: appliedQuery })}
-				</ContextMenuLabel>
+				{appliedQueryLabel && (
+					<ContextMenuLabel
+						className={s.cm_title}
+						icon="Search"
+						title={appliedQueryLabel}
+					>
+						{appliedQueryLabel}
+					</ContextMenuLabel>
+				)}
 				<ContextMenuItem
 					onClick={() => spawnBanner(<FilterFileBanner sources={[source]} />)}
 					icon="Filter"
