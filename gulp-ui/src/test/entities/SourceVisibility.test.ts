@@ -199,3 +199,61 @@ describe("Source progressive LOD visibility", () => {
 		expect(Source.Entity.rendered(app)).toEqual([]);
 	});
 });
+
+describe("Source timeline text filtering", () => {
+	beforeEach(() => {
+		requestStore.reset();
+		DataStore.resetRenderOperation(OPERATION_ID);
+	});
+
+	it("matches whitespace-delimited source and context terms as alternatives", () => {
+		const sourceNameMatch = {
+			...createSource(),
+			id: "alpha-source" as Source.Id,
+			name: "Alpha Collector",
+		};
+		const financeContextId = "finance-context" as Context.Id;
+		const contextNameMatch = {
+			...createSource(),
+			id: "finance-source" as Source.Id,
+			context_id: financeContextId,
+			name: "Beta Collector",
+		};
+		const archiveContextId = "archive-context" as Context.Id;
+		const excludedSource = {
+			...createSource(),
+			id: "gamma-source" as Source.Id,
+			context_id: archiveContextId,
+			name: "Gamma Collector",
+		};
+		const app = createApp(sourceNameMatch);
+		app.hidden.sourcesWithNoEvents = false;
+		app.target.files = [sourceNameMatch, contextNameMatch, excludedSource];
+		app.target.contexts = [
+			{ id: CONTEXT_ID, name: "Operations" } as Context.Type,
+			{ id: financeContextId, name: "Finance" } as Context.Type,
+			{ id: archiveContextId, name: "Archive" } as Context.Type,
+		];
+
+		app.timeline.filter = "  ALPHA   finance  ";
+		expect(Source.Entity.rendered(app).map(({ id }) => id)).toEqual([
+			sourceNameMatch.id,
+			contextNameMatch.id,
+		]);
+
+		app.timeline.filter = "beta";
+		expect(Source.Entity.rendered(app).map(({ id }) => id)).toEqual([
+			contextNameMatch.id,
+		]);
+
+		app.timeline.filter = "   ";
+		expect(Source.Entity.rendered(app).map(({ id }) => id)).toEqual([
+			sourceNameMatch.id,
+			contextNameMatch.id,
+			excludedSource.id,
+		]);
+
+		app.timeline.filter = "missing absent";
+		expect(Source.Entity.rendered(app)).toEqual([]);
+	});
+});

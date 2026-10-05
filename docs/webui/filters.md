@@ -39,7 +39,10 @@ Search runs from the Search button or Enter. Repeating a search replaces the
 previous Navigator condition while preserving every other source filter. An
 empty search removes only the Navigator condition. The mode icon switches to
 source/context filtering; doing so removes the active Navigator event condition
-and hides the event-search strategy dropdown.
+and hides the event-search strategy dropdown. In source/context mode, filtering
+updates while the user types. Whitespace-delimited terms are case-insensitive
+alternatives: a source remains visible when any term occurs in its source name
+or context name. Repeated or surrounding whitespace is ignored.
 
 The embedded selector is a reusable `Input` capability. Callers provide
 `key`/`label`/`icon` values and controlled selection state. It is single-select

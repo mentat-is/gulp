@@ -492,6 +492,39 @@ describe("WindowBridge capability-scoped projections", () => {
 		).toEqual([renderedSource.id, hiddenEmptySource.id]);
 	});
 
+	it("matches source and context filter terms as case-insensitive alternatives", () => {
+		const alphaSource = createSource("alpha", "Alpha Collector");
+		const betaSource = createSource("beta", "Beta Collector");
+		const app = createApp();
+		app.hidden.sourcesWithNoEvents = false;
+		app.target.files = [alphaSource, betaSource];
+
+		app.timeline.filter = "  ALPHA   beta  ";
+		expect(
+			WindowBridge.createRenderedSourceIds(app, OPERATION_ID),
+		).toEqual([alphaSource.id, betaSource.id]);
+
+		app.timeline.filter = "missing CONTEXT";
+		expect(
+			WindowBridge.createRenderedSourceIds(app, OPERATION_ID),
+		).toEqual([alphaSource.id, betaSource.id]);
+
+		app.timeline.filter = "beta";
+		expect(
+			WindowBridge.createRenderedSourceIds(app, OPERATION_ID),
+		).toEqual([betaSource.id]);
+
+		app.timeline.filter = "   ";
+		expect(
+			WindowBridge.createRenderedSourceIds(app, OPERATION_ID),
+		).toEqual([alphaSource.id, betaSource.id]);
+
+		app.timeline.filter = "missing absent";
+		expect(
+			WindowBridge.createRenderedSourceIds(app, OPERATION_ID),
+		).toEqual([]);
+	});
+
 	it("filters realtime note upserts before private delivery", () => {
 		const selectedSource = createSource("selected", "Selected");
 		const unselectedSource = createSource("unselected", "Unselected");

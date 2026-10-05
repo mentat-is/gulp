@@ -1180,6 +1180,7 @@ export namespace WindowBridge {
 
   /**
    * Computes Canvas-rendered source rows without importing UI-heavy source helpers.
+   * Whitespace-delimited timeline filter terms are matched as case-insensitive alternatives.
    *
    * @param app - Current application state.
    * @param operationId - Optional operation scope for detached windows.
@@ -1190,6 +1191,7 @@ export namespace WindowBridge {
     operationId?: Operation.Id | null,
   ): Source.Id[] {
     const filter = (app.timeline.filter || '').toLowerCase()
+    const filterTerms = filter.trim().split(/\s+/).filter(Boolean)
     const contextNameById = new Map<Context.Id, string>(
       app.target.contexts.map((context) => [
         context.id,
@@ -1217,10 +1219,12 @@ export namespace WindowBridge {
           : true,
       )
       .filter((source) => {
-        if (!filter) return true
-        return (
-          source.name?.toLowerCase().includes(filter) ||
-          (contextNameById.get(source.context_id) ?? '').includes(filter)
+        if (filterTerms.length === 0) return true
+
+        const sourceName = source.name?.toLowerCase() ?? ''
+        const contextName = contextNameById.get(source.context_id) ?? ''
+        return filterTerms.some(
+          (term) => sourceName.includes(term) || contextName.includes(term),
         )
       })
       .map((source) => source.id)

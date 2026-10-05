@@ -322,6 +322,27 @@ describe("Navigator query submission", () => {
 		expect(scrollStore.getSnapshot()).toEqual({ x: 480, y: 118 });
 	});
 
+	it("forwards a multi-term value immediately in source filtering mode", async () => {
+		await renderNavigator();
+
+		await act(async () => mockInput.onIconClick?.());
+		expect(mockInput.placeholder).toBe("navigator.filterFilesPlaceholder");
+		const callsBeforeChange = mockSetTimelineFilter.mock.calls.length;
+		scrollStore.setScroll(240, 80);
+
+		await act(async () => {
+			mockInput.onChange?.({
+				target: { value: "  alpha   finance  " },
+			} as React.ChangeEvent<HTMLInputElement>);
+		});
+
+		expect(mockSetTimelineFilter).toHaveBeenCalledTimes(callsBeforeChange + 1);
+		expect(mockSetTimelineFilter).toHaveBeenLastCalledWith(
+			"  alpha   finance  ",
+		);
+		expect(scrollStore.getSnapshot()).toEqual({ x: 0, y: -26 });
+	});
+
 	it("removes only the Navigator filter when an empty search is submitted", async () => {
 		const otherFilter = createFilter("other-filter", {
 			field: "event.category",

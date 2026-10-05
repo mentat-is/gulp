@@ -219,13 +219,14 @@ export namespace Source {
 
 		/**
 		 * Returns the source rows rendered on the Canvas timeline.
-		 * Applies user selection, pin ordering, timeline text filtering, and the
-		 * Canvas-only hidden-empty-source setting.
+		 * Applies user selection, pin ordering, OR-matched timeline filter terms,
+		 * and the Canvas-only hidden-empty-source setting.
 		 * @param app Current application state.
 		 * @returns Source rows that should be rendered on the Canvas timeline.
 		 */
 		public static rendered = (app: App.Type): Source.Type[] => {
 			const currentFilter = (app.timeline.filter || "").toLowerCase();
+			const filterTerms = currentFilter.trim().split(/\s+/).filter(Boolean);
 			const hiddenSourcesWithNoEvents = app.hidden.sourcesWithNoEvents;
 			const notesHidden = app.hidden.notes;
 			const renderVersion = app.timeline.renderVersion;
@@ -256,13 +257,16 @@ export namespace Source {
 					: true,
 			);
 
-			const result = pins.filter(
-				(s) =>
-					s.name?.toLowerCase().includes(currentFilter) ||
-					Context.Entity.id(app, s.context_id)
-						.name?.toLowerCase()
-						.includes(currentFilter),
-			);
+			const result = pins.filter((source) => {
+				if (filterTerms.length === 0) return true;
+
+				const sourceName = source.name?.toLowerCase() ?? "";
+				const contextName =
+					Context.Entity.id(app, source.context_id).name?.toLowerCase() ?? "";
+				return filterTerms.some(
+					(term) => sourceName.includes(term) || contextName.includes(term),
+				);
+			});
 
 			Source.Entity._renderedCache = {
 				ref: app.target.files,
