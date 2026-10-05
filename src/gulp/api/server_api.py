@@ -14,8 +14,14 @@ import asyncio
 from contextlib import suppress
 import logging
 import os
+import socket
+import ssl
 import time
+import urllib.error
+import urllib.request
+from http.client import HTTPException
 from typing import Any, Awaitable, Callable, Sequence
+from urllib.parse import urlsplit
 
 import muty.file
 import muty.os
@@ -29,6 +35,7 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from opensearchpy import RequestError
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab.stats import GulpRequestStats
@@ -69,9 +76,9 @@ class GulpServer:
         self._initialized: bool = True
         self._app: FastAPI = None
         self.server_id: str = muty.string.generate_unique()
-        self._log_level: int = None
-        self._log_dir: str = None
-        self._dev_mode: bool = False
+        self._log_level: int = logging.INFO
+        self._cli_log_level: int | None = None
+        self._log_file: str = None
         self._reset_collab: bool = False
         self._create_operation: str = None
         self._lifespan_task: asyncio.Task = None
@@ -109,6 +116,24 @@ class GulpServer:
         """
         ver: str = f"{__version__} ({commit_id})" if commit_id else __version__
         return f"gulp_{ver}"
+
+    def cli_log_level(self) -> int | None:
+        """
+        the log level explicitly forced on the command line, for extension plugins that keep
+        their own saved level (system_logs): an explicit --log-level wins over the saved one.
+
+        Returns:
+            int | None: the --log-level value, or None when it was not given (INFO applies then)
+        """
+        return self._cli_log_level
+
+    def extension_plugins(self) -> list[GulpPluginBase]:
+        """
+        Returns:
+            list[GulpPluginBase]: the extension plugins loaded in this (main) process, e.g. for
+                plugin_manager to notify the plugin owning a configuration family it changed
+        """
+        return list(self._extension_plugins)
 
     async def _unload_extension_plugins(self) -> None:
         """
@@ -327,31 +352,37 @@ class GulpServer:
         level: int = None,
         reset_collab: bool = False,
         create_operation: str = None,
-        log_dir: str = None,
-        dev_mode: bool = False,
+        log_file: str = None,
+        cli_options: dict[str, str] = None,
     ):
         """
         starts the server.
 
         Args:
-            level (int, optional): the log level.
+            level (int, optional): the log level given on the command line (--log-level), or None
+                when not given: INFO applies, and cli_log_level() reports None.
             reset_collab (bool, optional): if True, reset the collab database
             create_operation (str, optional): the operation to be re/created (--create)
-            log_dir (str, optional): base directory for glug's per-process JSON log files, written in
-                addition to glug's always-on stdout output (human-readable, colorized). Defaults to None
-                (stdout only) — see plans/log-revolution.md, "Output su stdout vs file".
-            dev_mode (bool, optional): glug dev_mode. Defaults to False.
+            log_file (str, optional): plain-text file receiving the same lines as stdout, shared by
+                every gulp process (--log-file). Defaults to None (stdout only).
+            cli_options (dict[str, str], optional): option -> effective value (marked
+                " (default)" when not given) from the command line, logged at DEBUG.
+                Defaults to None.
+
+        Returns:
+            bool: False if a required service is unreachable and the server was not
+                started (the reason is already logged), True once the server exits.
         """
-        self._log_level = level
-        self._log_dir = log_dir
-        self._dev_mode = dev_mode
+        self._cli_log_level = level
+        self._log_level = level or logging.INFO
+        self._log_file = log_file
         self._reset_collab = reset_collab
         self._create_operation = create_operation
 
         # bootstrap glug for the main process here, as the very first thing: every
         # log call below (including the rest of this synchronous method, which
         # runs before uvicorn.run() ever triggers _lifespan_handler) must already
-        # see the requested --log-level/--dev-mode, not the bare-instance INFO
+        # see the requested --log-level, not the bare-instance INFO
         # default a call site gets when nothing has configured Glug yet.
         # _lifespan_handler reconfigures it again with the same values once the
         # event loop is running — cheap and idempotent, kept as a safety net for
@@ -359,12 +390,15 @@ class GulpServer:
         # between this point and then.
         Glug.get_instance(
             name="glug",
-            log_dir=self._log_dir,
-            level=self._log_level or logging.INFO,
-            dev_mode=self._dev_mode,
+            log_file=self._log_file,
+            level=self._log_level,
             process_role="main",
             reconfigure=True,
         )
+
+        # logged only now, since glug's level is unknown before the bootstrap above
+        for option, value in (cli_options or {}).items():
+            Glug.get_instance().debug(f"command line option {option}={value}")
 
         # read configuration
         cfg = GulpConfig.get_instance()
@@ -376,6 +410,12 @@ class GulpServer:
             f"environment: {len(os.environ)} variables set", detail=dict(os.environ)
         )
         cfg.dump_config()
+
+        # fail fast, before uvicorn starts, if a backing service is down: the same
+        # failure inside _lifespan_handler can only surface as uvicorn's own
+        # startup traceback plus a cascade of cleanup errors, burying the cause.
+        if not self._check_required_services():
+            return False
 
         # init fastapi
         self._app: FastAPI = FastAPI(
@@ -448,6 +488,126 @@ class GulpServer:
             ws_ping_interval=None,
             log_config=None,
         )
+        return True
+
+    @staticmethod
+    def _check_required_services(timeout_sec: float = 3.0) -> bool:
+        """
+        checks that the services the main process connects to at startup accept
+        TCP connections, logging an error with a hint for each one that does not.
+
+        OpenSearch opens its port well before it can serve requests, so it also
+        gets an HTTP probe; PostgreSQL and Redis only open their TCP port once
+        they are ready, so a connect is enough for them.
+
+        this is a reachability check only (credentials, database existence and
+        schema are still verified by the regular startup path).
+
+        Args:
+            timeout_sec (float, optional): connect timeout per service. Defaults to 3.0.
+
+        Returns:
+            bool: True if every required service is reachable.
+        """
+        cfg = GulpConfig.get_instance()
+        pg_url = make_url(cfg.postgres_url())
+        os_url = urlsplit(cfg.opensearch_url())
+        redis_url = urlsplit(cfg.redis_url())
+
+        # (name, host, port, config key, environment variable)
+        services: list[tuple[str, str, int, str, str]] = [
+            (
+                "PostgreSQL",
+                pg_url.host or "localhost",
+                pg_url.port or 5432,
+                "postgres_url",
+                "GULP_POSTGRES_URL",
+            ),
+            (
+                "OpenSearch",
+                os_url.hostname or "localhost",
+                os_url.port or (443 if os_url.scheme == "https" else 9200),
+                "opensearch_url",
+                "GULP_OPENSEARCH_URL",
+            ),
+            (
+                "Redis",
+                redis_url.hostname or "localhost",
+                redis_url.port or 6379,
+                "redis_url",
+                "GULP_REDIS_URL",
+            ),
+        ]
+
+        missing: list[str] = []
+        for name, host, port, cfg_key, env_var in services:
+            try:
+                with socket.create_connection((host, port), timeout=timeout_sec):
+                    pass
+            except OSError as ex:
+                missing.append(name)
+                # only host:port is logged, the configured URLs may embed credentials
+                Glug.get_instance().error(
+                    f"{name} is not reachable at {host}:{port} ({ex})",
+                    hint=f"make {name} available to gulp: start the "
+                    "backing services (e.g. `docker compose --profile dev up -d`) "
+                    f"or point {cfg_key} (or {env_var}) to a reachable server",
+                )
+                continue
+
+            if name == "OpenSearch":
+                reason = GulpServer._opensearch_not_ready(
+                    os_url.scheme or "http", host, port, timeout_sec
+                )
+                if reason:
+                    missing.append(name)
+                    Glug.get_instance().error(
+                        f"{name} at {host}:{port} accepts connections but is not "
+                        f"ready yet ({reason})",
+                        hint=f"{name} is probably still starting up: wait until it "
+                        "answers (e.g. `curl http://localhost:9200`) and start gulp "
+                        "again, or check its container logs if it never comes up",
+                    )
+
+        if missing:
+            Glug.get_instance().critical(
+                f"gulp cannot start, required services unreachable: {', '.join(missing)}"
+            )
+            return False
+        return True
+
+    @staticmethod
+    def _opensearch_not_ready(
+        scheme: str, host: str, port: int, timeout_sec: float
+    ) -> str | None:
+        """
+        probes OpenSearch over HTTP, without credentials.
+
+        any HTTP answer but 503 means it is serving requests (a 401/403 is fine here,
+        credentials are checked later by the real client); a dropped connection or a
+        503 means it is still starting up.
+
+        Args:
+            scheme (str): "http" or "https".
+            host (str): OpenSearch host.
+            port (int): OpenSearch port.
+            timeout_sec (float): request timeout.
+
+        Returns:
+            str | None: why OpenSearch is not ready, or None if it is.
+        """
+        # no credentials are sent, so skipping certificate verification for this
+        # liveness probe leaks nothing; the real client keeps its own TLS settings
+        ctx = ssl._create_unverified_context() if scheme == "https" else None
+        try:
+            with urllib.request.urlopen(
+                f"{scheme}://{host}:{port}/", timeout=timeout_sec, context=ctx
+            ):
+                return None
+        except urllib.error.HTTPError as ex:
+            return f"HTTP {ex.code}" if ex.code == 503 else None
+        except (urllib.error.URLError, HTTPException, OSError) as ex:
+            return str(getattr(ex, "reason", None) or ex) or type(ex).__name__
 
     @staticmethod
     def _task_lease_refresh_interval() -> float:
@@ -1294,12 +1454,17 @@ class GulpServer:
         redis_broker = GulpRedisBroker.get_instance()
         await redis_broker.initialize()
 
-        # Start glug's live level/dev_mode reconfig subscriber now that Redis is
-        # ready — glug itself was already bootstrapped at the top of
-        # _lifespan_handler, before any of this method's own logging ran.
+        # Start glug's live level/dev_mode/log_dir reconfig subscriber now that
+        # Redis is ready — glug itself was already bootstrapped at the top of
+        # _lifespan_handler, before any of this method's own logging ran. The
+        # persisted state is cleared first, before any worker is spawned: the
+        # command line alone applies until an extension plugin (system_logs)
+        # publishes again, so nothing a previous run published survives a
+        # plugin being removed. Note that every gulp instance sharing this
+        # Redis shares this state too.
         from gulp.glug import reconfig as glug_reconfig
 
-        await glug_reconfig.sync_from_persisted_state()
+        await glug_reconfig.reset_persisted_state()
         await glug_reconfig.start_subscriber()
 
         # Initialize collaboration data and create the requested operation.
@@ -1331,8 +1496,7 @@ class GulpServer:
         await main_process.finish_initialization(
             self.server_id,
             log_level=self._log_level,
-            log_dir=self._log_dir,
-            dev_mode=self._dev_mode,
+            log_file=self._log_file,
         )
 
         if __debug__:
@@ -1371,16 +1535,15 @@ class GulpServer:
         """Initialize FastAPI services and always release acquired resources."""
         # Bootstrap glug for the main process as the very first thing: every
         # log call from here on (including the rest of this handler and all of
-        # _startup()) must already see the requested --log-level/--dev-mode,
+        # _startup()) must already see the requested --log-level,
         # not the bare-instance INFO default a call site gets when nothing has
         # configured Glug yet. The Redis-dependent half of glug's bootstrap
         # (persisted-state sync, live reconfig subscriber) still happens later
         # in _startup(), once Redis is actually initialized.
         Glug.get_instance(
             name="glug",
-            log_dir=self._log_dir,
-            level=self._log_level or logging.INFO,
-            dev_mode=self._dev_mode,
+            log_file=self._log_file,
+            level=self._log_level,
             process_role="main",
             reconfigure=True,
         )

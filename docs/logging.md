@@ -1,9 +1,10 @@
 - [Logging in gULP: Glug](#logging-in-gulp-glug)
   - [Why Glug exists](#why-glug-exists)
   - [Design overview](#design-overview)
-  - [Two outputs, one record: console and JSON](#two-outputs-one-record-console-and-json)
+  - [One record, several outputs](#one-record-several-outputs)
     - [Console line](#console-line)
-    - [JSON file](#json-file)
+    - [Log file (`--log-file`)](#log-file---log-file)
+    - [JSON file (`system_logs` plugin)](#json-file-system_logs-plugin)
   - [Using Glug in application code](#using-glug-in-application-code)
     - [Levels and the `exception()` shorthand](#levels-and-the-exception-shorthand)
     - [`detail=`: structured payloads, dev\_mode-gated](#detail-structured-payloads-dev_mode-gated)
@@ -76,19 +77,24 @@ flowchart LR
     stdlib["stdlib logging.Logger.log()"]
     console["GlugConsoleFormatter
     → stdout (always on)"]
+    logfile["GlugConsoleFormatter, no colors
+    → shared text file (--log-file)"]
     json["GlugJsonFormatter
-    → per-process JSON file (--log-dir only)"]
+    → per-process JSON file (system_logs plugin)"]
 
     call --> emit --> stdlib
     stdlib --> console
+    stdlib --> logfile
     stdlib --> json
 ```
 
-## Two outputs, one record: console and JSON
+## One record, several outputs
 
 Every log call builds exactly one `LogRecord`, carrying the message plus
 whatever context/detail/hint were attached. Two formatters turn that same
-record into two different outputs:
+record into up to three outputs: the console line on stdout (always), the
+same line in a plain-text file (`--log-file`, optional, core), and a JSON
+document (only with the paid `system_logs` extension plugin).
 
 ### Console line
 
@@ -99,37 +105,73 @@ stdout is a real terminal (`sys.stdout.isatty()`, checked once at setup, not
 per line). One line per record, deliberately terse:
 
 ```text
-2026-09-22 12:41:41.011 INFO     gulp.api.server_api:start:420  starting server at 0.0.0.0, port=8080, reset_collab=True, create_operation=test_operation
-2026-09-30 10:19:35.434 INFO     gulp.api.server_api:_lifespan_handler:1387 task=Task-2  gULP main server process is starting
+2026-09-22 12:41:41.011 INFO gulp.api.server_api:start:420[]  starting server at 0.0.0.0, port=8080, reset_collab=True, create_operation=test_operation
+2026-09-30 10:19:35.434 INFO gulp.api.server_api:_lifespan_handler:1387[Task-2]  gULP main server process is starting
 ```
 
-`<timestamp> <LEVEL> <module>:<funcName>:<line>[ task=<name>]  <message>
+`<timestamp> <LVL> <module>:<funcName>:<line>[<task name>]  <message>
 {context k=v...}` — the message itself is colored by level (not just the
 level tag), so severity reads at a glance scrolling down a column of
-lines. `task=` is the current asyncio task's name (e.g. `Task-2`), shown
-only when set — sync startup code running outside any task (before the
-event loop starts, e.g. `start()`'s own initial lines) omits it rather
-than showing a stale/empty value. A `hint=`, a `detail=` (only when
-`dev_mode` is on, pretty-printed, indented), and an exception traceback
-(when `exc_info` is set) each add their own indented lines below the
-header when present.
+lines.
+
+The level is a fixed 4-character tag — `DEBG`, `INFO`, `WARN`, `ERRR`,
+`CRIT` — so the module column lines up without padding every line out to
+the width of `CRITICAL`. Tags are abbreviated by dropping vowels rather
+than by truncation (`DEBG`, not `DEBU`), so each still reads as its level.
+The JSON file keeps the full `levelname`.
+
+The brackets glued to the line number hold the current asyncio task's
+name (e.g. `[Task-2]`), in grey when colored, so it's readable without
+competing with the message. They are always present: empty (`[]`) for
+sync code running outside any task (before the event loop starts, e.g.
+`start()`'s own initial lines), so whether a line came from a task is
+obvious at a glance. A `hint=`, a `detail=` (only when `dev_mode` is on,
+which only the `system_logs` plugin can do; pretty-printed, indented), and an exception traceback (when `exc_info` is
+set) each add their own indented lines below the header when present.
 
 Deliberately **not** on the console line: the process identity (which
 worker, PID). Early revisions tried adding it, alongside the task name, as
 `proc=`/`task=` key=value pairs; after trying it live, the call was that
 stdout should stay terse for a human — `proc=`/`pid` stayed out (still one
-field away in the JSON file for whatever needs it), while `task=` was
-brought back on its own in a later revision.
+field away in the JSON file for whatever needs it), while the task name was
+brought back on its own in later revisions: first as a bare name after the
+line number, then in the compact `[Task-2]` form above.
 
-### JSON file
+### Log file (`--log-file`)
 
-Off by default — opt in with `--log-dir <path>`. One rotating file **per
-process**, `<log-dir>/<hostname>/gulp-main.log` or
-`gulp-worker-<pid>.log`, written *in addition to* stdout, never instead of
-it (one file per process, never shared across processes, specifically to
-avoid the corruption risk `RotatingFileHandler` has when multiple processes
-rotate the same file). Every field `MutyLogger`'s old format string carried,
-plus more:
+`--log-file <path>` appends to `<path>` exactly the lines printed on stdout,
+without ANSI colors — nothing more. It needs no plugin. The main process and
+every worker append to the same file, as they all print to the same stdout;
+each record is a single `write()` on a file opened in append mode, so lines
+from different processes never interleave.
+
+gulp never rotates this file: several processes write it, and in-process
+rotation (`RotatingFileHandler`) corrupts a file rotated by more than one of
+them. Rotate it with an external tool such as logrotate. The file is opened
+with `WatchedFileHandler`, which reopens it once logrotate moves it away, so
+`copytruncate` is not needed:
+
+```text
+/var/log/gulp/gulp.log {
+    daily
+    rotate 14
+    compress
+    missingok
+}
+```
+
+### JSON file (`system_logs` plugin)
+
+Off in the core: there is no CLI flag for it. The paid `system_logs`
+extension plugin turns it on at runtime, through
+[runtime reconfiguration](#runtime-reconfiguration), always under the
+fixed `<working_dir>/logs` (`~/.config/gulp/logs` or
+`$GULP_WORKING_DIR/logs`). One rotating file **per process**,
+`<log_dir>/<hostname>/gulp-main.jsonl` or `gulp-worker-<pid>.jsonl`, written
+*in addition to* stdout, never instead of it (one file per process, never
+shared across processes, specifically to avoid the corruption risk
+`RotatingFileHandler` has when multiple processes rotate the same file).
+Every field `MutyLogger`'s old format string carried, plus more:
 
 ```json
 {
@@ -153,8 +195,13 @@ plus more:
 }
 ```
 
+Records from third-party loggers routed through `Glug` (uvicorn, libraries
+propagating to the root logger) carry no `Glug` fields of their own: their
+`process_role` and `hostname` are the writing process's, and
+`async_task_name` the task name stdlib `logging` records.
+
 **A second, exception-only file** sits alongside the main one —
-`gulp-main-exceptions.log` / `gulp-worker-<pid>-exceptions.log` — collecting
+`gulp-main-exceptions.jsonl` / `gulp-worker-<pid>-exceptions.jsonl` — collecting
 the exact same records as the main file, filtered to those with `exc_info`
 set. Nothing is removed from the main file (it keeps every exception too,
 for whoever already queries it); the dedicated file is a focused stream for
@@ -172,7 +219,7 @@ Glug.get_instance().debug("query result", detail=result_dict)
 
 `Glug.get_instance()` returns the current process's singleton — cheap to
 call repeatedly, no need to hold a reference. (The real bootstrap, the one
-call per process that sets the actual `name`/`level`/`dev_mode`/`log_dir`,
+call per process that sets the actual `name`/`level`/`log_file`,
 happens once at process startup — see
 [Process bootstrap](#process-bootstrap-main-and-workers).)
 
@@ -261,29 +308,57 @@ plugin="x")`) always overrides the contextvar-derived value for that field.
 
 | Flag | Effect |
 |---|---|
-| `--log-level {critical,error,warning,info,debug}` | Sets the effective level (default: `debug`). |
-| `--dev-mode` | Forces `DEBUG` regardless of `--log-level`, and marks every record `dev_mode=true` — unlocks `detail=` payloads everywhere. |
-| `--log-dir <path>` | Enables the per-process JSON file, in addition to stdout (which is always on). Omit to keep stdout only. |
+| `--log-level {critical,error,warning,info,debug}` | Sets the effective level (default: `info`). Given explicitly, it also wins over the level saved by the `system_logs` plugin, and overwrites it. |
+| `--log-file <path>` | Also appends every stdout line, without colors, to `<path>`, shared by all processes. Never rotated by gulp. See [Log file](#log-file---log-file). |
 
+The core has no `--dev-mode` or `--log-dir`: `dev_mode` and the JSON files
+are subscription features, enabled only by the paid `system_logs`
+extension plugin. Without it, `detail=` payloads never render anywhere.
 `--log-to-file`/`--log-to-syslog` (the old `MutyLogger`-only flags) no
-longer exist — `--log-dir` is the only file-logging option now.
+longer exist either.
+
+The startup banner and version string are plain `print()`s, not log records:
+they go to stdout only (never to `--log-file` or the JSON file), the banner in a random
+color and the version in bold, in a different color — plain text when
+stdout is not a terminal.
+
+At startup gulp no longer prints the raw command line; once Glug is
+configured, it logs each server option's effective value at `DEBUG`, marking
+the ones left to their default:
+
+```text
+... DEBG gulp.api.server_api:start:386[]  command line option log_level='debug'
+... DEBG gulp.api.server_api:start:386[]  command line option log_file=None (default)
+```
 
 ## Runtime reconfiguration
 
-`gulp.glug.reconfig` broadcasts a `level`/`dev_mode` change to every gulp
-process (main + every worker) live, via a dedicated Redis pub/sub channel
-(`gulp:glug:reconfig`) plus a persisted state key (`gulp:glug:state`) so a
-process started *after* the change still picks up the current state on its
-next `sync_from_persisted_state()` call, instead of missing a one-shot
-pub/sub message. `publish_reconfig(level=, dev_mode=)` is the entry point;
-as of this writing it has no REST endpoint wired to it yet — it's called
-programmatically, ready for an admin API route or CLI subcommand to use.
+`gulp.glug.reconfig` broadcasts a `level`/`dev_mode`/`log_dir` change to
+every gulp process (main + every worker) live, via a dedicated Redis pub/sub
+channel (`gulp:glug:reconfig`). Each published field is also merged into a
+persisted Redis hash (`gulp:glug:state`), so a worker started *after* the
+change (e.g. respawned after `parallel_processes_respawn_after_tasks`)
+still picks up the current state through `sync_from_persisted_state()`,
+instead of missing a one-shot pub/sub message.
+
+`publish_reconfig(level=, dev_mode=, log_dir=)` is the entry point. Every
+argument left out keeps its current value; `log_dir=None` closes the JSON
+files. A directory that cannot be opened is logged as an error, with a
+hint, and the JSON files stay off; the level/`dev_mode` change still
+applies. The core never calls it, and exposes no REST endpoint for it: it
+is the paid `system_logs` extension plugin's entry point, which also keeps
+the level and `dev_mode` in its own saved configuration.
+
+At startup the main process clears `gulp:glug:state` before spawning its
+workers, so only the command line applies until a plugin publishes again:
+a removed plugin cannot leave `dev_mode` or the JSON files on from a
+previous run. Every gulp instance sharing the same Redis shares this state.
 
 ## Process bootstrap: main and workers
 
 Each process (main, and every worker) does its own real bootstrap — one
-`Glug.get_instance(name=..., level=..., dev_mode=..., log_dir=...,
-process_role=..., reconfigure=True)` call, as early as possible:
+`Glug.get_instance(name=..., level=..., log_file=..., process_role=...,
+reconfigure=True)` call, as early as possible:
 
 - **Main**: `GulpServer.start()` (sync, before `uvicorn.run()`) and
   `_lifespan_handler()` (async, first thing once the event loop is running)
@@ -291,10 +366,11 @@ process_role=..., reconfigure=True)` call, as early as possible:
   idempotent safety net in case anything logged between the two.
 - **Worker**: `GulpProcess._worker_initializer()` bootstraps with
   `name="glug-worker-<pid>"` as the very first thing, before touching
-  `GulpConfig` or anything else — `log_level`/`log_dir`/`dev_mode` are
-  already available as parameters there, so there's no reason to wait.
+  `GulpConfig` or anything else — `log_level`/`log_file` are already
+  available as parameters there, so there's no reason to wait.
   `finish_initialization()`'s worker branch reconfigures the same name
-  again, same safety-net pattern as main.
+  again, same safety-net pattern as main, then applies the persisted
+  [runtime reconfiguration](#runtime-reconfiguration) state.
 
 **Why this matters**: `Glug.get_instance()` with no prior bootstrap in a
 process creates a "bare" instance at `level=INFO` (the class default). Any
@@ -326,75 +402,31 @@ themselves, independent of gULP's own log level:
   library's own format. Used for `uvicorn`/`uvicorn.error` right before
   `uvicorn.run(..., log_config=None)` (the `log_config=None` is required —
   otherwise uvicorn's own `logging.config.dictConfig()` call inside `run()`
-  overwrites the handlers just attached).
+  overwrites the handlers just attached). A routed logger keeps following
+  later changes: the JSON files turned on or off, a new level.
+- **Root logger**: libraries without handlers of their own propagate to
+  the root logger. The bootstrapped `Glug` instance installs its handlers
+  there too, so their records reach stdout, `--log-file` and the JSON file
+  alike, and keeps the root level at `WARNING` (the stdlib default) so
+  library `INFO`/`DEBUG` chatter never shows up. Handlers `Glug` did not
+  install are left in place.
 
 ## Shipping logs to OpenSearch
 
-The JSON file (`--log-dir`) exists specifically so an external tool can
-tail it — gULP itself never writes to OpenSearch (or anywhere else) from
-inside `Glug`. That's a deliberate choice, not a missing feature: making a
-log call depend on a network write to OpenSearch would mean losing exactly
-the logs that would explain *why* OpenSearch is unreachable, and would turn
-every `Glug.get_instance().info(...)` call — today synchronous and
-local — into blocking network I/O.
+gULP itself never writes its logs to OpenSearch (or anywhere else over the
+network) from inside `Glug`: a log call depending on a network write to
+OpenSearch would lose exactly the logs explaining *why* OpenSearch is
+unreachable, and would turn every synchronous, local log call into network
+I/O. An external shipper tails the JSON files instead.
 
-This repo ships a reference setup for [Fluent
-Bit](https://fluentbit.io/) — a small, dependency-free, single static
-binary built for exactly this (tailing rotating log files, buffering
-through backpressure, resuming after a restart without re-shipping or
-losing lines):
-
-- **`fluent-bit.conf`** / **`parsers.conf`** / **`fluent-bit-filters/`**
-  (repo root): tails every `<log_dir>/<hostname>/gulp-*.log`, routes each
-  record by its `level` field into one of two OpenSearch indices, and fixes
-  up the record's timestamp from Glug's own `timestamp_msec` field (Fluent
-  Bit's built-in time parsing only understands seconds-since-epoch, not
-  milliseconds — done via a small Lua filter,
-  `fluent-bit-filters/set_event_time.lua`).
-- **`.gulp-internal-logs-info`**: `INFO` and above, retained 90 days —
-  enough to reconstruct what gULP itself did around a given incident.
-- **`.gulp-internal-logs-debug`**: `DEBUG` only, retained 14 days — only
-  ever populated when a process runs with `--log-level debug`/`--dev-mode`,
-  much higher volume and much shorter useful lifetime than INFO+.
-- Both start with `.` and set `"index.hidden": true` — OpenSearch's
-  system-index convention: excluded from `_cat/indices` and a plain `*`
-  search by default, queried only by exact name/alias. These are gULP's
-  own operational logs, meant for a dedicated gulp plugin doing
-  system-log debugging/analysis, not something to run into while browsing
-  operation data.
-- **`docker-compose.yml`**, profile **`logging`**: a `fluent-bit` service
-  mounting `${GULP_WORKING_DIR}/logs` (read-only) and shipping to the `os01`
-  service. Start it with:
-
-  ```bash
-  docker compose --profile logging up -d fluent-bit
-  ```
-
-- **`bootstrap_internal_logs_indices.sh`**: one-time setup against the
-  target OpenSearch cluster — creates the ISM rollover/retention policies,
-  the index templates (mapping every field `GlugJsonFormatter` writes), and
-  the two initial write-alias indices. Run once, before starting the
-  `fluent-bit` profile for the first time:
-
-  ```bash
-  OPENSEARCH_URL=http://localhost:9200 ./bootstrap_internal_logs_indices.sh
-  ```
-
-  Safe to re-run (every `PUT` either creates a resource or replaces it with
-  the same definition).
-
-**gULP's own `--log-dir` has no default** — pass it explicitly, pointing
-under the working directory so it's on the same host path
-`GULP_WORKING_DIR` already mounts (and therefore already reachable from
-the `fluent-bit` container too):
-
-```bash
-gulp --log-dir ~/.config/gulp/logs
-```
-
-See `plans/log-shipping.md` for the design discussion behind these
-choices (why not write to OpenSearch directly from `Glug`, why Fluent Bit
-over a custom script or cron, why the retention split by level).
+Shipping is part of the paid `system_logs` extension plugin
+(`gulp-paid-plugins`): it turns the JSON files on, creates the hidden
+`.gulp-internal-logs-info` / `.gulp-internal-logs-debug` indices with their
+retention policies, and ships a reference [Fluent Bit](https://fluentbit.io/)
+setup and a `docker-compose` override. See its
+`README_system_logs.md`, and `plans/log-shipping.md` /
+`plans/system-logs-plugin.md` for the design discussion (why not write to
+OpenSearch from `Glug`, why Fluent Bit, why the retention split by level).
 
 ## What about `muty`?
 
@@ -409,6 +441,11 @@ directly. No call site in `src/gulp/`, `src/muty/`, or `gulp-paid-plugins/`
 uses it anymore.
 
 ## Known limitations
+
+- **Startup logs never reach the JSON files or `dev_mode`**: extension
+  plugins load at the end of startup, after the workers are spawned, so
+  everything before the `system_logs` plugin publishes its state goes to
+  stdout and `--log-file` only, at the command-line level.
 
 - **Console `module:funcName:line` reflects the frame `Glug` computed its
   fixed stack-depth constant for** — a direct `Glug.<level>()` call. Code

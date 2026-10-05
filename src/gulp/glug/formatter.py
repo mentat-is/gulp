@@ -49,7 +49,22 @@ class GlugJsonFormatter(logging.Formatter):
     them via `extra=` on every call); `module_name`/`module_path` are instead
     derived here from `record.pathname`, which stdlib logging already
     populates correctly thanks to the `stacklevel` Glug passes internally.
+
+    records that did not go through Glug (third-party loggers routed to its
+    handlers, e.g. uvicorn) lack those fields: process_role/hostname then
+    fall back to this process's own, given at construction, and the task
+    name to the one stdlib logging records itself.
     """
+
+    def __init__(self, process_role: str = None, hostname: str = None) -> None:
+        """
+        Args:
+            process_role (str, optional): this process's role, for records without one. Defaults to None.
+            hostname (str, optional): this host's name, for records without one. Defaults to None.
+        """
+        super().__init__()
+        self._process_role = process_role
+        self._hostname = hostname
 
     def format(self, record: logging.LogRecord) -> str:
         exception = None
@@ -65,11 +80,13 @@ class GlugJsonFormatter(logging.Formatter):
         payload = {
             "timestamp_msec": int(record.created * 1000),
             "level": record.levelname,
-            "process_role": getattr(record, "process_role", None),
-            "hostname": getattr(record, "hostname", None),
+            "process_role": getattr(record, "process_role", self._process_role),
+            "hostname": getattr(record, "hostname", self._hostname),
             "pid": record.process,
             "thread_id": getattr(record, "thread_id", record.thread),
-            "async_task_name": getattr(record, "async_task_name", None),
+            "async_task_name": getattr(
+                record, "async_task_name", getattr(record, "taskName", None)
+            ),
             "module_name": _dotted_module_name(module_path),
             "module_path": module_path,
             "func": record.funcName,

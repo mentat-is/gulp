@@ -1,25 +1,56 @@
 # v2.0.0
 
-- added a reference Fluent Bit setup (`fluent-bit.conf`, `parsers.conf`,
-  `fluent-bit-filters/`, a new `docker-compose.yml` `logging` profile, and
-  `bootstrap_internal_logs_indices.sh`) to ship `Glug`'s per-process JSON
-  log files into two OpenSearch indices — `.gulp-internal-logs-info`
-  (`INFO`+, 90-day retention) and `.gulp-internal-logs-debug` (`DEBUG`
-  only, 14-day retention, populated only under `--log-level
-  debug`/`--dev-mode`). Both are hidden system indices (leading `.`, plus
-  `"index.hidden": true` — the dot alone is only a naming convention, it
-  doesn't hide anything by itself): meant to be queried by a dedicated
-  future gulp plugin for system-log debugging/analysis, not stumbled into
-  while browsing operation data. Deliberately does not write to
-  OpenSearch from inside `Glug` itself:
-  that would make every log call depend on network I/O to the one service
-  most likely to be the reason something needs logging in the first place,
-  and would turn a synchronous local call into blocking I/O. See
-  `docs/logging.md`, "Shipping logs to OpenSearch", and
-  `plans/log-shipping.md` for the design discussion (why Fluent Bit over a
-  custom script or cron, why the retention split by level, why the
-  ISM-managed rollover-alias indices are bootstrapped once outside gulp
-  rather than something gulp creates itself).
+- the startup banner is printed in a random color on every start, and the
+  version string below it in bold, in a different color; both stay plain when
+  stdout is not a terminal. See `docs/logging.md`, "Configuration (CLI flags)".
+- the core logs to stdout only, with hints and every level, and `--log-level`
+  now defaults to `info` (was `debug`). `--dev-mode` and `--log-dir` are
+  removed: `dev_mode` (`detail=` payloads) and `Glug`'s per-process JSON
+  files become features of the paid `system_logs` extension plugin, which
+  turns them on at runtime. The new, optional `--log-file <path>` appends
+  the very same lines as stdout, without colors, to one file shared by the
+  main process and every worker; gulp never rotates it (use logrotate). See
+  `docs/logging.md`, "Log file (`--log-file`)".
+- `Glug`'s runtime reconfiguration (`gulp.glug.reconfig.publish_reconfig`)
+  now also carries `log_dir`, opening or closing the JSON files of every
+  process live, and merges each published field into the persisted state
+  (a Redis hash) instead of replacing it. The main process clears that
+  state at startup, before spawning workers, so a removed plugin cannot
+  leave `dev_mode` or the JSON files on. The JSON files are now named
+  `*.jsonl`. Third-party loggers propagating to the root logger, and
+  routed ones like uvicorn's, now reach every sink and follow later
+  changes. See `docs/logging.md`, "Runtime reconfiguration".
+- `gulp` no longer prints the raw command line (`sys.argv` and the parsed
+  namespace) at startup; it now logs each server option's effective value at
+  `DEBUG` once `Glug` is configured, marking options left unset with
+  `(default)`. See `docs/logging.md`, "Configuration (CLI flags)".
+- made `Glug`'s console line more compact: the level is a fixed 4-character
+  tag (`DEBG`, `INFO`, `WARN`, `ERRR`, `CRIT`), and the current asyncio task
+  name sits in grey brackets glued to the call site
+  (`...:_lifespan_handler:1387[Task-2]  ...`), empty (`[]`) outside any task.
+  Process identity (`process_role`/`pid`) stays JSON-only. See
+  `docs/logging.md`, "Console line".
+- `gulp` now checks that PostgreSQL, OpenSearch and Redis accept connections
+  before starting uvicorn: each unreachable service gets an error with a hint
+  (start the backing services or fix its `*_url`/`GULP_*_URL`), and gulp exits
+  with status 1 instead of failing inside the lifespan handler with a cascade
+  of tracebacks. OpenSearch is also probed over HTTP, since it accepts TCP
+  connections before it can serve requests (e.g. right after `docker compose up`).
+  See `docs/troubleshooting.md`.
+- shipping `Glug`'s JSON files to OpenSearch is not part of the core: the
+  reference Fluent Bit setup (`fluent-bit.conf`, `parsers.conf`,
+  `fluent-bit-filters/`, the `docker-compose.yml` `logging` profile) and the
+  `bootstrap_internal_logs_indices.sh` script are removed from this
+  repository, and now live in the paid `system_logs` extension plugin, which
+  also creates the hidden `.gulp-internal-logs-info` (`INFO`+, 90 days) and
+  `.gulp-internal-logs-debug` (`DEBUG`, 14 days) indices itself. gULP never
+  writes its logs to OpenSearch from inside `Glug`. See `docs/logging.md`,
+  "Shipping logs to OpenSearch".
+- `GulpServer` exposes `cli_log_level()` (the explicit `--log-level`, or
+  `None`) and `extension_plugins()`, and `Glug` exposes `effective_level()`,
+  for extension plugins. JSON records from third-party loggers (uvicorn,
+  libraries) now carry the writing process's `process_role`/`hostname`
+  and the stdlib task name instead of `null`.
 - cached successful Web UI ingestion mapping discovery for the authenticated
   session, stopped persisting pending empty source-field catalogs, and preserved
   all structured query operators when field type metadata is unavailable.

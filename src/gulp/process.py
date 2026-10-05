@@ -179,8 +179,7 @@ class GulpProcess:
         spawn_key: str,
         log_level: int = None,
         workers_concurrency_max: int = 1,
-        log_dir: str = None,
-        dev_mode: bool = False,
+        log_file: str = None,
     ):  # type: ignore
         """
         initializes a worker process
@@ -192,13 +191,12 @@ class GulpProcess:
             spawn_key (str): the redis key to INCR to notify main process of worker process spawn
             log_level (int, optional): the log level. Defaults to None.
             workers_concurrency_max (int): runtime concurrency resolved by the main process.
-            log_dir (str, optional): base directory for this worker's glug JSON log file, written in
-                addition to glug's always-on stdout output. Defaults to None (stdout only).
-            dev_mode (bool, optional): glug dev_mode. Defaults to False.
+            log_file (str, optional): plain-text file shared with the main process, receiving the
+                same lines as stdout. Defaults to None (stdout only).
         """
         # bootstrap glug for this worker process as the very first thing, before any other
         # logging (including GulpConfig's own early debug calls just below): log_level/
-        # log_dir/dev_mode are already available as parameters here, so there is no reason
+        # log_file are already available as parameters here, so there is no reason
         # to wait for finish_initialization() below — a bare or default-named get_instance()
         # this early would lock in a level=INFO, name=None (root logger) instance that every
         # .debug() call before the real bootstrap would silently be dropped against.
@@ -207,9 +205,8 @@ class GulpProcess:
         # pattern.
         Glug.get_instance(
             name="glug-worker-%d" % (os.getpid()),
-            log_dir=log_dir,
+            log_file=log_file,
             level=log_level or logging.INFO,
-            dev_mode=dev_mode,
             process_role="worker",
             reconfigure=True,
         )
@@ -245,8 +242,7 @@ class GulpProcess:
                 p.finish_initialization(
                     server_id,
                     log_level=log_level,
-                    log_dir=log_dir,
-                    dev_mode=dev_mode,
+                    log_file=log_file,
                     is_worker=True,
                 )
             )
@@ -343,8 +339,7 @@ class GulpProcess:
         self,
         server_id: str,
         log_level: int = None,
-        log_dir: str = None,
-        dev_mode: bool = False,
+        log_file: str = None,
         is_worker: bool = False,
     ) -> None:
         """
@@ -353,11 +348,10 @@ class GulpProcess:
         Args:
             server_id (str): the server ID
             log_level (int, optional): the log level for the logger. Defaults to None.
-            log_dir (str, optional): base directory for glug's per-process JSON log files, written in
-                addition to glug's always-on stdout output. Defaults to None (stdout only; main already
-                bootstraps its own instance earlier in GulpServer._startup(); this is only used to
-                bootstrap each worker's own instance).
-            dev_mode (bool, optional): glug dev_mode. Defaults to False.
+            log_file (str, optional): plain-text file shared by every gulp process, receiving the
+                same lines as stdout. Defaults to None (stdout only; main already bootstraps its own
+                instance earlier in GulpServer._startup(); this is only used to bootstrap each
+                worker's own instance).
             is_worker (bool): True if this is a worker process, False if main process
         """
 
@@ -408,8 +402,7 @@ class GulpProcess:
                     spawn_key,
                     log_level,
                     child_concurrency,
-                    log_dir,
-                    dev_mode,
+                    log_file,
                 ),
             )
 
@@ -449,15 +442,14 @@ class GulpProcess:
             # in the worker process, initialize redis, opensearch and collab clients (main process already did it)
             # bootstrap glug for this worker process as the very first thing, before
             # any other logging in this branch: every call below must already see
-            # the requested level/dev_mode, not the bare-instance INFO default.
-            # Its live level/dev_mode reconfig subscriber (independent from
+            # the requested level, not the bare-instance INFO default.
+            # Its live level/dev_mode/log_dir reconfig subscriber (independent from
             # GulpRedisBroker's pub/sub, which workers deliberately do not get)
             # starts later, once Redis is actually initialized below.
             Glug.get_instance(
                 name="glug-worker-%d" % (os.getpid()),
-                log_dir=log_dir,
+                log_file=log_file,
                 level=log_level or logging.INFO,
-                dev_mode=dev_mode,
                 process_role="worker",
                 reconfigure=True,
             )

@@ -19,12 +19,24 @@ from gulp.glug.formatter import _dotted_module_name, _relative_module_path
 _RESET = "\x1b[0m"
 _DIM = "\x1b[2m"
 _HINT = "\x1b[36m"  # cyan
+_TASK = "\x1b[90m"  # grey: readable, but quieter than the level-colored message
 _LEVEL_COLORS = {
     logging.DEBUG: "\x1b[2m",  # dim
     logging.INFO: "\x1b[32m",  # green
     logging.WARNING: "\x1b[33m",  # yellow
     logging.ERROR: "\x1b[31m",  # red
     logging.CRITICAL: "\x1b[1;31m",  # bold red
+}
+# fixed 4-char level tags, so the module column starts at the same offset
+# without padding INFO/WARN out to the width of "CRITICAL". Abbreviated by
+# dropping vowels (DEBG, not a truncated DEBU) so each tag still reads as
+# its level.
+_LEVEL_TAGS = {
+    logging.DEBUG: "DEBG",
+    logging.INFO: "INFO",
+    logging.WARNING: "WARN",
+    logging.ERROR: "ERRR",
+    logging.CRITICAL: "CRIT",
 }
 
 
@@ -62,15 +74,20 @@ class GlugConsoleFormatter(logging.Formatter):
         # for whatever actually parses logs. Keeping stdout terse was an
         # explicit tradeoff the user made after seeing proc=/task= added and
         # then trying it live. The asyncio task name was re-added later, on
-        # its own — shown only when set (e.g. not during sync startup code
-        # outside any task), so it stays out of the way otherwise.
+        # its own, in grey brackets glued to the call site (e.g. ":1387[Task-2]").
+        # The brackets are always there, empty outside any task (e.g. sync
+        # startup code), so it's obvious at a glance whether a line came from
+        # a task at all.
         dim = _DIM if self._use_color else ""
         dim_reset = _RESET if dim else ""
-        task_name = getattr(record, "async_task_name", None)
-        task_suffix = f" task={task_name}" if task_name else ""
+        task_name = getattr(record, "async_task_name", None) or ""
+        task_color = _TASK if self._use_color and task_name else ""
+        task_reset = _RESET if task_color else ""
+        level_tag = _LEVEL_TAGS.get(record.levelno, record.levelname[:4])
         header = (
-            f"{time_str} {color}{record.levelname:<8}{reset} "
-            f"{module_name}:{record.funcName}:{record.lineno}{task_suffix}"
+            f"{time_str} {color}{level_tag}{reset} "
+            f"{module_name}:{record.funcName}:{record.lineno}"
+            f"[{task_color}{task_name}{task_reset}]"
         )
 
         context = getattr(record, "context", {}) or {}

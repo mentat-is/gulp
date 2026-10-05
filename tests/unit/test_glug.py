@@ -2,7 +2,9 @@
 
 import logging
 import os
+import re
 import socket
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -12,6 +14,20 @@ import pytest
 from gulp.glug.context import reset_context, set_context
 from gulp.glug.core import Glug
 from gulp.glug.formatter import _dotted_module_name, _relative_module_path
+
+
+@pytest.fixture(autouse=True)
+def _restore_glug_globals():
+    """
+    restores the Glug singleton and the root logger after each test: the instances
+    created here write to pytest's captured stdout, closed once the test ends, and
+    must not outlive it (e.g. into an atexit cleanup that logs).
+    """
+    root = logging.getLogger()
+    saved = (Glug._instance, list(Glug._root_handlers), list(root.handlers), root.level)
+    yield
+    Glug._instance, Glug._root_handlers, root.handlers, level = saved
+    root.setLevel(level)
 
 
 def _fresh_glug(tmp_path: Path, **overrides) -> Glug:
@@ -42,10 +58,10 @@ def _fresh_console_glug(**overrides) -> Glug:
 
 
 def _read_records(tmp_path: Path) -> list[dict]:
-    """reads every JSON record written under tmp_path/<hostname>/*.log"""
+    """reads every JSON record written under tmp_path/<hostname>/*.jsonl"""
     log_subdir = tmp_path / socket.gethostname()
     records = []
-    for log_file in sorted(log_subdir.glob("*.log")):
+    for log_file in sorted(log_subdir.glob("*.jsonl")):
         for line in log_file.read_text().splitlines():
             if line:
                 records.append(orjson.loads(line))
@@ -73,7 +89,7 @@ def test_record_schema_and_main_filename(tmp_path: Path):
     assert record["module_name"] == "tests.unit.test_glug"
     assert record["module_path"] == os.path.join("tests", "unit", "test_glug.py")
 
-    assert (tmp_path / socket.gethostname() / "gulp-main.log").exists()
+    assert (tmp_path / socket.gethostname() / "gulp-main.jsonl").exists()
 
 
 @pytest.mark.unit
@@ -93,7 +109,7 @@ def test_file_mode_also_writes_to_stdout(
 def test_worker_process_role_uses_pid_filename(tmp_path: Path):
     _fresh_glug(tmp_path, process_role="worker")
 
-    expected = tmp_path / socket.gethostname() / f"gulp-worker-{os.getpid()}.log"
+    expected = tmp_path / socket.gethostname() / f"gulp-worker-{os.getpid()}.jsonl"
     assert expected.exists()
 
 
@@ -192,6 +208,140 @@ def test_unopenable_log_file_raises_and_reports_to_stderr(
 
 
 @pytest.mark.unit
+def test_log_file_mirrors_stdout_without_colors(
+    tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+):
+    # stdout is forced to look like a terminal, so its line is colorized: the file must
+    # carry the same text with the ANSI codes stripped, nothing more
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    log_file = tmp_path / "nested" / "gulp.log"
+    glug = _fresh_console_glug(log_file=str(log_file))
+
+    glug.warning("mirrored line", hint="a hint")
+    stdout_text = capsys.readouterr().out
+    file_text = log_file.read_text()
+
+    assert "\x1b[" in stdout_text
+    assert "\x1b[" not in file_text
+    assert file_text == re.sub(r"\x1b\[[0-9;]*m", "", stdout_text)
+    assert "mirrored line" in file_text and "→ hint: a hint" in file_text
+    # no JSON files are written as a side effect
+    assert list(tmp_path.rglob("*.jsonl")) == []
+
+
+@pytest.mark.unit
+def test_log_file_is_appended_not_truncated(tmp_path: Path):
+    # every gulp process opens the same file: a later one must not wipe earlier lines
+    log_file = tmp_path / "gulp.log"
+    _fresh_console_glug(log_file=str(log_file)).info("first process")
+    _fresh_console_glug(log_file=str(log_file)).info("second process")
+
+    text = log_file.read_text()
+    assert "first process" in text and "second process" in text
+
+
+@pytest.mark.unit
+def test_apply_reconfig_log_dir_turns_json_files_on_and_off(tmp_path: Path):
+    glug = _fresh_console_glug()
+    glug.info("before json")
+    assert list(tmp_path.rglob("*.jsonl")) == []
+
+    Glug.apply_reconfig(log_dir=str(tmp_path))
+    glug.info("with json")
+    assert [r["message"] for r in _read_records(tmp_path)] == ["with json"]
+    json_handlers = list(glug._json_handlers)
+    assert len(json_handlers) == 2
+
+    # omitted log_dir leaves the files on
+    Glug.apply_reconfig(level=logging.WARNING)
+    assert glug._json_handlers == json_handlers
+
+    Glug.apply_reconfig(log_dir=None)
+    glug.warning("after json")
+    assert [r["message"] for r in _read_records(tmp_path)] == ["with json"]
+    assert glug._json_handlers == []
+    assert all(h not in glug._logger.handlers for h in json_handlers)
+    # the closed handlers released their streams
+    assert all(h.stream is None for h in json_handlers)
+
+
+@pytest.mark.unit
+def test_apply_reconfig_unopenable_log_dir_keeps_json_off_and_applies_level(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+):
+    blocked = tmp_path / "not-a-directory"
+    blocked.write_text("i am a file, not a directory")
+    glug = _fresh_console_glug(level=logging.INFO)
+
+    # must not raise: a runtime reconfig cannot take a running process down
+    Glug.apply_reconfig(level=logging.DEBUG, log_dir=str(blocked))
+
+    assert glug._json_handlers == []
+    assert glug._logger.getEffectiveLevel() == logging.DEBUG
+    out = capsys.readouterr().out
+    assert "cannot open the JSON log files" in out
+    assert "→ hint:" in out
+
+
+@pytest.mark.unit
+def test_routed_stdlib_logger_follows_reconfig(tmp_path: Path):
+    routed_name = f"test-routed-{uuid4().hex}"
+    try:
+        glug = _fresh_console_glug(level=logging.INFO)
+        Glug.route_stdlib_logger(routed_name)
+        routed = logging.getLogger(routed_name)
+        assert routed.handlers == glug._logger.handlers
+
+        Glug.apply_reconfig(dev_mode=True, log_dir=str(tmp_path))
+        assert routed.level == logging.DEBUG
+        routed.debug("from a third-party library")
+        record = next(
+            r for r in _read_records(tmp_path) if r["message"] == "from a third-party library"
+        )
+        # not a Glug call: the process identity comes from the formatter's own fallback
+        assert record["process_role"] == "main"
+        assert record["hostname"] == socket.gethostname()
+
+        # a reconfigured instance (e.g. the lifespan handler's) takes the logger over too
+        again = _fresh_console_glug(level=logging.WARNING)
+        assert routed.handlers == again._logger.handlers
+        assert routed.level == logging.WARNING
+    finally:
+        Glug._routed_logger_names.discard(routed_name)
+
+
+@pytest.mark.unit
+def test_third_party_warnings_reach_log_file_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+):
+    # a bare placeholder (root logger) exists before the real bootstrap, as in gulp's main
+    monkeypatch.setattr(Glug, "_instance", None)
+    Glug.get_instance()
+    log_file = tmp_path / "gulp.log"
+    _fresh_console_glug(log_file=str(log_file))
+    capsys.readouterr()
+
+    library = logging.getLogger(f"some.library.{uuid4().hex}")
+    library.warning("library warning")
+    library.info("library info")
+
+    out = capsys.readouterr().out
+    assert out.count("library warning") == 1
+    assert log_file.read_text().count("library warning") == 1
+    # the root logger stays at the stdlib default: library INFO noise never shows up
+    assert "library info" not in out
+
+
+@pytest.mark.unit
+def test_reconfigure_closes_previous_instance_files(tmp_path: Path):
+    first = _fresh_console_glug(log_file=str(tmp_path / "gulp.log"))
+    first_file_handler = first._base_handlers[1]
+
+    _fresh_console_glug()
+    assert first_file_handler.stream is None
+
+
+@pytest.mark.unit
 def test_bare_get_instance_without_bootstrap_defaults_to_console_stdout(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ):
@@ -286,6 +436,65 @@ def test_console_formatter_color_only_when_requested():
     plain = GlugConsoleFormatter(use_color=False).format(record)
     assert "\x1b[" in colored
     assert "\x1b[" not in plain
+
+
+@pytest.mark.unit
+def test_console_formatter_task_name_in_brackets():
+    from gulp.glug.console_formatter import GlugConsoleFormatter
+
+    record = logging.LogRecord(
+        name="x",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=7,
+        msg="started",
+        args=(),
+        exc_info=None,
+        func="run",
+    )
+    formatter = GlugConsoleFormatter(use_color=False)
+
+    # outside any asyncio task: empty brackets glued to the call site
+    without_task = formatter.format(record)
+    assert ":run:7[]  started" in without_task
+
+    # inside a task: the task name inside the brackets
+    record.async_task_name = "Task-6"
+    with_task = formatter.format(record)
+    assert ":run:7[Task-6]  started" in with_task
+
+    # with color on, only the task name is grey, the brackets stay plain
+    colored = GlugConsoleFormatter(use_color=True).format(record)
+    assert ":run:7[\x1b[90mTask-6\x1b[0m]" in colored
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("level", "tag"),
+    [
+        (logging.DEBUG, "DEBG"),
+        (logging.INFO, "INFO"),
+        (logging.WARNING, "WARN"),
+        (logging.ERROR, "ERRR"),
+        (logging.CRITICAL, "CRIT"),
+    ],
+)
+def test_console_formatter_four_char_level_tags(level: int, tag: str):
+    from gulp.glug.console_formatter import GlugConsoleFormatter
+
+    record = logging.LogRecord(
+        name="x",
+        level=level,
+        pathname=__file__,
+        lineno=7,
+        msg="m",
+        args=(),
+        exc_info=None,
+        func="run",
+    )
+    line = GlugConsoleFormatter(use_color=False).format(record)
+    # "<date> <time> <TAG> <module>...": the tag is exactly 4 chars, one space each side
+    assert line.split(" ")[2] == tag
 
 
 @pytest.mark.unit

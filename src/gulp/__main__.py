@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
+import random
 import sys
 from multiprocessing import freeze_support
 import signal
@@ -41,6 +42,69 @@ def _pid_from_pidfile_path(pidfile_path: str) -> int:
     return int(bare_file.removeprefix("gulp").removesuffix(".pid"))
 
 
+# bright ANSI foreground colors the startup banner/version are picked from
+_BANNER_COLORS = ["91", "92", "93", "94", "95", "96"]
+
+
+def _colored_banner(banner: str, ver: str, use_color: bool) -> str:
+    """
+    formats the startup banner and version string for stdout.
+
+    Args:
+        banner (str): the ascii-art banner.
+        ver (str): the version string.
+        use_color (bool): whether to emit ANSI color codes; callers should pass
+            sys.stdout.isatty(), as the console formatter does.
+
+    Returns:
+        str: the banner in a random color, followed by the version in bold and in
+            another color (both plain when use_color is False).
+    """
+    if not use_color:
+        return "%s\n%s" % (banner, ver)
+    banner_color, ver_color = random.sample(_BANNER_COLORS, 2)
+    return "\x1b[%sm%s\x1b[0m\n\x1b[1;%sm%s\x1b[0m" % (
+        banner_color,
+        banner,
+        ver_color,
+        ver,
+    )
+
+
+def _describe_args(
+    parser: argparse.ArgumentParser, argv: list[str] = None
+) -> dict[str, str]:
+    """
+    describes the effective value of every command line option, for the startup debug log.
+
+    Args:
+        parser (argparse.ArgumentParser): the gulp argument parser.
+        argv (list[str], optional): the arguments to parse. Defaults to None (sys.argv[1:]).
+
+    Returns:
+        dict[str, str]: option dest -> effective value, suffixed with " (default)" when
+            the option was not given and its default applies.
+    """
+    args = parser.parse_args(argv)
+
+    # argparse only fills in a default when the namespace lacks that dest, so a
+    # namespace pre-filled with a sentinel tells "not given" apart from "given
+    # with the default value" (e.g. an explicit --log-level debug)
+    unset = object()
+    probe = parser.parse_args(
+        argv, namespace=argparse.Namespace(**{k: unset for k in vars(args)})
+    )
+
+    described: dict[str, str] = {}
+    for k, v in vars(args).items():
+        # nargs=1 options parse to a one-item list
+        value = v[0] if isinstance(v, list) and len(v) == 1 else v
+        described[k] = (
+            f"{value!r} (default)" if getattr(probe, k) is unset else repr(value)
+        )
+    return described
+
+
 def main():
     """
     :return:
@@ -60,24 +124,16 @@ def main():
         "--log-level",
         nargs=1,
         metavar=("level"),
-        help='select log level, default="debug".',
+        help='select log level, default="info". Given explicitly, it also overrides the level '
+        "saved by the system_logs extension plugin, when installed.",
         choices=["critical", "error", "warning", "info", "debug"],
-        default=["debug"],
+        default=None,
     )
     parser.add_argument(
-        "--dev-mode",
-        help="enables glug dev_mode: forces DEBUG level and unlocks extra diagnostic content in glug-migrated "
-        "call sites, independently of --log-level. Togglable at runtime via Redis (see plans/log-revolution.md).",
-        action="store_true",
-        default=False,
-    )
-    parser.add_argument(
-        "--log-dir",
-        help="base directory for glug's per-process JSON log files, written to "
-        "<log-dir>/<hostname>/gulp-main.log or gulp-worker-<pid>.log, IN ADDITION to glug's always-on "
-        "stdout output (human-readable, colorized) — never instead of it. Omit to keep stdout only; pass "
-        "this when the JSON files themselves need to be persisted to disk too (e.g. for a log-shipping "
-        "sidecar, or the future audit plugin, see plans/log-revolution.md).",
+        "--log-file",
+        help="also append every log line printed on stdout (same content, no colors) to this file, "
+        "shared by the main process and every worker. gulp never rotates it: use an external tool "
+        "such as logrotate. Omit to log to stdout only.",
         nargs=1,
         metavar=("path"),
         default=None,
@@ -110,10 +166,14 @@ def main():
         default=False,
     )
     args = parser.parse_args()
-    print(". command line args (sys.argv):\n%s" % (sys.argv))
-    print(". command line args (parsed):\n%s" % (args))
 
-    lv: str = logging.getLevelNamesMapping()[args.log_level[0].upper()]
+    # None when --log-level is not given: the server applies INFO, and an extension
+    # plugin keeping its own saved level (system_logs) can tell the two cases apart
+    lv: int | None = (
+        logging.getLevelNamesMapping()[args.log_level[0].upper()]
+        if args.log_level
+        else None
+    )
     if __RUN_TESTS__:
         # test stuff
         asyncio.run(async_test())
@@ -200,15 +260,27 @@ def main():
             if args.create:
                 create_operation = args.create[0]
 
+            # --version/--stop never reach this branch, no point logging them
+            cli_options: dict[str, str] = {
+                k: v
+                for k, v in _describe_args(parser).items()
+                if k not in ("version", "stop")
+            }
+
+            if lv is None:
+                cli_options["log_level"] = "'info' (default)"
+
             # default
-            print("%s\n%s" % (banner, ver))
-            GulpServer.get_instance().start(
+            print(_colored_banner(banner, ver, sys.stdout.isatty()))
+            if not GulpServer.get_instance().start(
                 level=lv,
                 reset_collab=args.reset_collab,
                 create_operation=create_operation,
-                log_dir=args.log_dir[0] if args.log_dir else None,
-                dev_mode=args.dev_mode,
-            )
+                log_file=args.log_file[0] if args.log_file else None,
+                cli_options=cli_options,
+            ):
+                # a required service is unreachable, already logged with a hint
+                return 1
     except Exception:
         # print exception and exit
         Glug.get_instance().exception("fatal error in main()")
