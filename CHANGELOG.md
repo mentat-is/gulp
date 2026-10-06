@@ -1,5 +1,9 @@
 # v2.0.0
 
+- fixed `GulpPluginBase.load()` re-adding a module it had just taken from the
+  plugin cache, which logged "plugin ... already in cache, not adding" as a
+  warning on every cached load (dozens per minute from plugins loading
+  `plugin_manager` per request). Only a module loaded from disk is added now.
 - the startup banner is printed in a random color on every start, and the
   version string below it in bold, in a different color; both stay plain when
   stdout is not a terminal. See `docs/logging.md`, "Configuration (CLI flags)".

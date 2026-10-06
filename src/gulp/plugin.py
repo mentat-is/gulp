@@ -3516,6 +3516,7 @@ class GulpPluginBase(ABC):
                 p = m.Plugin(path, module_name, pickled=pickled, **kwargs)
                 sys.modules[module_name] = m
 
+        loaded_from_disk: bool = not p
         if not p:
             # load from file and add to sys.modules
             m: ModuleType = muty.dynload.load_dynamic_module_from_file(
@@ -3586,10 +3587,13 @@ class GulpPluginBase(ABC):
             raise
 
         if (
-            cache_mode != GulpPluginCacheMode.IGNORE
+            loaded_from_disk
+            and cache_mode != GulpPluginCacheMode.IGNORE
             and GulpConfig.get_instance().plugin_cache_enabled()
         ):
-            # add loaded object to the cache so next Plugin() instantiation is faster (no file load)
+            # add loaded object to the cache so next Plugin() instantiation is faster (no file load).
+            # a module taken from the cache is already there: re-adding it only triggered the
+            # "already in cache" warning on every cached load
             GulpPluginCache.get_instance().add(m, internal_plugin_name)
         return p
 
