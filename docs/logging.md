@@ -14,6 +14,7 @@
   - [Configuration (CLI flags)](#configuration-cli-flags)
   - [Runtime reconfiguration](#runtime-reconfiguration)
   - [Process bootstrap: main and workers](#process-bootstrap-main-and-workers)
+  - [Credentials are masked](#credentials-are-masked)
   - [Third-party loggers](#third-party-loggers)
   - [Shipping logs to OpenSearch](#shipping-logs-to-opensearch)
   - [What about `muty`?](#what-about-muty)
@@ -383,6 +384,31 @@ run (there are a couple of spots in `config.py`, reached even from
 minimal CLI paths like `gulp --stop` that never bootstrap `Glug` at all)
 always passes an explicit `name="glug"` rather than a bare call, for exactly
 this reason.
+
+## Credentials are masked
+
+Call sites must not log credentials (see [Writing style](#writing-style)),
+but a session token is a bearer credential and reaches the log from places
+that cannot be guarded one by one: exception messages
+(`token "<id>" not logged in`), third-party loggers routed through `Glug`
+(the `websockets` library dumps every received frame at `DEBUG`, the login
+frame included), and call sites added later.
+
+Both formatters therefore pass their final output through
+`gulp.glug.redact.redact()`, so the rule holds for every sink — stdout, the
+`--log-file` copy, the JSON files and whatever ships them. The value
+following `token`, `password` or `pwd_hash` becomes `***`:
+
+```text
+checking token permission: token=***, permission=[...]
+< TEXT '{"token":"***","ws_id":"da4525b4-..."}' [131 bytes]
+```
+
+The key may be a suffix (`access_token`, `refresh_token`) and the value may
+follow `=`, `:` or a quote, also JSON-escaped. Other identifiers (`ws_id`,
+`req_id`, `operation_id`) and plain prose ("wrong password for user ...")
+are left as they are. This is a last line of defense, not a license to log
+secrets: anything shaped differently is not caught.
 
 ## Third-party loggers
 

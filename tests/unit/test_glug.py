@@ -14,6 +14,7 @@ import pytest
 from gulp.glug.context import reset_context, set_context
 from gulp.glug.core import Glug
 from gulp.glug.formatter import _dotted_module_name, _relative_module_path
+from gulp.glug.redact import redact
 
 
 @pytest.fixture(autouse=True)
@@ -563,3 +564,70 @@ def test_relative_module_path_and_dotted_name():
 def test_relative_module_path_falls_back_to_original_when_no_match():
     unmatched = "/definitely/outside/any/sys/path/entry.py"
     assert _relative_module_path(unmatched) == unmatched
+
+
+_TOKEN = "bccf813a-f3a5-44ac-ade0-63f78b575f71"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (f"checking token permission: token={_TOKEN}, permission=[x]",
+         "checking token permission: token=***, permission=[x]"),
+        (f"logging out token={_TOKEN}, user=admin", "logging out token=***, user=admin"),
+        (f'token "{_TOKEN}" not logged in', 'token "***" not logged in'),
+        # a websocket frame dumped by a third-party library, plain and JSON-escaped
+        (f"< TEXT '{{\"token\":\"{_TOKEN}\",\"ws_id\":\"abc\"}}'",
+         "< TEXT '{\"token\":\"***\",\"ws_id\":\"abc\"}'"),
+        (f'{{\\"token\\":\\"{_TOKEN}\\"}}', '{\\"token\\":\\"***\\"}'),
+        ("access_token: eyJhbGciOiJIUzI1NiJ9.abc, password=hunter2222",
+         "access_token: ***, password=***"),
+        # the mask stops before an ANSI reset code
+        (f"token={_TOKEN}\x1b[0m", "token=***\x1b[0m"),
+    ],
+)
+def test_redact_masks_sensitive_values(text: str, expected: str):
+    assert redact(text) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "text",
+    [
+        # prose, other identifiers and already masked or empty values stay as they are
+        "wrong password for user_id=admin",
+        "checking token permission for ws_id=da4525b4-7de1-4120-aaaa-bbbbbbbbbbbb req_id=abc12345",
+        'detail: {"token": "***", "password": None}',
+    ],
+)
+def test_redact_leaves_other_text_alone(text: str):
+    assert redact(text) == text
+
+
+@pytest.mark.unit
+def test_token_never_reaches_any_sink(tmp_path: Path, capsys: pytest.CaptureFixture):
+    log_file = tmp_path / "gulp.log"
+    glug = _fresh_glug(tmp_path, log_file=str(log_file), dev_mode=True)
+    routed_name = f"test-routed-{uuid4().hex}"
+    try:
+        Glug.route_stdlib_logger(routed_name)
+        glug.info(f"user admin logged in, token={_TOKEN}", hint=f"token={_TOKEN}")
+        glug.debug("frame", detail={"raw": f'{{"token":"{_TOKEN}"}}'})
+        try:
+            raise ValueError(f'token "{_TOKEN}" not logged in')
+        except ValueError:
+            glug.exception("session check failed")
+        # a third-party library logging through Glug's handlers
+        logging.getLogger(routed_name).debug(f"< TEXT '{{\"token\":\"{_TOKEN}\"}}'")
+    finally:
+        Glug._routed_logger_names.discard(routed_name)
+
+    json_text = "".join(
+        f.read_text() for f in (tmp_path / socket.gethostname()).glob("*.jsonl")
+    )
+    for sink in (capsys.readouterr().out, log_file.read_text(), json_text):
+        assert _TOKEN not in sink
+        assert "***" in sink
+    # the JSON stays valid after redaction
+    assert len(_read_records(tmp_path)) >= 4

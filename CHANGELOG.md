@@ -1,5 +1,13 @@
 # v2.0.0
 
+- `Glug` now masks credentials in everything it writes (stdout, `--log-file`,
+  the JSON files): the value following `token`, `password` or `pwd_hash`
+  (also `access_token` and the like) becomes `***`, in messages, hints,
+  `detail` payloads and exception tracebacks, including the lines of
+  third-party loggers. Session tokens were written in clear by
+  `check_token` at `DEBUG`, by login/logout at `INFO`, by session errors,
+  and by the `websockets` library dumping the login frame. See
+  `docs/logging.md`, "Credentials are masked".
 - fixed `GulpPluginBase.load()` re-adding a module it had just taken from the
   plugin cache, which logged "plugin ... already in cache, not adding" as a
   warning on every cached load (dozens per minute from plugins loading

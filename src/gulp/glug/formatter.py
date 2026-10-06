@@ -7,6 +7,8 @@ import traceback
 
 import orjson
 
+from gulp.glug.redact import redact
+
 
 def _relative_module_path(pathname: str) -> str:
     """
@@ -98,4 +100,6 @@ class GlugJsonFormatter(logging.Formatter):
             "detail": getattr(record, "detail", None),
             "exception": exception,
         }
-        return orjson.dumps(payload, default=str).decode("utf-8")
+        # last-line redaction of credentials, on the whole document (message, hint,
+        # detail, exception): see gulp.glug.redact
+        return redact(orjson.dumps(payload, default=str).decode("utf-8"))

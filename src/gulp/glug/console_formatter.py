@@ -14,6 +14,8 @@ import traceback
 
 import orjson
 
+from gulp.glug.redact import redact
+
 from gulp.glug.formatter import _dotted_module_name, _relative_module_path
 
 _RESET = "\x1b[0m"
@@ -120,4 +122,6 @@ class GlugConsoleFormatter(logging.Formatter):
             tb_text = "".join(traceback.format_exception(*record.exc_info)).rstrip("\n")
             lines.extend(f"  {dim}{line}{dim_reset}" for line in tb_text.split("\n"))
 
-        return "\n".join(lines)
+        # last-line redaction of credentials, on the whole line (message, detail,
+        # hint, traceback): see gulp.glug.redact
+        return redact("\n".join(lines))
