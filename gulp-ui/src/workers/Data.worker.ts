@@ -16,9 +16,12 @@ import type {
 	TimestampedWorkerItem,
 	TimestampInput,
 } from "./DataWorker.types";
+import {
+	createEventIndicatorValue,
+	DEFAULT_EVENT_INDICATOR_FIELD,
+} from "@/event-store/EventIndicatorValue";
 
 const HASH_MOD = 8000;
-const DEFAULT_FIELD = "gulp.event_code";
 const DEFAULT_HASH_FUNCTION: HashFunctionName = "fnv1a";
 
 const hashAlgorithms: Record<HashFunctionName, (value: string) => number> = {
@@ -188,22 +191,29 @@ function normalizeQueryDocs(
 		if (!sourceId) continue;
 
 		const settings = payload.sourceSettingsById[sourceId] ?? {
-			field: DEFAULT_FIELD,
+			field: DEFAULT_EVENT_INDICATOR_FIELD,
 			hash_function: DEFAULT_HASH_FUNCTION,
 		};
 
-		const normalized = {
-			_id: raw._id,
+		const eventCode = Number(raw["gulp.event_code"] ?? 0);
+		const normalizedEventCode = Number.isFinite(eventCode) ? eventCode : 0;
+		const indicatorValue = getFieldValue(raw, settings.field);
+		const normalized: Doc.Type = {
+			_id: raw._id as Doc.Id,
 			gulp_timestamp: toTimestamp(
 				raw["@timestamp"] ?? raw["gulp.timestamp"],
 			),
 			"gulp.source_id": sourceId,
-			"gulp.event_code": raw["gulp.event_code"],
 			number_hash: anyToNumber(
-				getFieldValue(raw, settings.field),
+				indicatorValue,
 				settings.hash_function,
 			),
-		} as Doc.Type;
+			indicatorValue: createEventIndicatorValue(
+				indicatorValue,
+				normalizedEventCode,
+				settings.field,
+			),
+		};
 
 		const group = docsBySource.get(sourceId);
 		if (group) {

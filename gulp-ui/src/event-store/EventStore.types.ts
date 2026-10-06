@@ -45,7 +45,8 @@ export interface EncodedEventPage {
 	timestamps: Float64Array;
 	sequences: Float64Array;
 	hashes: Float64Array;
-	eventCodes: Float64Array;
+	/** Complete numeric codes or four-cell custom labels, always eight bytes/event. */
+	indicatorValues: Float64Array | Uint16Array;
 	idOffsets: Uint32Array;
 	idBytes: Uint8Array;
 	tombstones: Uint8Array;
@@ -128,6 +129,8 @@ export interface EventSourceManifest {
 	maxTimestamp: number;
 	hashMin: number;
 	hashMax: number;
+	/** Generation-wide exact-page indicator layout; absent only on legacy default caches. */
+	indicatorLayout?: "event-code" | "label";
 	encodedBytes: number;
 	pages: EventPageCatalogEntry[];
 	obsoleteGenerations?: EventObsoleteGenerationMarker[];

@@ -4,6 +4,7 @@ import {
 	fingerprintSourceQuery,
 	fingerprintSourceQueryShape,
 	hasSourceQueryCacheWarning,
+	isQueryCacheIndicatorProjectionCompatible,
 	coversRequestedSourceRange,
 	sourceSnapshotsMatch,
 	type QueryCacheNormalization,
@@ -31,6 +32,42 @@ function createQuery(overrides: Partial<Query.Type> = {}): Query.Type {
 }
 
 describe("source query cache identity", () => {
+	it("keeps legacy default caches and rejects unversioned custom projections", () => {
+		expect(
+			isQueryCacheIndicatorProjectionCompatible({
+				field: "gulp.event_code",
+				hashFunction: "fnv1a",
+				requestedFields: ["gulp.event_code"],
+			}),
+		).toBe(true);
+		expect(
+			isQueryCacheIndicatorProjectionCompatible(normalization),
+		).toBe(false);
+		expect(
+			isQueryCacheIndicatorProjectionCompatible({
+				...normalization,
+				indicatorValueVersion: 1,
+			}),
+		).toBe(true);
+	});
+
+	it("includes the custom-value projection version in cache identity", () => {
+		const base = fingerprintSourceQuery({
+			query: createQuery(),
+			operationId: "operation-1",
+			sourceId: "source-1",
+			normalization,
+		});
+		const versioned = fingerprintSourceQuery({
+			query: createQuery(),
+			operationId: "operation-1",
+			sourceId: "source-1",
+			normalization: { ...normalization, indicatorValueVersion: 1 },
+		});
+
+		expect(versioned).not.toBe(base);
+	});
+
 	it("recognizes warnings only for settled stale caches owned by the exact source", () => {
 		const createWarningSource = (
 			overrides: Partial<ReturnType<typeof createEmptyQueryCacheState>> = {},

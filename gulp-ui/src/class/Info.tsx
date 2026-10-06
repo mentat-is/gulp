@@ -109,6 +109,10 @@ import {
 } from "@/event-store";
 import { publishEventStoreFallbackRequest } from "@/event-store/EventStoreFallback.request";
 import { compareEventDocuments } from "@/event-store/EventStore.order";
+import {
+	DEFAULT_EVENT_INDICATOR_FIELD,
+	EVENT_INDICATOR_VALUE_VERSION,
+} from "@/event-store/EventIndicatorValue";
 
 export namespace GulpDataset {
 	export namespace GetAvailableLoginApi {
@@ -2117,6 +2121,9 @@ export class Info implements InfoProps {
 		field: String(source.settings.field),
 		hashFunction: source.settings.hash_function,
 		requestedFields: (requestedFields ?? [source.settings.field]).map(String),
+		...(String(source.settings.field) === DEFAULT_EVENT_INDICATOR_FIELD
+			? {}
+			: { indicatorValueVersion: EVENT_INDICATOR_VALUE_VERSION }),
 	});
 
 	/**

@@ -5,11 +5,14 @@ import type {
 	DocumentStreamSourceSettings,
 } from "@/event-stream";
 import { normalizeEventSequence } from "@/event-store/EventStore.order";
+import {
+	createEventIndicatorValue,
+	DEFAULT_EVENT_INDICATOR_FIELD,
+} from "@/event-store/EventIndicatorValue";
 
 const HASH_MODULUS = 8_000;
-const DEFAULT_FIELD = "gulp.event_code";
 const DEFAULT_SETTINGS: DocumentStreamSourceSettings = {
-	field: DEFAULT_FIELD,
+	field: DEFAULT_EVENT_INDICATOR_FIELD,
 	hash_function: "fnv1a",
 };
 export const QUERY_DOCUMENT_NORMALIZATION_SLICE_MS = 4;
@@ -210,6 +213,8 @@ function appendNormalizedDocument(
 	const rawTimestamp =
 		raw["@timestamp"] ?? raw.gulp_timestamp ?? raw["gulp.timestamp"];
 	const eventCode = Number(raw["gulp.event_code"] ?? 0);
+	const normalizedEventCode = Number.isFinite(eventCode) ? eventCode : 0;
+	const indicatorValue = getFieldValue(raw, settings.field);
 	const document: Doc.Type = {
 		_id: documentId as Doc.Id,
 		gulp_timestamp: normalizeTimestamp(rawTimestamp),
@@ -217,10 +222,11 @@ function appendNormalizedDocument(
 			getFieldValue(raw, "event.sequence"),
 		),
 		"gulp.source_id": sourceValue as Source.Id,
-		"gulp.event_code": Number.isFinite(eventCode) ? eventCode : 0,
-		number_hash: normalizeNumberHash(
-			getFieldValue(raw, settings.field),
-			settings,
+		number_hash: normalizeNumberHash(indicatorValue, settings),
+		indicatorValue: createEventIndicatorValue(
+			indicatorValue,
+			normalizedEventCode,
+			settings.field,
 		),
 	};
 	const sourceId = document["gulp.source_id"];

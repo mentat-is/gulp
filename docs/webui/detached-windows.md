@@ -30,7 +30,9 @@ receives its descriptor events, relevant already-loaded linked events, related
 notes and links, resolved event colors, referenced source summaries, and the
 `show_preview` preference. A single-event Dialog also receives a compact,
 centered navigation projection containing at most eleven source-event
-indicators, including their code, color, and Notes/Links markers. Custom dialogs
+indicators, including their compact label, color, and Notes/Links markers. Each
+item carries one `indicatorValue`: a complete number for the default field or
+only the persisted four-unit string for a custom field. Custom dialogs
 made from arbitrary React nodes stay docked because their content cannot be
 serialized. A blocked Dialog popup also stays docked. The main operation
 workspace can return its detached Dialog without placing an overlay control on
@@ -313,7 +315,9 @@ preflight beside each relevant request.
 
 Dialog navigation carries indicator metadata only. Complete event JSON remains
 outside bridge messages and is requested by the detached Dialog when the
-selected event changes. Returning to a recently viewed event uses the local
+selected event changes. Custom-field badges and tooltips display only the compact
+prefix; they do not trigger another backend request. Returning to a recently
+viewed event uses the local
 detail cache. A successful single-event enrichment replaces only the matching
 cached detail through `EVENT_DETAIL_CHANGED`; it does not remount the Dialog or
 its navigation. Note and link mutations return through the normal compact
@@ -337,7 +341,8 @@ retain the visible page and expose the Notes-changed acknowledgement flow.
 - Opening or focusing one detached application does not replay state to other
   detached applications.
 - A detached Dialog projects at most eleven nearby event indicators and never
-  transfers a complete source event collection or Canvas render state.
+  transfers a complete source event collection, a complete custom color-field
+  value, or Canvas render state.
 - A detached Table receives compact source and query projections without ACLs,
   query caches, render settings, sample data, or duplicated field maps.
 - Main state projection returns immediately when no matching client capability

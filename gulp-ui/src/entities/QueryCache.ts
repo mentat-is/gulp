@@ -1,4 +1,8 @@
 import type { Query } from "./Query";
+import {
+	DEFAULT_EVENT_INDICATOR_FIELD,
+	EVENT_INDICATOR_VALUE_VERSION,
+} from "@/event-store/EventIndicatorValue";
 
 /** Freshness classification exposed by source cache state and render projections. */
 export type QueryCacheFreshness =
@@ -13,6 +17,24 @@ export interface QueryCacheNormalization {
 	field: string;
 	hashFunction: "fnv1a" | "djb2" | "sdbm";
 	requestedFields: string[];
+	/** Compact-value projection version; omitted for the legacy event-code layout. */
+	indicatorValueVersion?: number;
+}
+
+/**
+ * Checks whether persisted normalization can be decoded by the current label codec.
+ * Legacy default-field caches remain compatible because their event-code layout did
+ * not change; custom-field caches must explicitly carry the current projection version.
+ * @param normalization Persisted query normalization descriptor.
+ * @returns True when its exact pages use a currently supported indicator layout.
+ */
+export function isQueryCacheIndicatorProjectionCompatible(
+	normalization: QueryCacheNormalization,
+): boolean {
+	return (
+		normalization.field === DEFAULT_EVENT_INDICATOR_FIELD ||
+		normalization.indicatorValueVersion === EVENT_INDICATOR_VALUE_VERSION
+	);
 }
 
 /** Backend source metadata captured independently from a filtered result count. */
@@ -154,6 +176,12 @@ export function fingerprintSourceQueryShape(
 			field: input.normalization.field,
 			hashFunction: input.normalization.hashFunction,
 			requestedFields: [...input.normalization.requestedFields],
+			...(input.normalization.indicatorValueVersion === undefined
+				? {}
+				: {
+						indicatorValueVersion:
+							input.normalization.indicatorValueVersion,
+					}),
 		},
 	};
 	return `source-query-shape-v1:${JSON.stringify(
@@ -266,6 +294,12 @@ export function fingerprintSourceQuery(
 			field: input.normalization.field,
 			hashFunction: input.normalization.hashFunction,
 			requestedFields: [...input.normalization.requestedFields],
+			...(input.normalization.indicatorValueVersion === undefined
+				? {}
+				: {
+						indicatorValueVersion:
+							input.normalization.indicatorValueVersion,
+					}),
 		},
 	};
 	return `source-query-v1:${JSON.stringify(canonicalizeValue(semanticQuery))}`;

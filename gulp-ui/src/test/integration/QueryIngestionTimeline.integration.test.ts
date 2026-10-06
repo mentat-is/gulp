@@ -1,4 +1,5 @@
 import type { QueryCacheProvenance } from "@/entities/QueryCache";
+import type { Doc } from "@/entities/Doc";
 import type { Source } from "@/entities/Source";
 import type {
 	EventStoreName,
@@ -178,6 +179,137 @@ async function waitForProgress(
 }
 
 describe("ingestion cache timeline integration", () => {
+	it("persists custom labels through worker normalization and bounded reads", async () => {
+		const sourceId = "custom-label-source" as Source.Id;
+		const backend = new IngestionProjectionBackend();
+		const repository = new EventStoreRepository(backend);
+		const completed = new Set<string>();
+		const failures: string[] = [];
+		const queryCache: QueryCacheProvenance = {
+			query: {
+				string: "",
+				filters: [],
+				source_config: {
+					operation_id: "custom-label-operation",
+					source_ids: [sourceId],
+					range: { min: "0", max: "2000000000000000000" },
+				},
+			},
+			fingerprint: "custom-label-query",
+			shapeFingerprint: "custom-label-shape",
+			normalization: {
+				field: "category",
+				hashFunction: "fnv1a",
+				requestedFields: ["category"],
+				indicatorValueVersion: 1,
+			},
+			serverSnapshot: {
+				total: 3,
+				minNanoseconds: "0",
+				maxNanoseconds: "2000000000000000000",
+				timeUpdated: null,
+				millisecondPrecision: true,
+			},
+		};
+		const descriptor: DocumentStreamDescriptor = {
+			requestId: "custom-label-request",
+			operationId: "custom-label-operation",
+			operationEpoch: 1,
+			owner: "persist",
+			kind: "replace",
+			sourceIds: [sourceId],
+			defaultSourceSettings: {
+				field: "category",
+				hash_function: "fnv1a",
+			},
+			queryCache,
+		};
+		const coordinator = new QueryPersistenceCoordinator(
+			"custom-label-integration",
+			{
+				onSourceSummary: () => undefined,
+				onIngestionProgress: () => undefined,
+				onStreamFailure: (event) => failures.push(event.reason),
+				onStreamFlushing: () => undefined,
+				onStreamCompleted: (requestId) => completed.add(requestId),
+				onDocumentChunkAcknowledged: () => undefined,
+			},
+			{
+				createOperationStore: () => ({ backend, repository }),
+				createRevisionBus: () => ({
+					publish: () => undefined,
+					close: () => undefined,
+				}),
+			},
+		);
+		await coordinator.register(descriptor);
+		coordinator.handleDocumentChunk({
+			descriptor,
+			sequence: 0,
+			rawByteLength: 0,
+			message: {
+				type: "docs_chunk",
+				req_id: descriptor.requestId,
+				operation_id: descriptor.operationId,
+				payload: {
+					docs: [
+						{
+							_id: "custom-newest",
+							"gulp.source_id": sourceId,
+							"gulp.timestamp": 1_700_000_000_003,
+							"gulp.event_code": 100001,
+							category: "network-long-value",
+						},
+						{
+							_id: "custom-current",
+							"gulp.source_id": sourceId,
+							"gulp.timestamp": 1_700_000_000_002,
+							"gulp.event_code": 200002,
+							category: "process-long-value",
+						},
+						{
+							_id: "custom-oldest",
+							"gulp.source_id": sourceId,
+							"gulp.timestamp": 1_700_000_000_001,
+							"gulp.event_code": 300003,
+							category: "",
+						},
+					],
+					last: true,
+					chunk_num: 0,
+				},
+			},
+		});
+		const deadline = Date.now() + 5_000;
+		while (!completed.has(descriptor.requestId) && failures.length === 0) {
+			if (Date.now() >= deadline) throw new Error("Custom label stream timed out.");
+			await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		}
+
+		const neighbors = await repository.getNeighbors(
+			sourceId,
+			"custom-current" as Doc.Id,
+			1,
+			1,
+		);
+		const pixel = await repository.queryPixelBucket(
+			sourceId,
+			{ min: 0, max: Number.MAX_SAFE_INTEGER },
+			100,
+		);
+		expect(failures).toEqual([]);
+		expect(neighbors.events.map((event) => event.indicatorValue)).toEqual([
+			"netw",
+			"proc",
+			"3000",
+		]);
+		expect(pixel.events).toHaveLength(3);
+		expect(
+			pixel.events.every((event) => event["gulp.event_code"] === undefined),
+		).toBe(true);
+		coordinator.destroy();
+	});
+
 	it("drains journaled data for 200 concurrent ingestion streams", async () => {
 		const sourceCount = 200;
 		const eventsPerSource = 10;

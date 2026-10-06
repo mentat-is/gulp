@@ -16,6 +16,9 @@ import { Refractor } from "@/ui/utils";
 import { translate } from "@/locales";
 import type { Link } from "./Link";
 import { compareEventDocuments } from "@/event-store/EventStore.order";
+import {
+	createEventIndicatorValue,
+} from "@/event-store/EventIndicatorValue";
 
 export namespace Doc {
 	export const name = "Doc";
@@ -29,7 +32,8 @@ export namespace Doc {
 		gulp_timestamp: number;
 		"event.sequence"?: number;
 		"gulp.source_id": Source.Id;
-		"gulp.event_code": number;
+		"gulp.event_code"?: number;
+		indicatorValue?: number | string;
 		number_hash: number;
 	}
 
@@ -743,6 +747,9 @@ export namespace Doc {
 		): Doc.Type[] => {
 			for (let i = 0; i < docs.length; i++) {
 				const raw = docs[i] as any;
+				const eventCode = Number(raw["gulp.event_code"] ?? 0);
+				const normalizedEventCode = Number.isFinite(eventCode) ? eventCode : 0;
+				const indicatorValue = Refractor.get(raw, field);
 				docs[i] = {
 					_id: raw._id,
 					gulp_timestamp: Internal.Transformator.toTimestamp(
@@ -750,10 +757,14 @@ export namespace Doc {
 						"round",
 					),
 					"gulp.source_id": raw["gulp.source_id"],
-					"gulp.event_code": raw["gulp.event_code"],
 					number_hash: Refractor.any.toNumber(
-						Refractor.get(raw, field),
+						indicatorValue,
 						hashFunction,
+					),
+					indicatorValue: createEventIndicatorValue(
+						indicatorValue,
+						normalizedEventCode,
+						field,
 					),
 				} as Doc.Type;
 			}

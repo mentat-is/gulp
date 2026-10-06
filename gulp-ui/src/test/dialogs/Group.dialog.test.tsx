@@ -278,6 +278,24 @@ describe("DisplayGroupDialog EventStore pagination", () => {
 		).toBeNull();
 	});
 
+	it("shows the compact custom-field label instead of a missing event code", () => {
+		const customEvent: Doc.Type = {
+			...createEvent("custom-label", 1),
+			indicatorValue: "cust",
+		};
+		act(() => {
+			root.render(
+				<DisplayGroupDialog
+					events={[customEvent]}
+					groupKind="events"
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("| cust");
+		expect(container.textContent).not.toContain("| undefined");
+	});
+
 	it("retains at most 100 events and navigates next and previous pages", async () => {
 		const oversizedPage = createPage(
 			Array.from({ length: 105 }, (_, index) =>

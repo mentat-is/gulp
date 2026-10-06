@@ -1,6 +1,7 @@
 import type { Doc } from "@/entities/Doc";
 import {
 	coversRequestedSourceRange,
+	isQueryCacheIndicatorProjectionCompatible,
 	sourceSnapshotsMatch,
 	type QueryCacheProvenance,
 } from "@/entities/QueryCache";
@@ -56,6 +57,14 @@ import {
 	type EventSourceQueryCacheReconciliation,
 	type EventSourceSummary,
 } from "./EventStore.types";
+import {
+	EVENT_INDICATOR_LABEL_LENGTH,
+	getEventIndicatorColumnLayout,
+	getEventIndicatorFieldLayout,
+	getEventIndicatorValueLayout,
+	resolveEventIndicatorValue,
+	writeEventIndicatorLabel,
+} from "./EventIndicatorValue";
 
 const EVENT_DOCUMENT_INDEX_PHYSICAL_SHARD_BITS = 8;
 const EVENT_DOCUMENT_INDEX_PHYSICAL_SHARD_SHIFT =
@@ -145,6 +154,12 @@ interface StoredEventSourceManifest
 	inPlaceReplacement?: true;
 	pendingQueryCache?: QueryCacheProvenance;
 }
+
+/** Pre-projection default page retained for cache reuse without a database upgrade. */
+type LegacyEventCodePage = Omit<EncodedEventPage, "indicatorValues"> & {
+	eventCodes: Float64Array;
+	indicatorValues?: undefined;
+};
 
 /** Bounded binary ID locator segment addressable by a 12-bit hash-prefix shard. */
 export interface EncodedDocumentIndexSegment {
@@ -394,6 +409,16 @@ export class EventStoreRepository
 	public async beginGeneration(
 		input: BeginEventStoreGenerationInput,
 	): Promise<EventSourceSummary> {
+		if (
+			input.queryCache &&
+			!isQueryCacheIndicatorProjectionCompatible(
+				input.queryCache.normalization,
+			)
+		) {
+			throw new StaleEventStoreGenerationError(
+				"Query cache uses an unsupported event-indicator projection.",
+			);
+		}
 		await this.cleanupObsoleteGenerations(input.sourceId);
 		if (input.queryCache) {
 			await this.prepareQueryCacheSlot(input.sourceId);
@@ -442,6 +467,13 @@ export class EventStoreRepository
 			maxTimestamp: 0,
 			hashMin: 0,
 			hashMax: 0,
+			...(input.queryCache
+				? {
+						indicatorLayout: getEventIndicatorFieldLayout(
+							input.queryCache.normalization.field,
+						),
+					}
+				: {}),
 			encodedBytes: 0,
 			pages: [],
 			documentIndexSegments: [],
@@ -542,8 +574,16 @@ export class EventStoreRepository
 		for (const page of finalPages) {
 			catalogByPage.set(page.pageId, createEventPageCatalogEntry(page));
 		}
+		const appendedIndicatorLayout = getEventIndicatorColumnLayout(
+			finalPages[0].indicatorValues,
+		);
 		const nextManifest = this.recalculateManifest({
 			...deduplicatedManifest,
+			indicatorLayout:
+				deduplicatedManifest.indicatorLayout ??
+				(deduplicatedManifest.pages.length > 0
+					? "event-code"
+					: appendedIndicatorLayout),
 			revision: deduplicatedManifest.revision + 1,
 			nextHandle: Math.max(
 				deduplicatedManifest.nextHandle,
@@ -734,7 +774,21 @@ export class EventStoreRepository
 
 		for (const [documentId, document] of documentsById) {
 			const targetSourceId = document["gulp.source_id"];
-			requireComplete(targetSourceId);
+			const targetManifest = requireComplete(targetSourceId);
+			const targetIndicatorLayout =
+				targetManifest.indicatorLayout ??
+				(targetManifest.pages.length > 0 ? "event-code" : undefined);
+			const indicatorValue = resolveEventIndicatorValue(document);
+			const documentIndicatorLayout =
+				getEventIndicatorValueLayout(indicatorValue);
+			if (
+				targetIndicatorLayout !== undefined &&
+				targetIndicatorLayout !== documentIndicatorLayout
+			) {
+				throw new StaleEventStoreGenerationError(
+					"Event indicator representation changed inside the active generation.",
+				);
+			}
 			const existing = existingLocations.get(documentId);
 			if (!existing) {
 				insert(targetSourceId, document, allocateHandle(targetSourceId));
@@ -761,7 +815,25 @@ export class EventStoreRepository
 					normalizeEventSequence(document["event.sequence"])
 			) {
 				page.hashes[existing.offset] = document.number_hash;
-				page.eventCodes[existing.offset] = document["gulp.event_code"];
+				if (page.indicatorValues instanceof Uint16Array) {
+					if (typeof indicatorValue !== "string") {
+						throw new StaleEventStoreGenerationError(
+							"Event indicator representation changed inside the active generation.",
+						);
+					}
+					writeEventIndicatorLabel(
+						page.indicatorValues,
+						existing.offset,
+						indicatorValue,
+					);
+				} else {
+					if (typeof indicatorValue !== "number") {
+						throw new StaleEventStoreGenerationError(
+							"Event indicator representation changed inside the active generation.",
+						);
+					}
+					page.indicatorValues[existing.offset] = indicatorValue;
+				}
 				continue;
 			}
 
@@ -874,8 +946,17 @@ export class EventStoreRepository
 				const pages = [...catalogByPage.values()].sort((left, right) =>
 					this.compareCatalogEntries(left, right),
 				);
+				const replacementIndicatorLayout =
+					replacementPages.length > 0
+						? getEventIndicatorColumnLayout(
+								replacementPages[0].indicatorValues,
+							)
+						: manifest.indicatorLayout;
 				const nextManifest = this.recalculateManifest({
 					...manifest,
+					...(replacementIndicatorLayout
+						? { indicatorLayout: replacementIndicatorLayout }
+						: {}),
 					revision: manifest.revision + 1,
 					nextHandle: nextHandles.get(sourceId) ?? manifest.nextHandle,
 					encodedBytes:
@@ -1056,8 +1137,38 @@ export class EventStoreRepository
 	): Promise<EventSourceSummary> {
 		const manifest = await this.requireBuildingManifest(sourceId, generation);
 		const finalizedQueryCache = queryCache ?? manifest.pendingQueryCache;
+		if (
+			finalizedQueryCache &&
+			!isQueryCacheIndicatorProjectionCompatible(
+				finalizedQueryCache.normalization,
+			)
+		) {
+			throw new StaleEventStoreGenerationError(
+				"Query cache uses an unsupported indicator-value projection.",
+			);
+		}
+		const expectedIndicatorLayout = finalizedQueryCache
+			? getEventIndicatorFieldLayout(
+					finalizedQueryCache.normalization.field,
+				)
+			: manifest.indicatorLayout;
+		const persistedIndicatorLayout =
+			manifest.indicatorLayout ??
+			(manifest.pages.length > 0 ? "event-code" : undefined);
+		if (
+			expectedIndicatorLayout !== undefined &&
+			persistedIndicatorLayout !== undefined &&
+			expectedIndicatorLayout !== persistedIndicatorLayout
+		) {
+			throw new StaleEventStoreGenerationError(
+				"Stored indicator layout does not match query normalization.",
+			);
+		}
 		const completeGeneration: StoredEventGenerationManifest = {
 			...this.toGenerationManifest(manifest),
+			...(expectedIndicatorLayout
+				? { indicatorLayout: expectedIndicatorLayout }
+				: {}),
 			revision: manifest.revision + 1,
 			status: "complete",
 		};
@@ -1598,7 +1709,11 @@ export class EventStoreRepository
 		const reusableByRecency = records
 			.filter(
 				(record) =>
-					record.state === "exact" && record.manifest.status === "complete",
+					record.state === "exact" &&
+					record.manifest.status === "complete" &&
+					isQueryCacheIndicatorProjectionCompatible(
+						record.provenance.normalization,
+					),
 			)
 			.sort(
 				(left, right) =>
@@ -2317,6 +2432,7 @@ export class EventStoreRepository
 		const incomingPages: EncodedEventPage[] = [];
 		const winners = new Map<Doc.Id, { pageIndex: number; offset: number }>();
 		let maximumHandle = Math.max(0, manifest.nextHandle - 1);
+		let incomingIndicatorLayout: EventSourceManifest["indicatorLayout"];
 
 		for (const sourcePage of pages) {
 			this.assertEncodedPage(
@@ -2324,6 +2440,33 @@ export class EventStoreRepository
 				manifest.sourceId,
 				manifest.generation,
 			);
+			const pageIndicatorLayout = getEventIndicatorColumnLayout(
+				sourcePage.indicatorValues,
+			);
+			if (manifest.pendingQueryCache) {
+				const expectedLayout = getEventIndicatorFieldLayout(
+					manifest.pendingQueryCache.normalization.field,
+				);
+				if (pageIndicatorLayout !== expectedLayout) {
+					throw new StaleEventStoreGenerationError(
+						"Encoded page indicator layout does not match query normalization.",
+					);
+				}
+			}
+			const persistedIndicatorLayout =
+				manifest.indicatorLayout ??
+				(manifest.pages.length > 0 ? "event-code" : undefined);
+			if (
+				(persistedIndicatorLayout !== undefined &&
+					persistedIndicatorLayout !== pageIndicatorLayout) ||
+				(incomingIndicatorLayout !== undefined &&
+					incomingIndicatorLayout !== pageIndicatorLayout)
+			) {
+				throw new StaleEventStoreGenerationError(
+					"Event indicator representation changed inside the active generation.",
+				);
+			}
+			incomingIndicatorLayout = pageIndicatorLayout;
 			if (
 				existingPageIds.has(sourcePage.pageId) ||
 				incomingPageIds.has(sourcePage.pageId)
@@ -3125,16 +3268,20 @@ export class EventStoreRepository
 		generation: number,
 		pageId: number,
 	): Promise<EncodedEventPage> {
-		const page = await this.backend.get<EncodedEventPage>(
+		const storedPage = await this.backend.get<
+			EncodedEventPage | LegacyEventCodePage
+		>(
 			"pages",
 			this.createPageKey(sourceId, generation, pageId),
 		);
-		if (!page) {
+		if (!storedPage) {
 			throw new EventStoreCorruptionError(
 				`Missing event page ${sourceId}/${generation}/${pageId}.`,
 			);
 		}
-		return page;
+		if (storedPage.indicatorValues !== undefined) return storedPage;
+		const { eventCodes, ...legacyPage } = storedPage;
+		return { ...legacyPage, indicatorValues: eventCodes };
 	}
 
 	/**
@@ -3569,6 +3716,28 @@ export class EventStoreRepository
 			);
 		}
 		if (
+			!isQueryCacheIndicatorProjectionCompatible(
+				cacheRecord.provenance.normalization,
+			)
+		) {
+			throw new StaleEventStoreGenerationError(
+				`Query cache ${current.sourceId}/${generation} uses an unsupported indicator-value projection.`,
+			);
+		}
+		const expectedIndicatorLayout = getEventIndicatorFieldLayout(
+			cacheRecord.provenance.normalization.field,
+		);
+		const cachedIndicatorLayout =
+			cacheRecord.manifest.indicatorLayout ??
+			(cacheRecord.manifest.pages.length > 0
+				? "event-code"
+				: expectedIndicatorLayout);
+		if (cachedIndicatorLayout !== expectedIndicatorLayout) {
+			throw new StaleEventStoreGenerationError(
+				`Query cache ${current.sourceId}/${generation} has an incompatible indicator layout.`,
+			);
+		}
+		if (
 			(current.pendingCacheCleanup ?? []).some(
 				(marker) => marker.generation === generation,
 			)
@@ -3785,10 +3954,21 @@ export class EventStoreRepository
 		if (!document._id || !document["gulp.source_id"]) {
 			throw new TypeError("EventStore upsert requires document and source IDs.");
 		}
+		const indicatorValue = document.indicatorValue ?? document["gulp.event_code"];
+		const hasValidIndicatorValue =
+			(typeof indicatorValue === "number" && Number.isFinite(indicatorValue)) ||
+			(typeof indicatorValue === "string" &&
+				indicatorValue.length > 0 &&
+				indicatorValue.length <= EVENT_INDICATOR_LABEL_LENGTH &&
+				!indicatorValue.includes("\0"));
+		if (!hasValidIndicatorValue) {
+			throw new TypeError(
+				"EventStore upsert requires one valid indicator value.",
+			);
+		}
 		if (
 			!Number.isFinite(document.gulp_timestamp) ||
 			!Number.isFinite(document.number_hash) ||
-			!Number.isFinite(document["gulp.event_code"]) ||
 			(document["event.sequence"] !== undefined &&
 				!Number.isFinite(document["event.sequence"]))
 		) {
@@ -3808,7 +3988,7 @@ export class EventStoreRepository
 			timestamps: page.timestamps.slice(),
 			sequences: page.sequences.slice(),
 			hashes: page.hashes.slice(),
-			eventCodes: page.eventCodes.slice(),
+			indicatorValues: page.indicatorValues.slice(),
 			idOffsets: page.idOffsets.slice(),
 			idBytes: page.idBytes.slice(),
 			tombstones: page.tombstones.slice(),
@@ -3914,12 +4094,25 @@ export class EventStoreRepository
 		if (!Number.isSafeInteger(page.pageId) || page.pageId < 0) {
 			throw new RangeError("Event page ID must be a non-negative integer.");
 		}
+		const hasNumericIndicatorValues =
+			page.indicatorValues instanceof Float64Array;
+		const hasStringIndicatorValues =
+			page.indicatorValues instanceof Uint16Array;
+		if (!hasNumericIndicatorValues && !hasStringIndicatorValues) {
+			throw new EventStoreCorruptionError(
+				"Encoded event page must contain one supported indicator column.",
+			);
+		}
 		if (
 			page.handles.length !== page.count ||
 			page.timestamps.length !== page.count ||
 			page.sequences.length !== page.count ||
 			page.hashes.length !== page.count ||
-			page.eventCodes.length !== page.count ||
+			(hasNumericIndicatorValues &&
+				page.indicatorValues.length !== page.count) ||
+			(hasStringIndicatorValues &&
+				page.indicatorValues.length !==
+					page.count * EVENT_INDICATOR_LABEL_LENGTH) ||
 			page.idOffsets.length !== page.count + 1 ||
 			page.tombstones.length !== page.count ||
 			page.idOffsets[page.count] !== page.idBytes.length
@@ -3928,6 +4121,22 @@ export class EventStoreRepository
 		}
 		let activeCount = 0;
 		for (let index = 0; index < page.count; index++) {
+			if (
+				hasStringIndicatorValues &&
+				page.indicatorValues[index * EVENT_INDICATOR_LABEL_LENGTH] === 0
+			) {
+				throw new EventStoreCorruptionError(
+					"Encoded event page contains an empty indicator label.",
+				);
+			}
+			if (
+				hasNumericIndicatorValues &&
+				!Number.isFinite(page.indicatorValues[index])
+			) {
+				throw new EventStoreCorruptionError(
+					"Encoded event page contains a non-finite indicator value.",
+				);
+			}
 			if (!Number.isFinite(page.sequences[index])) {
 				throw new EventStoreCorruptionError(
 					"Encoded event page contains a non-finite event sequence.",

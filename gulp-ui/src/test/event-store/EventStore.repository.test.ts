@@ -49,7 +49,23 @@ function createDocument(
 		_id: id as Doc.Id,
 		gulp_timestamp: timestamp,
 		"gulp.source_id": sourceId,
-		"gulp.event_code": timestamp + 1,
+		indicatorValue: timestamp + 1,
+		number_hash: timestamp + 2,
+	};
+}
+
+/** Creates one exact custom-label fixture without a retained event code. */
+function createLabelDocument(
+	id: string,
+	timestamp: number,
+	label: string,
+	sourceId: Source.Id = SOURCE_ID,
+): Doc.Type {
+	return {
+		_id: id as Doc.Id,
+		gulp_timestamp: timestamp,
+		"gulp.source_id": sourceId,
+		indicatorValue: label,
 		number_hash: timestamp + 2,
 	};
 }
@@ -91,9 +107,9 @@ function createQueryCacheProvenance(
 		},
 		fingerprint,
 		normalization: {
-			field: "number_hash",
+			field: "gulp.event_code",
 			hashFunction: "fnv1a",
-			requestedFields: ["gulp_timestamp", "number_hash"],
+			requestedFields: ["gulp_timestamp", "gulp.event_code"],
 		},
 		serverSnapshot: {
 			total: 1,
@@ -352,6 +368,47 @@ describe("EventStoreRepository", () => {
 		expect((await repository.getByHandle(SOURCE_ID, 2))?._id).toBe("second");
 	});
 
+	it("adapts a legacy default eventCodes page at the load boundary", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		await repository.beginGeneration({ sourceId: SOURCE_ID, generation: 1 });
+		await repository.appendPages({
+			sourceId: SOURCE_ID,
+			generation: 1,
+			pages: [
+				createPage(1, 1, 1, [createDocument("legacy-default", 10)], [1]),
+			],
+		});
+		await repository.finalizeGeneration(SOURCE_ID, 1);
+		const page = await backend.get<EncodedEventPage>("pages", [SOURCE_ID, 1, 1]);
+		const manifest = await backend.get<EventSourceManifest>("sources", SOURCE_ID);
+		if (!page || !manifest) throw new Error("Expected committed source fixtures.");
+		if (!(page.indicatorValues instanceof Float64Array)) {
+			throw new Error("Expected a numeric indicator fixture.");
+		}
+		const { indicatorValues, ...legacyPage } = page;
+		const { indicatorLayout: _indicatorLayout, ...legacyManifest } = manifest;
+		await backend.commit([
+			{
+				type: "put",
+				store: "pages",
+				key: [SOURCE_ID, 1, 1],
+				value: { ...legacyPage, eventCodes: indicatorValues },
+			},
+			{
+				type: "put",
+				store: "sources",
+				key: SOURCE_ID,
+				value: legacyManifest,
+			},
+		]);
+
+		const reopened = new EventStoreRepository(backend);
+		expect(await reopened.getById("legacy-default" as Doc.Id)).toMatchObject({
+			indicatorValue: 11,
+		});
+	});
+
 	it("rejects work from a superseded generation", async () => {
 		const repository = new EventStoreRepository(new MemoryEventStoreBackend());
 		await repository.beginGeneration({ sourceId: SOURCE_ID, generation: 1 });
@@ -584,6 +641,104 @@ describe("EventStoreRepository", () => {
 		expect(moved?._id).toBe("mutable");
 		expect(moved?.gulp_timestamp).toBe(50);
 		expect((await repository.getSourceSummary(SOURCE_ID))?.eventCount).toBe(1);
+	});
+
+	it("updates four-cell labels in place and rejects representation changes", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		await repository.beginGeneration({ sourceId: SOURCE_ID, generation: 1 });
+		await repository.appendPages({
+			sourceId: SOURCE_ID,
+			generation: 1,
+			pages: [
+				createPage(
+					1,
+					1,
+					1,
+					[createLabelDocument("custom-mutable", 10, "old")],
+					[7],
+				),
+			],
+		});
+		await repository.finalizeGeneration(SOURCE_ID, 1);
+
+		await repository.upsertDocuments({
+			documents: [createLabelDocument("custom-mutable", 10, "new")],
+		});
+		expect(await repository.getByHandle(SOURCE_ID, 7)).toMatchObject({
+			indicatorValue: "new",
+		});
+		await expect(
+			repository.upsertDocuments({
+				documents: [createDocument("custom-mutable", 10)],
+			}),
+		).rejects.toThrow("indicator representation changed");
+	});
+
+	it("rejects encoded pages whose layout disagrees with query normalization", async () => {
+		const repository = new EventStoreRepository(new MemoryEventStoreBackend());
+		const queryCache = createQueryCacheProvenance("custom-layout");
+		queryCache.normalization = {
+			field: "category",
+			hashFunction: "fnv1a",
+			requestedFields: ["category"],
+			indicatorValueVersion: 1,
+		};
+		const summary = await repository.beginGeneration({
+			sourceId: SOURCE_ID,
+			generation: 1,
+			queryCache,
+		});
+
+		await expect(
+			repository.appendPages({
+				sourceId: SOURCE_ID,
+				generation: 1,
+				pages: [
+					createPage(
+						1,
+						1,
+						summary.revision,
+						[createDocument("wrong-layout", 10)],
+						[1],
+					),
+				],
+			}),
+		).rejects.toThrow("indicator layout does not match query normalization");
+	});
+
+	it("rejects an indicator layout change across pages in one generation", async () => {
+		const repository = new EventStoreRepository(new MemoryEventStoreBackend());
+		await repository.beginGeneration({ sourceId: SOURCE_ID, generation: 1 });
+		const appended = await repository.appendPages({
+			sourceId: SOURCE_ID,
+			generation: 1,
+			pages: [
+				createPage(
+					1,
+					1,
+					1,
+					[createLabelDocument("custom-first", 20, "cust")],
+					[1],
+				),
+			],
+		});
+
+		await expect(
+			repository.appendPages({
+				sourceId: SOURCE_ID,
+				generation: 1,
+				pages: [
+					createPage(
+						2,
+						1,
+						appended.revision,
+						[createDocument("default-second", 10)],
+						[2],
+					),
+				],
+			}),
+		).rejects.toThrow("indicator representation changed");
 	});
 
 	it("allocates a target-local handle when an event changes source", async () => {
@@ -1748,6 +1903,52 @@ describe("EventStoreRepository", () => {
 		expect(reconciled).toMatchObject({
 			match: "latest",
 			cache: { provenance: { fingerprint: "legacy-full-fingerprint" } },
+		});
+	});
+
+	it("excludes and rebuilds legacy custom-field caches without a value version", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		await appendQueryCache(
+			repository,
+			undefined,
+			"legacy-custom",
+			"legacy-custom-event",
+			10,
+		);
+		const record = await backend.get<EventSourceQueryCacheRecord>(
+			"source_query_caches",
+			[SOURCE_ID, 1],
+		);
+		if (!record) throw new Error("Expected a persisted query cache record.");
+		await backend.commit([
+			{
+				type: "put",
+				store: "source_query_caches",
+				key: [SOURCE_ID, 1],
+				value: {
+					...record,
+					provenance: {
+						...record.provenance,
+						normalization: {
+							...record.provenance.normalization,
+							field: "category",
+						},
+					},
+				},
+			},
+		]);
+
+		expect(
+			await repository.reconcileQueryCache({
+				sourceId: SOURCE_ID,
+				desired: createDesiredQueryCacheLookup("legacy-custom"),
+			}),
+		).toBeNull();
+		expect(await repository.listQueryCaches(SOURCE_ID)).toEqual([]);
+		expect(await repository.getSourceSummary(SOURCE_ID)).toMatchObject({
+			status: "incomplete",
+			activeCacheGeneration: null,
 		});
 	});
 

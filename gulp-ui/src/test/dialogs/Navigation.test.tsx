@@ -92,7 +92,7 @@ jest.mock("@/dialogs/Event.dialog", () => ({
 			data-event-id={event._id}
 			onClick={onClick}
 		>
-			{event["gulp.event_code"]}
+			{event.indicatorValue ?? event["gulp.event_code"]}
 		</button>
 	),
 }));
@@ -156,7 +156,7 @@ function createEvent(id: string, timestamp: number): Doc.Type {
 	return {
 		_id: id as Doc.Id,
 		"gulp.source_id": SOURCE_ID,
-		"gulp.event_code": timestamp,
+		indicatorValue: timestamp,
 		gulp_timestamp: timestamp,
 		number_hash: timestamp,
 	} as Doc.Type;
@@ -210,7 +210,7 @@ describe("Event Dialog navigation", () => {
 				id: event._id,
 				sourceId: event["gulp.source_id"],
 				timestamp: event.gulp_timestamp,
-				eventCode: event["gulp.event_code"],
+				indicatorValue: event.indicatorValue ?? 0,
 				numberHash: event.number_hash,
 				hasNotes: false,
 				hasLinks: false,
@@ -248,6 +248,32 @@ describe("Event Dialog navigation", () => {
 			).at(-1)?.[0],
 		).toBe(events[6]._id);
 		expect(mockSpawnDialog).not.toHaveBeenCalled();
+	});
+
+	it("reconstructs compact custom labels in detached navigation", () => {
+		const currentEvent: Doc.Type = {
+			...createEvent("custom-current", 10),
+			indicatorValue: "cust",
+		};
+		mockNavigation = {
+			currentEventId: currentEvent._id,
+			items: [
+				{
+					id: currentEvent._id,
+					sourceId: currentEvent["gulp.source_id"],
+					timestamp: currentEvent.gulp_timestamp,
+					indicatorValue: "cust",
+					numberHash: currentEvent.number_hash,
+					hasNotes: false,
+					hasLinks: false,
+				},
+			],
+			previousEventId: null,
+			nextEventId: null,
+		};
+
+		act(() => root.render(<Navigation event={currentEvent} />));
+		expect(container.textContent).toContain("cust");
 	});
 
 	it("uses the bounded async EventStore navigation path", async () => {

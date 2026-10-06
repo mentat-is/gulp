@@ -68,6 +68,7 @@ import { resolveEventRenderColor } from "@/utils";
 import { useEventDetail } from "./useEventDetail";
 import { useEventDetailViewPreference } from "./useEventDetailView";
 import type { WindowBridge } from "@/lib/WindowBridge";
+import { getEventIndicatorPresentation } from "@/event-store/EventIndicatorValue";
 
 // --- UTILITIES ---
 
@@ -2384,14 +2385,12 @@ export function EventIndicator({
 		resolvedColor,
 	]);
 
-	const indicatorLabel = useMemo(
-		() => String(event["gulp.event_code"]).slice(0, 4),
-		[event],
+	const indicatorPresentation = useMemo(
+		() => getEventIndicatorPresentation(event),
+		[event.indicatorValue, event["gulp.event_code"]],
 	);
-	const indicatorTooltip = useMemo(
-		() => String(event["gulp.event_code"]),
-		[event],
-	);
+	const indicatorLabel = indicatorPresentation.label;
+	const indicatorTooltip = indicatorPresentation.tooltip;
 	const indicatorFontSize = useMemo(() => {
 		return 10;
 	}, [indicatorLabel]);

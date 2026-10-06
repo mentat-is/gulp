@@ -30,6 +30,53 @@ function normalizeOne(
 }
 
 describe("normalizeQueryDocuments", () => {
+	it("retains only bounded custom labels and falls back to event codes", () => {
+		const cases: Array<[unknown, string]> = [
+			["network-value-that-must-not-survive", "netw"],
+			[123456, "1234"],
+			["", "9876"],
+			[undefined, "9876"],
+			[{ nested: true }, "9876"],
+			["A😀BC", "A😀B"],
+			["A\0BC", "A�BC"],
+		];
+		for (const [category, expected] of cases) {
+			const document = normalizeOne({
+				_id: `label-${expected}`,
+				"gulp.source_id": "source-dynamic",
+				"gulp.timestamp": 1_700_000_000_000,
+				"gulp.event_code": 987654,
+				category,
+			});
+			expect(document.indicatorValue).toBe(expected);
+			expect(document["gulp.event_code"]).toBeUndefined();
+			expect(JSON.stringify(document)).not.toContain(
+				"network-value-that-must-not-survive",
+			);
+		}
+	});
+
+	it("keeps the full event code for the default color field", () => {
+		const document = normalizeOne(
+			{
+				_id: "default-code",
+				"gulp.source_id": "source-default",
+				"gulp.timestamp": 1_700_000_000_000,
+				"gulp.event_code": 987654,
+			},
+			{
+				...descriptor,
+				defaultSourceSettings: {
+					field: "gulp.event_code",
+					hash_function: "fnv1a",
+				},
+			},
+		);
+
+		expect(document.indicatorValue).toBe(987654);
+		expect(document["gulp.event_code"]).toBeUndefined();
+	});
+
 	it("preserves DataWorker timestamp-unit semantics", () => {
 		const cases: Array<[number, number]> = [
 			[1_700_000_000, 1_700_000_000_000],

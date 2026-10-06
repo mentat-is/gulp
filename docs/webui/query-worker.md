@@ -191,7 +191,10 @@ exact fingerprint is derived from deterministic JSON: object keys are sorted
 and array order is preserved. It includes operation/source identity, the
 effective nanosecond range, text and structured filters, a manual raw query,
 manual mode, and the normalization inputs that affect persisted timeline
-documents. A second shape fingerprint uses the same inputs but canonicalizes
+documents. Custom color-field normalizations include the compact indicator-value
+projection version; the default `gulp.event_code` normalization omits it so
+existing default-field caches keep the same identity. A second shape fingerprint
+uses the same inputs but canonicalizes
 only the range generated from `source_config`, including its generated backend
 clause. User-authored ranges remain semantic. The display-only `Query.string`
 and `fieldTypeMap` itself are excluded; the canonical backend filter after
@@ -502,10 +505,30 @@ metadata can be listed and activated without decoding event pages.
 An exact page contains at most 16,384 events in columnar binary form:
 
 - `Uint32Array` source-local handles;
-- `Float64Array` timestamps, event sequences, numeric hashes, and event codes;
+- `Float64Array` timestamps, event sequences, and numeric hashes;
+- one `indicatorValues` column whose runtime type is `Float64Array` for complete
+  `gulp.event_code` numbers or `Uint16Array` for custom labels with four UTF-16
+  cells per event; both representations use eight bytes per event;
 - UTF-8 document IDs with an offset array;
 - a tombstone bitmap;
 - page count, ranges, generation, revision, and encoded size.
+
+The minimal document exposes the same single `indicatorValue: number | string`
+property consumed by navigation and Group dialogs. Custom normalization computes
+the color hash and string value from the same raw field, then retains only a
+four-code-unit prefix. Missing, empty, or non-scalar values use the event-code
+prefix. NUL units are sanitized because zero terminates the fixed-width label.
+Event detail continues to retrieve the complete backend document. Page
+validation, cloning, compaction, and constant-time upserts preserve the typed
+layout and reject a layout change inside one generation. A single load-boundary
+adapter maps legacy default pages from `eventCodes` to `indicatorValues`, so
+existing default-field caches remain reusable without spreading compatibility
+branches through readers or UI code.
+
+This projection does not change IndexedDB database version 6 and adds no bytes
+per event. The pending normalized-document limit remains 32,768, the main event
+cache remains 2,048 documents, and each source still retains at most five query
+caches.
 
 Backend `docs_chunk` frames remain capped at 10,000 events. A replace therefore
 keeps its partial builder across frames: for example, three 10,000-event chunks
@@ -580,7 +603,9 @@ contains the desired exact and shape fingerprints, raw nanosecond range and
 current server snapshot. Under the source lease, the worker:
 
 1. lists only complete cache metadata, without reading event pages;
-2. excludes `mutated` records from automatic reuse;
+2. excludes `mutated` records and custom-field records without the current
+   compact-value projection version from automatic reuse; legacy
+   `gulp.event_code` records remain compatible;
 3. selects an exact cache with a fresh server snapshot when available;
 4. otherwise selects a fresh same-shape cache when the desired source-local
    range is fully covered;

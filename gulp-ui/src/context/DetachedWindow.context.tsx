@@ -292,8 +292,9 @@ function createDialogNavigation(
 				id: sourceEvent._id,
 				sourceId: sourceEvent["gulp.source_id"],
 				timestamp: sourceEvent.gulp_timestamp,
-				eventCode: sourceEvent["gulp.event_code"],
 				numberHash: sourceEvent.number_hash,
+				indicatorValue:
+					sourceEvent.indicatorValue ?? sourceEvent["gulp.event_code"] ?? 0,
 				...(color ? { color } : {}),
 				hasNotes: noteEventIds.has(sourceEvent._id),
 				hasLinks: linkedEventIds.has(sourceEvent._id),

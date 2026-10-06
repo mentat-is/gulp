@@ -13,6 +13,13 @@ import {
 	type EncodedEventPageLod,
 	type EventPageCatalogEntry,
 } from "./EventStore.types";
+import {
+	EVENT_INDICATOR_LABEL_LENGTH,
+	getEventIndicatorValueLayout,
+	readEventIndicatorLabel,
+	type EventIndicatorValue,
+	writeEventIndicatorLabel,
+} from "./EventIndicatorValue";
 
 export interface EncodeEventPageInput {
 	sourceId: Source.Id;
@@ -33,6 +40,23 @@ export interface BuildEventPageLodOptions {
 	overrideHashes?: ReadonlySet<number>;
 	overrideRevision?: number;
 	overrideSignature?: string;
+}
+
+/**
+ * Resolves the one indicator value accepted by exact-page persistence.
+ * Complete backend documents may provide the default event-code field as fallback.
+ * @param document Minimal or complete event document.
+ * @returns Finite numeric event code or compact string label.
+ */
+function getPersistedEventIndicatorValue(document: Doc.Type): EventIndicatorValue {
+	const value = document.indicatorValue ?? document["gulp.event_code"];
+	if (
+		(typeof value !== "number" || !Number.isFinite(value)) &&
+		typeof value !== "string"
+	) {
+		throw new Error("Event page document is missing a valid indicator value.");
+	}
+	return value;
 }
 
 /**
@@ -71,7 +95,7 @@ export function getEncodedEventPageByteLength(page: {
 	timestamps: Float64Array;
 	sequences: Float64Array;
 	hashes: Float64Array;
-	eventCodes: Float64Array;
+	indicatorValues: Float64Array | Uint16Array;
 	idOffsets: Uint32Array;
 	idBytes: Uint8Array;
 	tombstones: Uint8Array;
@@ -81,7 +105,7 @@ export function getEncodedEventPageByteLength(page: {
 		page.timestamps.byteLength +
 		page.sequences.byteLength +
 		page.hashes.byteLength +
-		page.eventCodes.byteLength +
+		page.indicatorValues.byteLength +
 		page.idOffsets.byteLength +
 		page.idBytes.byteLength +
 		page.tombstones.byteLength
@@ -120,11 +144,20 @@ export function encodeEventPage(input: EncodeEventPageInput): EncodedEventPage {
 			compareEventDocuments(left.document, right.document),
 		);
 	const count = entries.length;
+	const indicatorLayout =
+		entries.length === 0
+			? "event-code"
+			: getEventIndicatorValueLayout(
+					getPersistedEventIndicatorValue(entries[0].document),
+				);
 	const handles = new Uint32Array(count);
 	const timestamps = new Float64Array(count);
 	const sequences = new Float64Array(count);
 	const hashes = new Float64Array(count);
-	const eventCodes = new Float64Array(count);
+	const indicatorValues: Float64Array | Uint16Array =
+		indicatorLayout === "label"
+			? new Uint16Array(count * EVENT_INDICATOR_LABEL_LENGTH)
+			: new Float64Array(count);
 	const idOffsets = new Uint32Array(count + 1);
 	const tombstones = new Uint8Array(count);
 	const encodedIds = new Array<Uint8Array>(count);
@@ -148,7 +181,31 @@ export function encodeEventPage(input: EncodeEventPageInput): EncodedEventPage {
 		timestamps[index] = document.gulp_timestamp;
 		sequences[index] = normalizeEventSequence(document["event.sequence"]);
 		hashes[index] = document.number_hash;
-		eventCodes[index] = document["gulp.event_code"];
+		const indicatorValue = getPersistedEventIndicatorValue(document);
+		if (getEventIndicatorValueLayout(indicatorValue) !== indicatorLayout) {
+			throw new Error(
+				"Event page cannot mix numeric and string indicator values.",
+			);
+		}
+		if (indicatorValues instanceof Uint16Array) {
+			if (
+				typeof indicatorValue !== "string" ||
+				indicatorValue.length === 0 ||
+				indicatorValue.length > EVENT_INDICATOR_LABEL_LENGTH ||
+				indicatorValue.includes("\0")
+			) {
+				throw new Error("Event page contains an invalid string indicator value.");
+			}
+			writeEventIndicatorLabel(indicatorValues, index, indicatorValue);
+		} else {
+			if (
+				typeof indicatorValue !== "number" ||
+				!Number.isFinite(indicatorValue)
+			) {
+				throw new Error("Event page contains an invalid numeric indicator value.");
+			}
+			indicatorValues[index] = indicatorValue;
+		}
 		minTimestamp = Math.min(minTimestamp, document.gulp_timestamp);
 		maxTimestamp = Math.max(maxTimestamp, document.gulp_timestamp);
 		hashMin = Math.min(hashMin, document.number_hash);
@@ -175,7 +232,7 @@ export function encodeEventPage(input: EncodeEventPageInput): EncodedEventPage {
 		timestamps,
 		sequences,
 		hashes,
-		eventCodes,
+		indicatorValues,
 		idOffsets,
 		idBytes,
 		tombstones,
@@ -208,14 +265,22 @@ export function decodeEventAt(
 	const documentId = new TextDecoder().decode(
 		page.idBytes.subarray(idStart, idEnd),
 	);
-	return {
+	const document: Doc.Type = {
 		_id: documentId as Doc.Id,
 		gulp_timestamp: page.timestamps[offset],
 		"event.sequence": page.sequences[offset],
 		"gulp.source_id": page.sourceId,
-		"gulp.event_code": page.eventCodes[offset],
 		number_hash: page.hashes[offset],
 	};
+	if (page.indicatorValues instanceof Uint16Array) {
+		document.indicatorValue = readEventIndicatorLabel(
+			page.indicatorValues,
+			offset,
+		);
+	} else {
+		document.indicatorValue = page.indicatorValues[offset];
+	}
+	return document;
 }
 
 /**

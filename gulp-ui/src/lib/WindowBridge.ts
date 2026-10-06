@@ -259,15 +259,20 @@ export namespace WindowBridge {
   /** Odd number of indicators rendered with the active event at the center. */
   export const DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE = 11
 
-  export interface DetachedDialogNavigationItem {
+  interface DetachedDialogNavigationItemBase {
     id: Doc.Id
     sourceId: Source.Id
     timestamp: number
-    eventCode: number
     numberHash: number
     color?: string
     hasNotes: boolean
     hasLinks: boolean
+  }
+
+  /** Compact indicator payload using one numeric-or-string presentation value. */
+  export interface DetachedDialogNavigationItem
+    extends DetachedDialogNavigationItemBase {
+    indicatorValue: number | string
   }
 
   export interface DetachedDialogNavigation {

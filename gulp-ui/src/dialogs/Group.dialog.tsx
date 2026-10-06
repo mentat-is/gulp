@@ -29,6 +29,7 @@ import {
 	type EventPageCursor,
 	type EventPixelPage,
 } from "@/event-store/EventStore.types";
+import { getEventIndicatorPresentation } from "@/event-store/EventIndicatorValue";
 
 type DisplayGroupTitleKey = `group.title.${DisplayGroupKind}`;
 
@@ -889,7 +890,7 @@ export function DisplayGroupDialog(props: DisplayGroupDialogProps) {
 			<div className={s.previewContent}>
 				<p className={s.previewTitle}>{selectedEvent._id}</p>
 				<p className={s.previewCode}>
-					{selectedEvent["gulp.event_code"] || "N/A"}
+					{getEventIndicatorPresentation(selectedEvent).tooltip}
 				</p>
 				<div className={s.previewMarkdown}>
 					<Markdown
@@ -930,6 +931,7 @@ export function DisplayGroupDialog(props: DisplayGroupDialogProps) {
 		(row: EventListRow) => {
 			const { event, note } = row;
 			if (!event) return null;
+			const indicatorPresentation = getEventIndicatorPresentation(event);
 
 			return (
 				<Stack
@@ -949,7 +951,7 @@ export function DisplayGroupDialog(props: DisplayGroupDialogProps) {
 					<div className={s.info}>
 						<p className={s.id}>
 							{`${format(new Date(event.gulp_timestamp), "yyyy-MM-dd HH:mm:ss")}.${String(Internal.Transformator.toNanos(event.gulp_timestamp) % 1_000_000n).padStart(6, "0")}`}{" "}
-							| {event["gulp.event_code"]}
+							| {indicatorPresentation.tooltip}
 						</p>
 						<span className={s.description}>{event._id}</span>
 					</div>

@@ -6,6 +6,7 @@ import {
 	createEventPageCatalogEntry,
 	decodeEventAt,
 	encodeEventPage,
+	getEncodedEventPageByteLength,
 	hashEventDocumentId,
 } from "@/event-store/EventPage.codec";
 
@@ -22,7 +23,23 @@ function createDocument(id: string, timestamp: number, hash: number): Doc.Type {
 		_id: id as Doc.Id,
 		gulp_timestamp: timestamp,
 		"gulp.source_id": SOURCE_ID,
-		"gulp.event_code": hash + 10,
+		indicatorValue: hash + 10,
+		number_hash: hash,
+	};
+}
+
+/** Creates one custom-field minimal document without retaining the event code. */
+function createLabelDocument(
+	id: string,
+	timestamp: number,
+	hash: number,
+	indicatorValue: string,
+): Doc.Type {
+	return {
+		_id: id as Doc.Id,
+		gulp_timestamp: timestamp,
+		"gulp.source_id": SOURCE_ID,
+		indicatorValue,
 		number_hash: hash,
 	};
 }
@@ -66,6 +83,77 @@ describe("EventPage codec", () => {
 		expect(page.count).toBe(2);
 		expect(Array.from(page.handles)).toEqual([2, 3]);
 		expect(decodeEventAt(page, 1)?.number_hash).toBe(9);
+	});
+
+	it("round-trips custom labels in the same eight bytes used by event codes", () => {
+		const defaultPage = encodeEventPage({
+			sourceId: SOURCE_ID,
+			generation: 1,
+			pageId: 1,
+			revision: 1,
+			documents: [createDocument("same-id", 100, 5)],
+		});
+		const customPage = encodeEventPage({
+			sourceId: SOURCE_ID,
+			generation: 2,
+			pageId: 1,
+			revision: 1,
+			documents: [createLabelDocument("same-id", 100, 5, "A😀B")],
+		});
+
+		expect(defaultPage.indicatorValues).toBeInstanceOf(Float64Array);
+		expect(customPage.indicatorValues).toBeInstanceOf(Uint16Array);
+		expect(defaultPage.indicatorValues.byteLength).toBe(8);
+		expect(customPage.indicatorValues.byteLength).toBe(8);
+		expect("eventCodes" in customPage).toBe(false);
+		expect("indicatorLabels" in customPage).toBe(false);
+		expect(decodeEventAt(customPage, 0)).toMatchObject({
+			indicatorValue: "A😀B",
+		});
+		expect(decodeEventAt(customPage, 0)?.["gulp.event_code"]).toBeUndefined();
+		expect(getEncodedEventPageByteLength(customPage)).toBe(
+			getEncodedEventPageByteLength(defaultPage),
+		);
+	});
+
+	it("rejects pages that mix numeric and string indicator values", () => {
+		let mixedError: unknown;
+		try {
+			encodeEventPage({
+				sourceId: SOURCE_ID,
+				generation: 1,
+				pageId: 1,
+				revision: 1,
+				documents: [
+					createDocument("default", 100, 1),
+					createLabelDocument("custom", 90, 2, "cust"),
+				],
+			});
+		} catch (error) {
+			mixedError = error;
+		}
+		expect(mixedError instanceof Error).toBe(true);
+		expect((mixedError as Error).message).toContain(
+			"cannot mix numeric and string indicator values",
+		);
+	});
+
+	it("persists only indicatorValue when a complete document also has an event code", () => {
+		const page = encodeEventPage({
+			sourceId: SOURCE_ID,
+			generation: 1,
+			pageId: 1,
+			revision: 1,
+			documents: [
+				{
+					...createLabelDocument("complete", 100, 1, "cust"),
+					"gulp.event_code": 42,
+				},
+			],
+		});
+
+		expect(decodeEventAt(page, 0)?.indicatorValue).toBe("cust");
+		expect(decodeEventAt(page, 0)?.["gulp.event_code"]).toBeUndefined();
 	});
 
 	it("orders equal timestamps by descending event.sequence", () => {

@@ -597,9 +597,9 @@ describe("DetachedWindow coordinator client isolation", () => {
 		const sourceEvents = Array.from({ length: 13 }, (_, index) => ({
 			_id: `dialog-event-${13 - index}` as Doc.Id,
 			"gulp.source_id": SOURCE_ID,
-			"gulp.event_code": 200 + index,
 			gulp_timestamp: 13 - index,
 			number_hash: index,
+			indicatorValue: index === 6 ? "cust" : 200 + index,
 		} as Doc.Type));
 		sourceEvents.forEach((event) => mockDocsById.set(event._id, event));
 		documentIdentityRegistry.indexDocuments(SOURCE_ID, sourceEvents);
@@ -692,6 +692,11 @@ describe("DetachedWindow coordinator client isolation", () => {
 				Math.floor(WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE / 2)
 			]?.id,
 		).toBe(firstEvent._id);
+		expect(
+			navigation?.items[
+				Math.floor(WindowBridge.DIALOG_NAVIGATION_VISIBLE_WINDOW_SIZE / 2)
+			]?.indicatorValue,
+		).toBe("cust");
 		expect(
 			navigation?.items.map((item) => item?.id ?? null),
 		).toEqual(

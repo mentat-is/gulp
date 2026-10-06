@@ -215,9 +215,9 @@ function createQueryProvenance(fingerprint: string): QueryCacheProvenance {
 		},
 		fingerprint,
 		normalization: {
-			field: "number_hash",
+			field: "gulp.event_code",
 			hashFunction: "fnv1a",
-			requestedFields: [],
+			requestedFields: ["gulp.event_code"],
 		},
 		serverSnapshot: {
 			total: 1,

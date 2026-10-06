@@ -605,7 +605,7 @@ async function runTimelineReplay(options: RendererQueryReplayStartOptions): Prom
 			const byId = new Map(documents.map((document) => [document._id, document]));
 			for (const sample of samples) {
 				const document = byId.get(sample.id);
-				if (!document || document["gulp.source_id"] !== sample.source.sourceId || document["gulp.event_code"] !== sample.index % 8000) throw new Error(`Persisted replay sample mismatch: ${sample.id}`);
+				if (!document || document["gulp.source_id"] !== sample.source.sourceId || document.indicatorValue !== sample.index % 8000) throw new Error(`Persisted replay sample mismatch: ${sample.id}`);
 				sampledDocuments++;
 			}
 			for (const source of sources) if (summaries.get(source.sourceId)?.summary.eventCount !== source.count) throw new Error(`Replay source count mismatch: ${source.sourceId}`);
