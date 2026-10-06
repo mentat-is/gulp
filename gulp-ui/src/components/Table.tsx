@@ -7,25 +7,6 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-	DndContext,
-	DragOverlay,
-	KeyboardSensor,
-	PointerSensor,
-	closestCenter,
-	type Announcements,
-	type DragEndEvent,
-	type DragStartEvent,
-	useSensor,
-	useSensors,
-} from "@dnd-kit/core";
-import {
-	SortableContext,
-	sortableKeyboardCoordinates,
-	useSortable,
-	verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 
 import s from "./styles/Table.module.css";
 import { cn, copy } from "@/ui/utils";
@@ -41,10 +22,9 @@ import {
 	TooltipProvider,
 } from "@/ui/Tooltip";
 import { Color } from "@/entities/Color";
-import { Popover } from "@/ui/Popover";
 import { useTableConfig } from "@/hooks/useTableConfig";
 import { Locale } from "@/locales";
-import { Input } from "@/ui/Input";
+import { FieldVisibilityMenu } from "@/ui/FieldVisibilityMenu";
 
 export type Object = Record<string, any>;
 
@@ -80,11 +60,6 @@ interface SharedTooltipState {
 	/** Collision-aware tooltip size limits. */
 	maxWidth: number;
 	maxHeight: number;
-}
-
-interface FrozenPopoverAnchor {
-	/** Returns the trigger bounds captured when the popover was opened. */
-	getBoundingClientRect: () => DOMRect;
 }
 
 const SHARED_TOOLTIP_GAP = 6;
@@ -367,159 +342,7 @@ const DEFAULT_HORIZONTAL_VIRTUALIZATION_CONFIG: HorizontalVirtualizationConfig =
 	overscan: 3,
 };
 
-const COLUMN_MENU_ITEM_HEIGHT = 30;
-const COLUMN_MENU_OVERSCAN = 8;
-const COLUMN_MENU_CHROME_HEIGHT = 160;
-const DEFAULT_COLUMN_MENU_LIST_HEIGHT = 320;
-const COLUMN_MENU_SIDE_OFFSET = 4;
-const COLUMN_MENU_VIEWPORT_MARGIN = 8;
-
 const EMPTY_RENDER_MAP: Record<string, never> = {};
-
-interface ColumnVisibilityOptionContentProps {
-	/** Whether the column is currently rendered by the table. */
-	checked: boolean;
-	/** Visible localized column label. */
-	label: string;
-	/** Toggles this column between the selected and unselected lists. */
-	onToggle: () => void;
-}
-
-/**
- * Renders the shared selectable content for one column menu entry.
- * @param props - Visibility state, label, and toggle callback.
- * @returns A checkbox-like column toggle.
- */
-function ColumnVisibilityOptionContent({
-	checked,
-	label,
-	onToggle,
-}: ColumnVisibilityOptionContentProps) {
-	return (
-		<button
-			type="button"
-			className={s.columnVisibilityToggle}
-			role="checkbox"
-			aria-checked={checked}
-			onClick={onToggle}
-		>
-			<span className={s.columnVisibilityIndicator}>
-				{checked ? (
-					<Icon
-						name="Check"
-						size={14}
-						color="currentColor"
-					/>
-				) : null}
-			</span>
-			<span className={s.columnVisibilityOptionLabel}>{label}</span>
-		</button>
-	);
-}
-
-interface StaticColumnVisibilityOptionProps
-	extends ColumnVisibilityOptionContentProps {
-	/** Stable field key used by tests and virtualization. */
-	column: string;
-	/** Virtual row height in pixels. */
-	height: number;
-	/** Virtual row offset in pixels. */
-	start: number;
-}
-
-/**
- * Renders a virtualized non-sortable column option.
- * @param props - Column content and virtual row geometry.
- * @returns An absolutely positioned column option.
- */
-function StaticColumnVisibilityOption({
-	column,
-	height,
-	start,
-	...contentProps
-}: StaticColumnVisibilityOptionProps) {
-	return (
-		<div
-			className={s.columnVisibilityVirtualItem}
-			style={{ height, transform: `translateY(${start}px)` }}
-		>
-			<div
-				className={s.columnVisibilityOption}
-				data-column-menu-option={column}
-			>
-				<ColumnVisibilityOptionContent {...contentProps} />
-			</div>
-		</div>
-	);
-}
-
-interface SortableColumnVisibilityOptionProps
-	extends StaticColumnVisibilityOptionProps {
-	/** Accessible label for the drag handle. */
-	dragLabel: string;
-	/** Whether sorting is unavailable while the menu search is active. */
-	sortingDisabled: boolean;
-}
-
-/**
- * Renders a virtualized selected column with an accessible drag handle.
- * @param props - Column content, virtual geometry, and sorting state.
- * @returns A sortable selected-column option.
- */
-function SortableColumnVisibilityOption({
-	column,
-	height,
-	start,
-	dragLabel,
-	sortingDisabled,
-	...contentProps
-}: SortableColumnVisibilityOptionProps) {
-	const {
-		attributes,
-		listeners,
-		setNodeRef,
-		transform,
-		transition,
-		isDragging,
-	} = useSortable({ id: column, disabled: sortingDisabled });
-
-	return (
-		<div
-			className={s.columnVisibilityVirtualItem}
-			style={{ height, transform: `translateY(${start}px)` }}
-		>
-			<div
-				ref={setNodeRef}
-				className={cn(
-					s.columnVisibilityOption,
-					isDragging && s.columnVisibilityOptionDragging,
-				)}
-				data-column-menu-option={column}
-				style={{
-					transform: CSS.Transform.toString(transform) ?? "none",
-					transition: transition ?? "none",
-				}}
-			>
-				<ColumnVisibilityOptionContent {...contentProps} />
-				<button
-					type="button"
-					className={s.columnVisibilityDragHandle}
-					disabled={sortingDisabled}
-					aria-label={dragLabel}
-					title={dragLabel}
-					{...attributes}
-					{...listeners}
-				>
-					<Icon
-						name="GripVertical"
-						size={14}
-						color="currentColor"
-					/>
-				</button>
-			</div>
-		</div>
-	);
-}
 
 /**
  * Resolves row virtualization settings from the public Table prop.
@@ -1054,28 +877,6 @@ export function Table<T extends Object>({
 	const { t } = Locale.use();
 	const isResizingRef = useRef(false);
 	const lastResolvedActionsRef = useRef<Table.Action<T>[]>([]);
-	const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
-	const [columnMenuSearch, setColumnMenuSearch] = useState("");
-	const [columnMenuMaxHeight, setColumnMenuMaxHeight] = useState<number>();
-	const columnMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
-	const columnMenuAnchorRef = useRef<FrozenPopoverAnchor>({
-		getBoundingClientRect: () =>
-			columnMenuTriggerRef.current?.getBoundingClientRect() ?? new DOMRect(),
-	});
-	const columnMenuSearchRef = useRef<HTMLInputElement | null>(null);
-	const selectedColumnMenuListRef = useRef<HTMLDivElement | null>(null);
-	const unselectedColumnMenuListRef = useRef<HTMLDivElement | null>(null);
-	const [activeDraggedColumn, setActiveDraggedColumn] = useState<string | null>(
-		null,
-	);
-	const columnDndSensors = useSensors(
-		useSensor(PointerSensor, {
-			activationConstraint: { distance: 4 },
-		}),
-		useSensor(KeyboardSensor, {
-			coordinateGetter: sortableKeyboardCoordinates,
-		}),
-	);
 	const [sharedTooltip, setSharedTooltip] =
 		useState<SharedTooltipState | null>(null);
 	const sharedTooltipRef = useRef<HTMLDivElement | null>(null);
@@ -1263,8 +1064,10 @@ export function Table<T extends Object>({
 		if (!_columnVisibility) return columns;
 		return orderedColumns.filter((column) => !hiddenColumns.has(column));
 	}, [columns, hiddenColumns, orderedColumns, _columnVisibility]);
-	const areAllColumnsSelected = hiddenColumns.size === 0;
-	const areAllColumnsDeselected = visibleColumns.length === 0;
+	const getColumnVisibilityLabel = useCallback(
+		(column: string) => columnLabels[column] || column,
+		[columnLabels],
+	);
 
 	/** Accessors for the columns currently rendered in the body. */
 	const visibleColumnAccessors = useMemo(
@@ -1717,200 +1520,6 @@ export function Table<T extends Object>({
 	);
 
 	/**
-	 * Tracks column visibility menu state and captures the table viewport height.
-	 * @param open Whether the column visibility popover is open.
-	 * @returns Nothing.
-	 */
-	const handleColumnMenuOpenChange = useCallback(
-		(open: boolean) => {
-			if (open) {
-				const trigger = columnMenuTriggerRef.current;
-				const triggerRect = trigger?.getBoundingClientRect();
-				if (triggerRect) {
-					columnMenuAnchorRef.current = {
-						getBoundingClientRect: () => triggerRect,
-					};
-				}
-
-				setColumnMenuSearch("");
-				const tableViewportHeight = wrapperRef.current?.clientHeight;
-				const ownerWindow = trigger?.ownerDocument.defaultView;
-				const viewportHeight = ownerWindow?.innerHeight;
-				const viewportAvailableHeight = triggerRect && viewportHeight
-					? Math.max(
-						0,
-						Math.max(
-							viewportHeight -
-								triggerRect.bottom -
-								COLUMN_MENU_SIDE_OFFSET -
-								COLUMN_MENU_VIEWPORT_MARGIN,
-							triggerRect.top -
-								COLUMN_MENU_SIDE_OFFSET -
-								COLUMN_MENU_VIEWPORT_MARGIN,
-						),
-					)
-					: undefined;
-				const availableHeight = [
-					tableViewportHeight,
-					viewportAvailableHeight,
-				].filter((height): height is number => !!height && height > 0);
-				setColumnMenuMaxHeight(
-					availableHeight.length > 0
-						? Math.floor(Math.min(...availableHeight))
-						: undefined,
-				);
-				hideSharedTooltip();
-			}
-			setIsColumnMenuOpen(open);
-			if (!open) setActiveDraggedColumn(null);
-		},
-		[hideSharedTooltip],
-	);
-
-	useEffect(() => {
-		if (!isColumnMenuOpen) return;
-		const ownerWindow = columnMenuSearchRef.current?.ownerDocument.defaultView;
-		const timeoutId = ownerWindow?.setTimeout(
-			() => columnMenuSearchRef.current?.focus({ preventScroll: true }),
-			0,
-		);
-		return () => {
-			if (timeoutId !== undefined) ownerWindow?.clearTimeout(timeoutId);
-		};
-	}, [isColumnMenuOpen]);
-
-	const normalizedColumnMenuSearch = columnMenuSearch
-		.trim()
-		.toLocaleLowerCase();
-	const getColumnMenuLabel = useCallback(
-		(column: string) => columnLabels[column] || column,
-		[columnLabels],
-	);
-	const matchesColumnMenuSearch = useCallback(
-		(column: string) =>
-			!normalizedColumnMenuSearch ||
-			getColumnMenuLabel(column)
-				.toLocaleLowerCase()
-				.includes(normalizedColumnMenuSearch),
-		[getColumnMenuLabel, normalizedColumnMenuSearch],
-	);
-	const selectedColumnMenuResults = useMemo(
-		() =>
-			orderedColumns.filter(
-				(column) =>
-					!hiddenColumns.has(column) && matchesColumnMenuSearch(column),
-			),
-		[hiddenColumns, matchesColumnMenuSearch, orderedColumns],
-	);
-	const unselectedColumnMenuResults = useMemo(
-		() =>
-			orderedColumns.filter(
-				(column) =>
-					hiddenColumns.has(column) && matchesColumnMenuSearch(column),
-			),
-		[hiddenColumns, matchesColumnMenuSearch, orderedColumns],
-	);
-	const selectedColumnMenuVirtualizer = useVirtualizer({
-		count: selectedColumnMenuResults.length,
-		getScrollElement: () => selectedColumnMenuListRef.current,
-		estimateSize: () => COLUMN_MENU_ITEM_HEIGHT,
-		overscan: COLUMN_MENU_OVERSCAN,
-		enabled: isColumnMenuOpen,
-		getItemKey: (index) => selectedColumnMenuResults[index],
-	});
-	const unselectedColumnMenuVirtualizer = useVirtualizer({
-		count: unselectedColumnMenuResults.length,
-		getScrollElement: () => unselectedColumnMenuListRef.current,
-		estimateSize: () => COLUMN_MENU_ITEM_HEIGHT,
-		overscan: COLUMN_MENU_OVERSCAN,
-		enabled: isColumnMenuOpen,
-		getItemKey: (index) => unselectedColumnMenuResults[index],
-	});
-	const selectedColumnMenuVirtualItems = isColumnMenuOpen
-		? selectedColumnMenuVirtualizer.getVirtualItems()
-		: [];
-	const unselectedColumnMenuVirtualItems = isColumnMenuOpen
-		? unselectedColumnMenuVirtualizer.getVirtualItems()
-		: [];
-	const columnMenuListsMaxHeight = columnMenuMaxHeight
-		? Math.max(
-			0,
-			columnMenuMaxHeight - COLUMN_MENU_CHROME_HEIGHT,
-		)
-		: DEFAULT_COLUMN_MENU_LIST_HEIGHT;
-	const columnMenuPortalContainer = wrapperRef.current?.ownerDocument.body;
-	const columnMenuStyle = columnMenuMaxHeight
-		? ({
-			"--table-column-menu-max-height": `${columnMenuMaxHeight}px`,
-		} as React.CSSProperties)
-		: undefined;
-
-	useEffect(() => {
-		if (!isColumnMenuOpen) return;
-		selectedColumnMenuVirtualizer.scrollToOffset(0);
-		unselectedColumnMenuVirtualizer.scrollToOffset(0);
-	}, [
-		columnMenuSearch,
-		isColumnMenuOpen,
-		selectedColumnMenuVirtualizer,
-		unselectedColumnMenuVirtualizer,
-	]);
-
-	/**
-	 * Tracks the selected column currently being reordered.
-	 * @param event - DnD start event containing the active column ID.
-	 * @returns Nothing.
-	 */
-	const handleColumnDragStart = useCallback((event: DragStartEvent) => {
-		setActiveDraggedColumn(String(event.active.id));
-	}, []);
-
-	/**
-	 * Persists the selected-column order after a successful drop.
-	 * @param event - DnD end event containing active and target column IDs.
-	 * @returns Nothing.
-	 */
-	const handleColumnDragEnd = useCallback(
-		(event: DragEndEvent) => {
-			const activeColumn = String(event.active.id);
-			const overColumn = event.over ? String(event.over.id) : null;
-			setActiveDraggedColumn(null);
-			if (overColumn && activeColumn !== overColumn) {
-				moveColumn(activeColumn, overColumn);
-			}
-		},
-		[moveColumn],
-	);
-
-	const columnDragAnnouncements = useMemo<Announcements>(
-		() => ({
-			onDragStart: ({ active }) =>
-				t("table.columnDragStarted", {
-					column: getColumnMenuLabel(String(active.id)),
-				}),
-			onDragOver: ({ active, over }) =>
-				over
-						? t("table.columnDragMoved", {
-							column: getColumnMenuLabel(String(active.id)),
-							over: getColumnMenuLabel(String(over.id)),
-						})
-					: undefined,
-			onDragEnd: ({ active, over }) =>
-					t("table.columnDragDropped", {
-						column: getColumnMenuLabel(String(active.id)),
-						over: over
-							? getColumnMenuLabel(String(over.id))
-						: getColumnMenuLabel(String(active.id)),
-				}),
-			onDragCancel: ({ active }) =>
-				t("table.columnDragCanceled", {
-					column: getColumnMenuLabel(String(active.id)),
-				}),
-		}),
-		[getColumnMenuLabel, t],
-	);
-
-	/**
 	 * Renders a table body row from a virtual or sequential row index.
 	 * @param rowIndex Row index produced by the render plan.
 	 * @returns Rendered table item or null when the row no longer exists.
@@ -2057,19 +1666,21 @@ export function Table<T extends Object>({
 							data-sticky-column="actions"
 						>
 							{_columnVisibility ? (
-								<Popover.Trigger asChild>
-								<Button
-									ref={columnMenuTriggerRef}
-									type="button"
-										variant="tertiary"
-										size="sm"
-										icon="MenuAlt"
-										className={s.columnVisibilityTrigger}
-										aria-label={t("table.columnVisibility")}
-										title={t("table.columnVisibility")}
-										data-column-visibility-trigger="true"
-									/>
-								</Popover.Trigger>
+								<FieldVisibilityMenu
+									orderedItems={orderedColumns}
+									hiddenItems={hiddenColumns}
+									onToggleItem={toggleColumn}
+									onSelectAll={selectAllColumns}
+									onDeselectAll={deselectAllColumns}
+									onMoveItem={moveColumn}
+									terminology="columns"
+									getItemLabel={getColumnVisibilityLabel}
+									portalContainer={wrapperRef.current?.ownerDocument.body}
+									heightBoundaryRef={wrapperRef}
+									onOpenChange={(open) => {
+										if (open) hideSharedTooltip();
+									}}
+								/>
 							) : null}
 						</th>
 					)}
@@ -2124,243 +1735,7 @@ export function Table<T extends Object>({
 				style={wrapperStyle}
 				{...stackProps}
 			>
-				{!configLoaded ? null : _columnVisibility ? (
-					<Popover.Root
-						open={isColumnMenuOpen}
-						onOpenChange={handleColumnMenuOpenChange}
-					>
-						<Popover.Anchor virtualRef={columnMenuAnchorRef} />
-						{tableElement}
-						{isColumnMenuOpen ? (
-								<Popover.Content
-									align="end"
-									sideOffset={COLUMN_MENU_SIDE_OFFSET}
-									className={s.columnVisibilityMenu}
-								container={wrapperRef.current?.ownerDocument.body}
-								data-column-visibility-menu="true"
-									style={columnMenuStyle}
-							>
-								<div className={s.columnVisibilityLabel}>
-									{t("table.columnVisibility")}
-								</div>
-								<div className={s.columnVisibilitySeparator} />
-								<div className={s.columnVisibilitySearch}>
-									<Input
-										ref={columnMenuSearchRef}
-										size="sm"
-										value={columnMenuSearch}
-										placeholder={t("common.search")}
-										aria-label={t("common.search")}
-										onChange={(event) =>
-											setColumnMenuSearch(event.target.value)
-										}
-										onKeyDown={(event) => event.stopPropagation()}
-									/>
-								</div>
-								<div className={s.columnVisibilitySeparator} />
-								<div className={s.columnVisibilityActions}>
-									<Button
-										type="button"
-										variant="secondary"
-										size="sm"
-										className={s.columnVisibilityAction}
-										disabled={areAllColumnsDeselected}
-										aria-disabled={areAllColumnsDeselected}
-										data-column-visibility-action="deselect-all"
-										onClick={() => {
-											if (!areAllColumnsDeselected) deselectAllColumns();
-										}}
-									>
-										{t("table.deselectAllColumns")}
-									</Button>
-									<Button
-										type="button"
-										variant="secondary"
-										size="sm"
-										className={s.columnVisibilityAction}
-										disabled={areAllColumnsSelected}
-										aria-disabled={areAllColumnsSelected}
-										data-column-visibility-action="select-all"
-										onClick={() => {
-											if (!areAllColumnsSelected) selectAllColumns();
-										}}
-									>
-										{t("table.selectAllColumns")}
-									</Button>
-								</div>
-								<div className={s.columnVisibilitySeparator} />
-								<DndContext
-									autoScroll
-									sensors={columnDndSensors}
-									collisionDetection={closestCenter}
-									accessibility={{
-										announcements: columnDragAnnouncements,
-										container: wrapperRef.current?.ownerDocument.body,
-										screenReaderInstructions: {
-											draggable: t("table.columnDragInstructions"),
-										},
-									}}
-									onDragStart={handleColumnDragStart}
-									onDragEnd={handleColumnDragEnd}
-									onDragCancel={() => setActiveDraggedColumn(null)}
-								>
-									<div
-										className={s.columnVisibilityLists}
-										data-column-menu-count={
-											selectedColumnMenuResults.length +
-											unselectedColumnMenuResults.length
-										}
-										style={{ height: columnMenuListsMaxHeight }}
-									>
-										<section
-											className={s.columnVisibilitySection}
-											data-column-menu-list="selected"
-											data-empty={
-												selectedColumnMenuResults.length === 0 || undefined
-											}
-										>
-											<div className={s.columnVisibilitySectionLabel}>
-												{t("table.selectedColumns")}
-											</div>
-											<div
-												ref={selectedColumnMenuListRef}
-												className={s.columnVisibilityOptions}
-											>
-												{selectedColumnMenuResults.length === 0 ? (
-													<div className={s.columnVisibilityEmpty}>
-														{t("table.noColumns")}
-													</div>
-												) : (
-													<SortableContext
-														items={selectedColumnMenuResults}
-														strategy={verticalListSortingStrategy}
-													>
-														<div
-															className={s.columnVisibilityOptionsSizer}
-															style={{
-																height:
-																	selectedColumnMenuVirtualizer.getTotalSize(),
-															}}
-														>
-															{selectedColumnMenuVirtualItems.map(
-																(virtualItem) => {
-																	const column =
-																		selectedColumnMenuResults[
-																			virtualItem.index
-																		];
-																	const label = getColumnMenuLabel(column);
-																	return (
-																		<SortableColumnVisibilityOption
-																			key={column}
-																			column={column}
-																			label={label}
-																			checked
-																			height={virtualItem.size}
-																			start={virtualItem.start}
-																			sortingDisabled={
-																				normalizedColumnMenuSearch.length > 0
-																			}
-																			dragLabel={
-																				normalizedColumnMenuSearch
-																					? t(
-																						"table.columnReorderSearchDisabled",
-																					)
-																					: t("table.columnDragHandle", {
-																						column: label,
-																					})
-																			}
-																			onToggle={() => toggleColumn(column)}
-																		/>
-																	);
-																},
-															)}
-														</div>
-													</SortableContext>
-												)}
-											</div>
-										</section>
-										<section
-											className={s.columnVisibilitySection}
-											data-column-menu-list="unselected"
-											data-empty={
-												unselectedColumnMenuResults.length === 0 || undefined
-											}
-										>
-											<div className={s.columnVisibilitySectionLabel}>
-												{t("table.unselectedColumns")}
-											</div>
-											<div
-												ref={unselectedColumnMenuListRef}
-												className={s.columnVisibilityOptions}
-											>
-												{unselectedColumnMenuResults.length === 0 ? (
-													<div className={s.columnVisibilityEmpty}>
-														{t("table.noColumns")}
-													</div>
-												) : (
-													<div
-														className={s.columnVisibilityOptionsSizer}
-														style={{
-															height:
-																unselectedColumnMenuVirtualizer.getTotalSize(),
-														}}
-													>
-														{unselectedColumnMenuVirtualItems.map(
-															(virtualItem) => {
-																const column =
-																	unselectedColumnMenuResults[
-																		virtualItem.index
-																	];
-																return (
-																	<StaticColumnVisibilityOption
-																		key={column}
-																		column={column}
-																		label={getColumnMenuLabel(column)}
-																		checked={false}
-																		height={virtualItem.size}
-																		start={virtualItem.start}
-																		onToggle={() => toggleColumn(column)}
-																	/>
-																);
-															},
-														)}
-													</div>
-												)}
-											</div>
-										</section>
-									</div>
-									{columnMenuPortalContainer
-										? createPortal(
-											<DragOverlay
-												adjustScale={false}
-												zIndex={1600}
-											>
-												{activeDraggedColumn ? (
-													<div
-														className={s.columnVisibilityDragOverlay}
-														data-column-drag-overlay="true"
-													>
-														<span className={s.columnVisibilityOptionLabel}>
-															{getColumnMenuLabel(activeDraggedColumn)}
-														</span>
-														<Icon
-															name="GripVertical"
-															size={14}
-															color="currentColor"
-														/>
-													</div>
-												) : null}
-											</DragOverlay>,
-											columnMenuPortalContainer,
-										)
-										: null}
-								</DndContext>
-							</Popover.Content>
-						) : null}
-					</Popover.Root>
-				) : (
-					tableElement
-				)}
+				{tableElement}
 				{sharedTooltip
 					? createPortal(
 						<div

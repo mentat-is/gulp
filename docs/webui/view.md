@@ -20,6 +20,7 @@ The event detail view provides:
 - raw JSON view;
 - table view;
 - tree view;
+- source-scoped field visibility and ordering;
 - copy/download JSON actions;
 - flag and target actions;
 - enrichment actions;
@@ -38,6 +39,24 @@ The selected event representation—Tree, Raw, or Table—is stored in
 same-origin localStorage. It therefore remains selected while navigating
 between events, reopening the dialog, or moving between docked and detached
 windows. A missing or unsupported stored value falls back to Tree.
+
+The field menu beside the Raw, Table, and Tree selectors uses the complete
+field catalog of the event source. It can hide, show, search, and reorder leaf
+fields, and keeps a separate IndexedDB configuration for each source. These
+settings are independent from the Source Events Table column configuration and
+remain available when navigating between events from the same source or using
+a detached Event Detail window. Fields known to the source remain selectable
+even when the current event does not contain them.
+
+The selected field order and visibility apply consistently to all three event
+representations. Raw preserves the original flat or nested JSON shape, Table
+orders individual leaf rows, and Tree keeps each object branch together while
+ordering both branches and their descendants by the first matching configured
+field. Array item positions are preserved and numeric indices are ignored by
+the persisted field identity. Copy JSON without a contextual selection and
+Download JSON serialize the configured Raw representation; filters, notes,
+links, enrichment, Send IOC, and other event actions continue to use the full
+event document.
 
 ## Notes Window
 

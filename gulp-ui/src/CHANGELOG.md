@@ -37,6 +37,11 @@
 
 ## UI/UX and Rendering
 
+- `Event Detail field configuration`: Added a shared searchable and accessible
+  field menu beside Raw, Table, and Tree, with source-scoped visibility/order
+  persistence isolated from Table View. The configured hierarchy also applies
+  to Copy JSON and Download JSON while array order and complete-document event
+  actions remain unchanged.
 - `Source reset and edge navigation`: Source-menu filter reset now always starts
   a backend query instead of reusing a cached generation. First/last event actions
   resolve the full canonical timestamp/sequence edge across EventStore pages, so

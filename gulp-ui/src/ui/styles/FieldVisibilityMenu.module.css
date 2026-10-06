@@ -1,0 +1,215 @@
+.menu.menu {
+	z-index: 1500;
+	display: flex;
+	flex-direction: column;
+	width: min(320px, calc(100vw - 16px));
+	min-height: 0;
+	max-height: min(
+		var(--table-column-menu-max-height, calc(100vh - 16px)),
+		var(--radix-popover-content-available-height, calc(100vh - 16px))
+	);
+	overflow: hidden;
+	overscroll-behavior: contain;
+}
+
+.trigger.trigger {
+	display: flex;
+	margin-inline: auto;
+}
+
+.label {
+	padding: 4px 6px;
+	font-size: 0.875rem;
+	font-weight: 600;
+	color: var(--accent);
+}
+
+.separator {
+	flex: 0 0 auto;
+	width: 100%;
+	height: 1px;
+	margin: 4px 0;
+	background: var(--gray-400);
+}
+
+.search {
+	padding: 4px 8px;
+	background: var(--background-100);
+}
+
+.actions {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 4px 8px;
+	background: var(--background-100);
+}
+
+.action.action {
+	width: 100%;
+}
+
+.lists {
+	display: flex;
+	flex: 0 1 auto;
+	flex-direction: column;
+	gap: 6px;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.section {
+	display: flex;
+	flex: 1 1 0;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+	border: 1px solid var(--gray-400);
+	border-radius: 4px;
+}
+
+.section[data-empty="true"] {
+	flex: 0 0 30px;
+	min-height: 30px;
+}
+
+.sectionLabel {
+	flex: 0 0 auto;
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--gray-400);
+	color: var(--second);
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+}
+
+.options {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.optionsSizer {
+	position: relative;
+	width: 100%;
+}
+
+.virtualItem {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	box-sizing: border-box;
+	padding: 1px 2px;
+}
+
+.option.option {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	height: 100%;
+	box-sizing: border-box;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	border-radius: 4px;
+	transition: background-color 0.15s, color 0.15s;
+}
+
+.option.option:hover,
+.option.option:focus-within {
+	background-color: var(--gray-alpha-200);
+	color: var(--accent);
+}
+
+.optionDragging {
+	opacity: 0.35;
+}
+
+.toggle {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	align-self: stretch;
+	min-width: 0;
+	padding: 0 6px;
+	overflow: hidden;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	text-align: left;
+}
+
+.indicator {
+	display: inline-flex;
+	flex: 0 0 16px;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	margin-right: 6px;
+}
+
+.optionLabel {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.dragHandle {
+	display: inline-flex;
+	flex: 0 0 28px;
+	align-items: center;
+	align-self: stretch;
+	justify-content: center;
+	width: 28px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--second);
+	cursor: grab;
+	touch-action: none;
+}
+
+.dragHandle:hover,
+.dragHandle:focus-visible {
+	color: var(--accent);
+}
+
+.dragHandle:active {
+	cursor: grabbing;
+}
+
+.dragHandle:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+	touch-action: auto;
+}
+
+.empty {
+	padding: 7px 8px;
+	color: var(--second);
+	font-size: 11px;
+}
+
+.dragOverlay {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: 100%;
+	min-width: 0;
+	height: 28px;
+	padding: 0 8px 0 28px;
+	border: 1px solid var(--gray-400);
+	border-radius: 4px;
+	background: var(--background-100);
+	color: var(--accent);
+	box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}

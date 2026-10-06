@@ -16,6 +16,348 @@ export interface PersistedDetachedWindowRecord {
 	features: string;
 }
 
+export interface EventFieldTableRow {
+	/** Dot-separated field path displayed in the Event dialog table. */
+	key: string;
+	/** String representation displayed beside the field path. */
+	value: string;
+}
+
+export interface ConfiguredEventFieldViews {
+	/** Filtered and ordered JSON preserving the source Raw shape. */
+	raw: Record<string, unknown>;
+	/** Filtered leaf values in the user's complete field order. */
+	table: EventFieldTableRow[];
+	/** Filtered JSON with dotted field names reconstructed as a hierarchy. */
+	tree: Record<string, unknown>;
+}
+
+interface EventFieldEntry {
+	path: string;
+	normalizedPath: string;
+	value: unknown;
+	discoveryIndex: number;
+}
+
+interface FilteredEventValue {
+	included: boolean;
+	value: unknown;
+	rank: number;
+}
+
+const UNKNOWN_EVENT_FIELD_RANK = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Removes numeric array segments from a persisted event field identity.
+ * @param path Concrete dot-separated JSON path.
+ * @returns Source-stable field path without array indices.
+ */
+export function normalizeEventFieldPath(path: string): string {
+	return path
+		.split(".")
+		.filter((part) => !/^\d+$/.test(part))
+		.join(".");
+}
+
+/** Checks whether a JSON value is a plain object suitable for field traversal. */
+function isEventFieldObject(value: unknown): value is Record<string, unknown> {
+	return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+/**
+ * Collects concrete leaf paths from a JSON value while preserving discovery order.
+ * Empty objects and arrays are treated as leaf values so they remain configurable.
+ */
+function collectEventFieldEntries(
+	value: unknown,
+	parentPath = "",
+	entries: EventFieldEntry[] = [],
+): EventFieldEntry[] {
+	if (Array.isArray(value)) {
+		if (value.length === 0 && parentPath) {
+			entries.push({
+				path: parentPath,
+				normalizedPath: normalizeEventFieldPath(parentPath),
+				value,
+				discoveryIndex: entries.length,
+			});
+			return entries;
+		}
+
+		value.forEach((entry, index) => {
+			collectEventFieldEntries(
+				entry,
+				parentPath ? `${parentPath}.${index}` : String(index),
+				entries,
+			);
+		});
+		return entries;
+	}
+
+	if (isEventFieldObject(value)) {
+		const objectEntries = Object.entries(value);
+		if (objectEntries.length === 0 && parentPath) {
+			entries.push({
+				path: parentPath,
+				normalizedPath: normalizeEventFieldPath(parentPath),
+				value,
+				discoveryIndex: entries.length,
+			});
+			return entries;
+		}
+
+		objectEntries.forEach(([key, entry]) => {
+			collectEventFieldEntries(
+				entry,
+				parentPath ? `${parentPath}.${key}` : key,
+				entries,
+			);
+		});
+		return entries;
+	}
+
+	if (parentPath) {
+		entries.push({
+			path: parentPath,
+			normalizedPath: normalizeEventFieldPath(parentPath),
+			value,
+			discoveryIndex: entries.length,
+		});
+	}
+	return entries;
+}
+
+/**
+ * Collects the unique source-stable leaf field paths present in one event.
+ * @param json Event JSON after active display transformations.
+ * @returns Alphabetically ordered field catalog without array indices.
+ */
+export function getEventLeafFieldPaths(
+	json: Record<string, unknown>,
+): string[] {
+	return Array.from(
+		new Set(
+			collectEventFieldEntries(json).map((entry) => entry.normalizedPath),
+		),
+	).sort((left, right) => left.localeCompare(right));
+}
+
+/**
+ * Checks whether a leaf field or one of its structural ancestors is hidden.
+ * @param path Normalized leaf field path.
+ * @param hiddenFields Configured hidden field identities.
+ * @returns True when the field must be omitted.
+ */
+function isEventFieldHidden(
+	path: string,
+	hiddenFields: ReadonlySet<string>,
+): boolean {
+	const parts = path.split(".");
+	for (let index = parts.length; index > 0; index--) {
+		if (hiddenFields.has(parts.slice(0, index).join("."))) return true;
+	}
+	return false;
+}
+
+/**
+ * Resolves the configured rank for a field, placing unknown fields last.
+ * @param path Normalized field path.
+ * @param ranks User-configured field ranks.
+ * @returns Numeric sort rank.
+ */
+function getEventFieldRank(path: string, ranks: ReadonlyMap<string, number>): number {
+	return ranks.get(path) ?? UNKNOWN_EVENT_FIELD_RANK;
+}
+
+/**
+ * Recursively filters and orders JSON while preserving its Raw object shape.
+ * @param value Current JSON value.
+ * @param path Concrete path of the current value.
+ * @param hiddenFields Hidden normalized paths.
+ * @param ranks Configured field ranks.
+ * @returns Inclusion state, transformed value, and earliest descendant rank.
+ */
+function filterAndOrderRawEventValue(
+	value: unknown,
+	path: string,
+	hiddenFields: ReadonlySet<string>,
+	ranks: ReadonlyMap<string, number>,
+): FilteredEventValue {
+	if (Array.isArray(value)) {
+		if (value.length === 0) {
+			const normalizedPath = normalizeEventFieldPath(path);
+			return {
+				included: !isEventFieldHidden(normalizedPath, hiddenFields),
+				value: [],
+				rank: getEventFieldRank(normalizedPath, ranks),
+			};
+		}
+
+		const children = value.map((entry, index) =>
+			filterAndOrderRawEventValue(
+				entry,
+				path ? `${path}.${index}` : String(index),
+				hiddenFields,
+				ranks,
+			),
+		);
+		const includedChildren = children.filter((child) => child.included);
+		if (includedChildren.length === 0) {
+			return { included: false, value: [], rank: UNKNOWN_EVENT_FIELD_RANK };
+		}
+
+		return {
+			included: true,
+			value: children.map((child, index) => {
+				if (child.included) return child.value;
+				const original = value[index];
+				if (Array.isArray(original)) return [];
+				if (isEventFieldObject(original)) return {};
+				return null;
+			}),
+			rank: Math.min(...includedChildren.map((child) => child.rank)),
+		};
+	}
+
+	if (isEventFieldObject(value)) {
+		const children = Object.entries(value)
+			.map(([key, entry], discoveryIndex) => ({
+				key,
+				discoveryIndex,
+				result: filterAndOrderRawEventValue(
+					entry,
+					path ? `${path}.${key}` : key,
+					hiddenFields,
+					ranks,
+				),
+			}))
+			.filter((child) => child.result.included)
+			.sort(
+				(left, right) =>
+					left.result.rank - right.result.rank ||
+					left.discoveryIndex - right.discoveryIndex,
+			);
+
+		if (children.length === 0 && path) {
+			const normalizedPath = normalizeEventFieldPath(path);
+			if (Object.keys(value).length === 0 && !isEventFieldHidden(normalizedPath, hiddenFields)) {
+				return {
+					included: true,
+					value: {},
+					rank: getEventFieldRank(normalizedPath, ranks),
+				};
+			}
+			return { included: false, value: {}, rank: UNKNOWN_EVENT_FIELD_RANK };
+		}
+
+		return {
+			included: path === "" || children.length > 0,
+			value: Object.fromEntries(
+				children.map((child) => [child.key, child.result.value]),
+			),
+			rank:
+				children.length > 0
+					? Math.min(...children.map((child) => child.result.rank))
+					: UNKNOWN_EVENT_FIELD_RANK,
+		};
+	}
+
+	const normalizedPath = normalizeEventFieldPath(path);
+	return {
+		included: !isEventFieldHidden(normalizedPath, hiddenFields),
+		value,
+		rank: getEventFieldRank(normalizedPath, ranks),
+	};
+}
+
+/** Assigns a concrete dotted leaf path into the reconstructed Tree value. */
+function assignEventTreePath(
+	tree: Record<string, unknown>,
+	path: string,
+	value: unknown,
+): void {
+	const parts = path.split(".");
+	let current: Record<string, unknown> | unknown[] = tree;
+
+	for (let index = 0; index < parts.length; index++) {
+		const part = parts[index];
+		const isLast = index === parts.length - 1;
+		const nextPart = parts[index + 1];
+		const nextIsArray = nextPart !== undefined && /^\d+$/.test(nextPart);
+
+		if (Array.isArray(current)) {
+			const arrayIndex = Number(part);
+			if (!Number.isInteger(arrayIndex)) return;
+			if (isLast) {
+				current[arrayIndex] = value;
+				return;
+			}
+			const existing = current[arrayIndex];
+			if (existing !== undefined && typeof existing !== "object") return;
+			current[arrayIndex] = existing ?? (nextIsArray ? [] : {});
+			current = current[arrayIndex] as Record<string, unknown> | unknown[];
+			continue;
+		}
+
+		if (isLast) {
+			current[part] = value;
+			return;
+		}
+
+		const existing = current[part];
+		if (existing !== undefined && typeof existing !== "object") return;
+		current[part] = existing ?? (nextIsArray ? [] : {});
+		current = current[part] as Record<string, unknown> | unknown[];
+	}
+}
+
+/** Converts a leaf value into the Event dialog table's display text. */
+function stringifyEventFieldTableValue(value: unknown): string {
+	if (value == null) return String(value);
+	if (typeof value === "bigint") return value.toString();
+	if (Array.isArray(value) || isEventFieldObject(value)) {
+		return JSON.stringify(value) ?? String(value);
+	}
+	return String(value);
+}
+
+/**
+ * Builds the configured Raw, Table, and Tree representations for one event.
+ * @param json Event JSON after active display transformations.
+ * @param orderedFields Complete canonical source field order.
+ * @param hiddenFields Fields excluded by the source-scoped configuration.
+ * @returns Three synchronized Event dialog representations.
+ */
+export function buildConfiguredEventFieldViews(
+	json: Record<string, unknown>,
+	orderedFields: readonly string[],
+	hiddenFields: ReadonlySet<string>,
+): ConfiguredEventFieldViews {
+	const ranks = new Map(
+		orderedFields.map((field, index) => [field, index] as const),
+	);
+	const visibleEntries = collectEventFieldEntries(json)
+		.filter((entry) => !isEventFieldHidden(entry.normalizedPath, hiddenFields))
+		.sort(
+			(left, right) =>
+				getEventFieldRank(left.normalizedPath, ranks) -
+					getEventFieldRank(right.normalizedPath, ranks) ||
+				left.discoveryIndex - right.discoveryIndex,
+		);
+	const rawResult = filterAndOrderRawEventValue(json, "", hiddenFields, ranks);
+	const tree: Record<string, unknown> = {};
+	visibleEntries.forEach((entry) => assignEventTreePath(tree, entry.path, entry.value));
+
+	return {
+		raw: rawResult.value as Record<string, unknown>,
+		table: visibleEntries.map((entry) => ({
+			key: entry.path,
+			value: stringifyEventFieldTableValue(entry.value),
+		})),
+		tree,
+	};
+}
+
 /**
  * Computes the number_hash range for a source when the ingestion-maintained cache is unavailable.
  * @param app Current application state used to read canonical source documents.

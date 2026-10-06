@@ -17,6 +17,9 @@ interface TableConfigEntry {
   columnOrder?: string[]
 }
 
+/** Controls how persisted settings react to a changed field catalog. */
+export type TableConfigSchemaPolicy = 'reset' | 'reconcile'
+
 /**
  * Checks whether a stored order is a complete permutation of the current schema.
  * @param order - Persisted value to validate.
@@ -27,6 +30,25 @@ function isValidColumnOrder(order: unknown, columns: string[]): order is string[
   if (!Array.isArray(order) || order.length !== columns.length) return false
   const orderSet = new Set(order)
   return orderSet.size === columns.length && columns.every((column) => orderSet.has(column))
+}
+
+/**
+ * Reconciles a persisted order with an updated schema while retaining shared fields.
+ * @param savedOrder - Complete order from the previously stored schema.
+ * @param columns - Current field catalog in its default order.
+ * @returns Current fields with retained fields first and new fields appended.
+ */
+export function reconcileTableColumns(
+  savedOrder: string[],
+  columns: string[],
+): string[] {
+  const currentColumns = new Set(columns)
+  const reconciled = savedOrder.filter((column) => currentColumns.has(column))
+  const retainedColumns = new Set(reconciled)
+  columns.forEach((column) => {
+    if (!retainedColumns.has(column)) reconciled.push(column)
+  })
+  return reconciled
 }
 
 /**
@@ -72,12 +94,14 @@ export function moveTableColumn(
  *                    When undefined, persistence is disabled (in-memory only).
  * @param allColumns - The full list of currently available columns.
  * @param enabled - Whether column visibility management is enabled at all.
+ * @param schemaPolicy - Whether changed schemas reset or reconcile saved settings.
  * @returns Visibility state, canonical order, mutation helpers, and loading state.
  */
 export function useTableConfig(
   persistId: string | undefined,
   allColumns: string[],
   enabled: boolean,
+  schemaPolicy: TableConfigSchemaPolicy = 'reset',
 ): {
   hiddenColumns: Set<string>
   orderedColumns: string[]
@@ -142,6 +166,36 @@ export function useTableConfig(
             orderedColumnsRef.current = nextColumnOrder
             setHiddenColumns(nextHiddenColumns)
             setOrderedColumns(nextColumnOrder)
+          } else if (schemaPolicy === 'reconcile') {
+            const savedOrder = isValidColumnOrder(
+              entry.columnOrder,
+              entry.columnSnapshot,
+            )
+              ? entry.columnOrder
+              : entry.columnSnapshot
+            const nextColumnOrder = reconcileTableColumns(
+              savedOrder,
+              columnsRef.current,
+            )
+            const nextHiddenColumns = new Set(
+              entry.hiddenColumns.filter((column) => currentSet.has(column)),
+            )
+            hiddenColumnsRef.current = nextHiddenColumns
+            orderedColumnsRef.current = nextColumnOrder
+            setHiddenColumns(nextHiddenColumns)
+            setOrderedColumns(nextColumnOrder)
+            try {
+              await tableConfigDB.UpdateConfiguration(
+                {
+                  hiddenColumns: [...nextHiddenColumns],
+                  columnSnapshot: [...columnsRef.current],
+                  columnOrder: [...nextColumnOrder],
+                } satisfies TableConfigEntry,
+                persistId,
+              )
+            } catch {
+              // Reconciliation remains usable in memory when persistence fails.
+            }
           } else {
             // Schema mismatch: remove stale config from IndexedDB
             await tableConfigDB.DeleteConfiguration(persistId)
@@ -174,7 +228,7 @@ export function useTableConfig(
 
     load()
     return () => { cancelled = true }
-  }, [persistId, enabled, schemaSignature])
+  }, [persistId, enabled, schemaPolicy, schemaSignature])
 
   /**
    * Persists the current visibility and canonical column order to IndexedDB.

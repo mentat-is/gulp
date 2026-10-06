@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import {
 	moveTableColumn,
+	reconcileTableColumns,
+	type TableConfigSchemaPolicy,
 	useTableConfig,
 } from "@/hooks/useTableConfig";
 
@@ -41,6 +43,7 @@ let mockLatestTableConfig: TableConfigState | null = null;
 interface HookHarnessProps {
 	columns: string[];
 	persistId?: string;
+	schemaPolicy?: TableConfigSchemaPolicy;
 }
 
 /**
@@ -51,8 +54,14 @@ interface HookHarnessProps {
 function HookHarness({
 	columns,
 	persistId = "table-test",
+	schemaPolicy = "reset",
 }: HookHarnessProps): null {
-	mockLatestTableConfig = useTableConfig(persistId, columns, true);
+	mockLatestTableConfig = useTableConfig(
+		persistId,
+		columns,
+		true,
+		schemaPolicy,
+	);
 	return null;
 }
 
@@ -82,9 +91,14 @@ describe("useTableConfig column ordering", () => {
 	 * @param columns - Current table schema for the harness.
 	 * @returns The loaded table configuration state.
 	 */
-	async function renderHook(columns: string[]): Promise<TableConfigState> {
+	async function renderHook(
+		columns: string[],
+		schemaPolicy: TableConfigSchemaPolicy = "reset",
+	): Promise<TableConfigState> {
 		await act(async () => {
-			root.render(<HookHarness columns={columns} />);
+			root.render(
+				<HookHarness columns={columns} schemaPolicy={schemaPolicy} />,
+			);
 			await Promise.resolve();
 			await Promise.resolve();
 		});
@@ -184,5 +198,36 @@ describe("useTableConfig column ordering", () => {
 		expect(moveTableColumn(order, "name", "email", new Set(["email"]))).toBe(
 			order,
 		);
+	});
+
+	it("reconciles source fields without changing the default reset policy", async () => {
+		mockGetConfiguration.mockResolvedValue({
+			hiddenColumns: ["email", "removed"],
+			columnSnapshot: ["name", "email", "removed"],
+			columnOrder: ["email", "removed", "name"],
+		});
+
+		const state = await renderHook(["name", "email", "team"], "reconcile");
+
+		expect([...state.hiddenColumns]).toEqual(["email"]);
+		expect(state.orderedColumns).toEqual(["email", "name", "team"]);
+		expect(mockDeleteConfiguration).not.toHaveBeenCalled();
+		expect(mockUpdateConfiguration).toHaveBeenCalledWith(
+			{
+				hiddenColumns: ["email"],
+				columnSnapshot: ["name", "email", "team"],
+				columnOrder: ["email", "name", "team"],
+			},
+			"table-test",
+		);
+	});
+
+	it("retains shared order and appends newly discovered fields", () => {
+		expect(
+			reconcileTableColumns(
+				["gulp.event_code", "removed", "gulp.context_id"],
+				["gulp.context_id", "process.pid", "gulp.event_code"],
+			),
+		).toEqual(["gulp.event_code", "gulp.context_id", "process.pid"]);
 	});
 });

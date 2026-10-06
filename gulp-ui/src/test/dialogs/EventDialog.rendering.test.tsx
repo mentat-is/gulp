@@ -22,6 +22,26 @@ const mockSetEventJson = jest.fn();
 let mockDetachedEventDetail: Doc.Type | null = null;
 let mockNavigationMounts = 0;
 let mockNavigationUnmounts = 0;
+let mockEventDetailJson: Record<string, unknown> | null = null;
+let mockEventKeys: Record<string, string> = {};
+let mockSourceAvailable = true;
+let mockOrderedEventFields: string[] | null = null;
+let mockHiddenEventFields = new Set<string>();
+let mockFieldVisibilityMenuProps: Record<string, unknown> | null = null;
+const mockEventKeyRequests: unknown[] = [];
+const mockTableConfigCalls: Array<{
+	persistId: string | undefined;
+	columns: string[];
+	enabled: boolean;
+	schemaPolicy: string | undefined;
+}> = [];
+const mockConfiguredViewCalls: Array<{
+	json: Record<string, unknown>;
+	orderedFields: readonly string[];
+	hiddenFields: ReadonlySet<string>;
+}> = [];
+const mockCopiedJson: string[] = [];
+const mockDownloadedJson: Array<[string, string, string]> = [];
 
 const mockApp = {
 	target: { files: [] },
@@ -34,6 +54,13 @@ jest.mock("@/context/Application.context", () => ({
 			Info: {
 				query_single_id: jest.fn(),
 				setTimelineTarget: mockSetTimelineTarget,
+				event_keys: async (source: unknown) => {
+					mockEventKeyRequests.push(source);
+					if (mockEventDetailJson === null) {
+						return await new Promise<Record<string, string>>(() => undefined);
+					}
+					return mockEventKeys;
+				},
 			},
 			app: mockApp,
 			spawnBanner: mockSpawnBanner,
@@ -94,11 +121,14 @@ jest.mock("@/banners/SendData.banner", () => ({
 jest.mock("@/entities/Source", () => ({
 	Source: {
 		Entity: {
-			id: () => ({
-				id: SOURCE_ID,
-				operation_id: "event-dialog-operation",
-				settings: { offset: 0 },
-			}),
+			id: () =>
+				mockSourceAvailable
+					? {
+						id: SOURCE_ID,
+						operation_id: "event-dialog-operation",
+						settings: { offset: 0 },
+					}
+					: undefined,
 		},
 	},
 }));
@@ -136,7 +166,78 @@ jest.mock("@/entities/Link", () => ({
 
 jest.mock("@/utils", () => ({
 	resolveEventRenderColor: () => undefined,
+	normalizeEventFieldPath: (field: string) =>
+		field
+			.split(".")
+			.filter((part) => !/^\d+$/.test(part))
+			.join("."),
+	getEventLeafFieldPaths: (json: Record<string, unknown>) =>
+		Object.keys(json).sort(),
+	buildConfiguredEventFieldViews: (
+		json: Record<string, unknown>,
+		orderedFields: readonly string[],
+		hiddenFields: ReadonlySet<string>,
+	) => {
+		mockConfiguredViewCalls.push({ json, orderedFields, hiddenFields });
+		const entries = orderedFields
+			.filter(
+				(field) =>
+					Object.prototype.hasOwnProperty.call(json, field) &&
+					!hiddenFields.has(field),
+			)
+			.map((field) => [field, json[field]] as const);
+		const raw = Object.fromEntries(entries);
+		return {
+			raw,
+			table: entries.map(([key, value]) => ({ key, value: String(value) })),
+			tree: raw,
+		};
+	},
 }));
+
+jest.mock("@/hooks/useTableConfig", () => ({
+	useTableConfig: (
+		persistId: string | undefined,
+		columns: string[],
+		enabled: boolean,
+		schemaPolicy?: string,
+	) => {
+		mockTableConfigCalls.push({
+			persistId,
+			columns: [...columns],
+			enabled,
+			schemaPolicy,
+		});
+		return {
+			hiddenColumns: mockHiddenEventFields,
+			orderedColumns: mockOrderedEventFields ?? columns,
+			toggleColumn: jest.fn(),
+			selectAllColumns: jest.fn(),
+			deselectAllColumns: jest.fn(),
+			moveColumn: jest.fn(),
+			isLoaded: true,
+		};
+	},
+}));
+
+jest.mock("@/ui/FieldVisibilityMenu", () => ({
+	FieldVisibilityMenu: (props: Record<string, unknown>) => {
+		mockFieldVisibilityMenuProps = props;
+		return <button data-field-visibility-trigger="true" />;
+	},
+}));
+
+jest.mock("@/ui/utils", () => {
+	return {
+		cn: (...values: unknown[]) => values.filter(Boolean).join(" "),
+		copy: (value: string) => mockCopiedJson.push(value),
+		download: (value: string, type: string, name: string) =>
+			mockDownloadedJson.push([value, type, name]),
+		generateUUID: () => "event-dialog-test-uuid",
+		isPlainObject: (value: unknown) =>
+			Object.prototype.toString.call(value) === "[object Object]",
+	};
+});
 
 jest.mock("@/store/DataStore", () => ({
 	DataStore: {
@@ -158,8 +259,8 @@ jest.mock("@/lib/EventJsonTransforms", () => ({
 
 jest.mock("@/dialogs/useEventDetail", () => ({
 	useEventDetail: () => ({
-		json: null,
-		loading: true,
+		json: mockEventDetailJson,
+		loading: mockEventDetailJson === null,
 		error: null,
 		setJson: mockSetEventJson,
 		retry: jest.fn(),
@@ -193,12 +294,50 @@ jest.mock("@/components/CollabList", () => ({
 	Collab: { List: (): null => null },
 }));
 
+jest.mock("@/ui/ContextMenu", () => ({
+	ContextMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
+	ContextMenuTrigger: ({ children }: { children: ReactNode }) => (
+		<>{children}</>
+	),
+	ContextMenuContent: ({ children }: { children: ReactNode }) => (
+		<div>{children}</div>
+	),
+	ContextMenuItem: ({ children }: { children: ReactNode }) => (
+		<button>{children}</button>
+	),
+}));
+
+jest.mock("@/ui/Tabs", () => ({
+	Tabs: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+	TabsList: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+	TabsTrigger: ({ children }: { children: ReactNode }) => (
+		<button>{children}</button>
+	),
+	TabsContent: ({
+		children,
+		value,
+	}: {
+		children: ReactNode;
+		value: string;
+	}) => <div data-tab-value={value}>{children}</div>,
+}));
+
 jest.mock("@/ui/Markdown", () => ({
-	Markdown: (): null => null,
+	Markdown: ({ value }: { value: string }) => (
+		<pre data-event-raw-view="true">{value}</pre>
+	),
+}));
+
+jest.mock("@/components/Table", () => ({
+	Table: ({ values }: { values: unknown[] }) => (
+		<div data-event-table-view="true">{JSON.stringify(values)}</div>
+	),
 }));
 
 jest.mock("react-json-view-lite", () => ({
-	JsonView: (): null => null,
+	JsonView: ({ data }: { data: unknown }) => (
+		<div data-event-tree-view="true">{JSON.stringify(data)}</div>
+	),
 	allExpanded: () => true,
 	darkStyles: {},
 	defaultStyles: {},
@@ -206,6 +345,7 @@ jest.mock("react-json-view-lite", () => ({
 
 jest.mock("@/ui/Popover", () => ({
 	Popover: {
+		Anchor: (): null => null,
 		Root: ({ children }: { children: ReactNode }) => <>{children}</>,
 		Trigger: ({ children }: { children: ReactNode }) => <>{children}</>,
 		Content: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -237,6 +377,17 @@ describe("Event Dialog rendering", () => {
 		mockShouldDelegateEventAction = false;
 		mockSetEventJson.mock.calls.splice(0);
 		mockDetachedEventDetail = null;
+		mockEventDetailJson = null;
+		mockEventKeys = {};
+		mockSourceAvailable = true;
+		mockOrderedEventFields = null;
+		mockHiddenEventFields = new Set<string>();
+		mockFieldVisibilityMenuProps = null;
+		mockEventKeyRequests.splice(0);
+		mockTableConfigCalls.splice(0);
+		mockConfiguredViewCalls.splice(0);
+		mockCopiedJson.splice(0);
+		mockDownloadedJson.splice(0);
 		mockApp.timeline.target = null;
 		container = document.createElement("div");
 		document.body.appendChild(container);
@@ -326,5 +477,95 @@ describe("Event Dialog rendering", () => {
 		);
 		expect(mockNavigationMounts).toBe(1);
 		expect(mockNavigationUnmounts).toBe(0);
+	});
+
+	it("wires a source-scoped field configuration into views, copy, and download", async () => {
+		const event = createEvent("configured-event");
+		mockEventDetailJson = { beta: 2, alpha: 1 };
+		mockEventKeys = {
+			alpha: "keyword",
+			beta: "long",
+			delta: "keyword",
+		};
+		mockOrderedEventFields = ["delta", "alpha", "beta"];
+		mockHiddenEventFields = new Set(["beta"]);
+
+		await act(async () => {
+			root.render(<DisplayEventDialog event={event} />);
+			await Promise.resolve();
+		});
+
+		expect(mockEventKeyRequests).toHaveLength(1);
+		expect(mockTableConfigCalls.at(-1)).toEqual({
+			persistId: `event-dialog-fields-${SOURCE_ID}`,
+			columns: ["alpha", "beta", "delta"],
+			enabled: true,
+			schemaPolicy: "reconcile",
+		});
+		expect(mockFieldVisibilityMenuProps?.orderedItems).toEqual([
+			"delta",
+			"alpha",
+			"beta",
+		]);
+		expect(mockFieldVisibilityMenuProps?.hiddenItems).toBe(
+			mockHiddenEventFields,
+		);
+		expect(mockFieldVisibilityMenuProps?.terminology).toBe("fields");
+		expect(mockFieldVisibilityMenuProps?.disabled).toBe(false);
+		expect(mockConfiguredViewCalls.at(-1)).toEqual({
+			json: mockEventDetailJson,
+			orderedFields: ["delta", "alpha", "beta"],
+			hiddenFields: mockHiddenEventFields,
+		});
+		expect(
+			container.querySelector('[data-event-raw-view="true"]')?.textContent,
+		).toContain('"alpha": 1');
+		expect(
+			container.querySelector('[data-event-raw-view="true"]')?.textContent,
+		).not.toContain('"beta"');
+
+		act(() => {
+			container
+				.querySelector<HTMLButtonElement>(
+					'button[title="eventDialog.copyJson"]',
+				)
+				?.click();
+		});
+		expect(mockCopiedJson).toEqual([JSON.stringify({ alpha: 1 }, null, 2)]);
+
+		const downloadButton = Array.from(
+			container.querySelectorAll<HTMLButtonElement>("button"),
+		).find((button) => button.textContent === "eventDialog.downloadJson");
+		act(() => downloadButton?.click());
+		expect(mockDownloadedJson).toEqual([
+			[
+				JSON.stringify({ alpha: 1 }, null, 2),
+				"application/json",
+				`configured-event_from_${SOURCE_ID}.json`,
+			],
+		]);
+	});
+
+	it("uses the current event fields when source metadata is unavailable", async () => {
+		const event = createEvent("deleted-source-event");
+		mockSourceAvailable = false;
+		mockEventDetailJson = { beta: 2, alpha: 1 };
+
+		await act(async () => {
+			root.render(<DisplayEventDialog event={event} />);
+			await Promise.resolve();
+		});
+
+		expect(mockEventKeyRequests).toHaveLength(0);
+		expect(mockTableConfigCalls.at(-1)).toEqual({
+			persistId: `event-dialog-fields-${SOURCE_ID}`,
+			columns: ["alpha", "beta"],
+			enabled: true,
+			schemaPolicy: "reconcile",
+		});
+		expect(
+			container.querySelector('[data-field-visibility-trigger="true"]'),
+		).not.toBeNull();
+		expect(container.textContent).not.toContain("eventDialog.sourceDeleted");
 	});
 });

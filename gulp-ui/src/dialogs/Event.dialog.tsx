@@ -17,7 +17,6 @@ import {
 	download,
 	generateUUID,
 	isPlainObject,
-	sortObjectKeysRecursively as sortTreeValueRecursively,
 } from "@/ui/utils";
 import { Stack } from "@/ui/Stack";
 import { Button } from "@/ui/Button";
@@ -69,6 +68,13 @@ import { useEventDetail } from "./useEventDetail";
 import { useEventDetailViewPreference } from "./useEventDetailView";
 import type { WindowBridge } from "@/lib/WindowBridge";
 import { getEventIndicatorPresentation } from "@/event-store/EventIndicatorValue";
+import { FieldVisibilityMenu } from "@/ui/FieldVisibilityMenu";
+import { useTableConfig } from "@/hooks/useTableConfig";
+import {
+	buildConfiguredEventFieldViews,
+	getEventLeafFieldPaths,
+	normalizeEventFieldPath,
+} from "@/utils";
 
 // --- UTILITIES ---
 
@@ -95,6 +101,12 @@ interface ResolvedEventValueTarget {
 
 interface EventActionTarget extends ResolvedEventValueTarget {
 	source: EventActionSource;
+}
+
+interface EventSourceFieldCatalogState {
+	sourceId: Source.Id;
+	fields: string[];
+	loaded: boolean;
 }
 
 /**
@@ -130,6 +142,7 @@ function getEventFlagState(app: App.Type, event: Doc.Type): boolean {
 const INITIAL_COLLAB_PANEL_HEIGHT = 240;
 const MIN_COLLAB_PANEL_HEIGHT = 140;
 const RESERVED_EVENT_VIEWER_HEIGHT = 260;
+const EMPTY_EVENT_HIDDEN_FIELDS = new Set<string>();
 
 /**
  * Removes array indices from a dot-separated path.
@@ -225,44 +238,6 @@ const prepareEventJson = (
 		...Object.fromEntries(entries),
 		"event.original": source["event.original"],
 	};
-};
-
-/**
- * Flattens a nested object into an array of key-value pairs suitable for table display.
- * @param value The value to flatten
- * @param parentKey The current accumulated key path
- */
-const flattenTableEntries = (
-	value: unknown,
-	parentKey = "",
-): Array<{ key: string; value: string }> => {
-	if (Array.isArray(value)) {
-		return value.flatMap((entry, index) =>
-			flattenTableEntries(
-				entry,
-				parentKey ? `${parentKey}.${index}` : String(index),
-			),
-		);
-	}
-
-	if (value && typeof value === "object") {
-		return Object.entries(value as Record<string, unknown>).flatMap(
-			([key, entry]) =>
-				flattenTableEntries(entry, parentKey ? `${parentKey}.${key}` : key),
-		);
-	}
-
-	return [
-		{
-			key: parentKey,
-			value:
-				value == null
-					? String(value)
-					: typeof value === "bigint"
-						? value.toString()
-						: String(value),
-		},
-	];
 };
 
 /**
@@ -1197,6 +1172,13 @@ export function DisplayEventDialog({
 		events: Doc.Type[];
 		anchor: { x: number; y: number };
 	} | null>(null);
+	const eventSourceId = event["gulp.source_id"];
+	const [sourceFieldCatalogState, setSourceFieldCatalogState] =
+		useState<EventSourceFieldCatalogState>({
+			sourceId: eventSourceId,
+			fields: [],
+			loaded: false,
+		});
 	const treeContextPathRef = useRef<string | null>(null);
 	const treeContainerRef = useRef<HTMLDivElement | null>(null);
 	const { theme } = useTheme();
@@ -1220,6 +1202,14 @@ export function DisplayEventDialog({
 		() => Source.Entity.id(app, event["gulp.source_id"]),
 		[app.target.files, event],
 	);
+	const sourceFieldLookupRef = useRef({
+		file,
+		load: Info.event_keys,
+	});
+	sourceFieldLookupRef.current = {
+		file,
+		load: Info.event_keys,
+	};
 	const eventOperationId =
 		file?.operation_id ??
 		(
@@ -1319,6 +1309,105 @@ export function DisplayEventDialog({
 	}, [json, hiddenTransformFields, transformsVersion, event]);
 
 	const displayJson = transformResult?.json ?? null;
+	const currentEventFieldCatalog = useMemo(
+		() => (displayJson ? getEventLeafFieldPaths(displayJson) : []),
+		[displayJson],
+	);
+
+	/** Loads the complete cached field catalog for the event's owning source. */
+	useEffect(() => {
+		let cancelled = false;
+		const sourceFile = sourceFieldLookupRef.current.file;
+		const loadSourceFields = sourceFieldLookupRef.current.load;
+		setSourceFieldCatalogState({
+			sourceId: eventSourceId,
+			fields: [],
+			loaded: !sourceFile,
+		});
+		if (!sourceFile) return () => {
+			cancelled = true;
+		};
+
+		void loadSourceFields(sourceFile)
+			.then((fieldOptions) => {
+				if (cancelled) return;
+				setSourceFieldCatalogState({
+					sourceId: eventSourceId,
+					fields: Object.keys(fieldOptions),
+					loaded: true,
+				});
+			})
+			.catch(() => {
+				if (cancelled) return;
+				setSourceFieldCatalogState({
+					sourceId: eventSourceId,
+					fields: [],
+					loaded: true,
+				});
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [eventSourceId, file?.id]);
+
+	const isSourceFieldCatalogLoaded =
+		sourceFieldCatalogState.sourceId === eventSourceId &&
+		sourceFieldCatalogState.loaded;
+	const sourceFieldCatalog = useMemo(() => {
+		const fields = new Set(currentEventFieldCatalog);
+		if (sourceFieldCatalogState.sourceId === eventSourceId) {
+			sourceFieldCatalogState.fields.forEach((field) => {
+				const normalizedField = normalizeEventFieldPath(field);
+				if (normalizedField) fields.add(normalizedField);
+			});
+		}
+		const sortedFields = Array.from(fields).sort((left, right) =>
+			left.localeCompare(right),
+		);
+		const currentFields = new Set(currentEventFieldCatalog);
+		return sortedFields.filter(
+			(field) =>
+				currentFields.has(field) ||
+				!sortedFields.some(
+					(otherField) =>
+						otherField !== field && otherField.startsWith(`${field}.`),
+				),
+		);
+	}, [currentEventFieldCatalog, eventSourceId, sourceFieldCatalogState]);
+	const isFieldConfigurationEnabled =
+		displayJson !== null && isSourceFieldCatalogLoaded;
+	const {
+		hiddenColumns: hiddenEventFields,
+		orderedColumns: orderedEventFields,
+		toggleColumn: toggleEventField,
+		selectAllColumns: selectAllEventFields,
+		deselectAllColumns: deselectAllEventFields,
+		moveColumn: moveEventField,
+		isLoaded: isEventFieldConfigurationLoaded,
+	} = useTableConfig(
+		`event-dialog-fields-${eventSourceId}`,
+		sourceFieldCatalog,
+		isFieldConfigurationEnabled,
+		"reconcile",
+	);
+	const configuredEventViews = useMemo(() => {
+		if (!displayJson) return null;
+		const configurationReady =
+			isFieldConfigurationEnabled && isEventFieldConfigurationLoaded;
+		return buildConfiguredEventFieldViews(
+			displayJson,
+			configurationReady ? orderedEventFields : sourceFieldCatalog,
+			configurationReady ? hiddenEventFields : EMPTY_EVENT_HIDDEN_FIELDS,
+		);
+	}, [
+		displayJson,
+		hiddenEventFields,
+		isEventFieldConfigurationLoaded,
+		isFieldConfigurationEnabled,
+		orderedEventFields,
+		sourceFieldCatalog,
+	]);
 
 	const transformedFields = useMemo(
 		() =>
@@ -1343,7 +1432,7 @@ export function DisplayEventDialog({
 	// --- HANDLERS: Actions ---
 
 	const handleCopyJson = useCallback(() => {
-		if (!json) return;
+		if (!configuredEventViews) return;
 		const path = treeContextPathRef.current;
 		if (!path) {
 			const selectedTableJson = getSelectedTableKeyValueObject(currentDocument);
@@ -1351,27 +1440,27 @@ export function DisplayEventDialog({
 				copy(JSON.stringify(selectedTableJson, null, 2));
 				return;
 			}
-			copy(JSON.stringify(json, null, 2));
+			copy(JSON.stringify(configuredEventViews.raw, null, 2));
 			return;
 		}
 
-		const value = getValueByPath(json, path);
+		const value = getValueByPath(configuredEventViews.tree, path);
 		if (value !== undefined) {
 			copy(JSON.stringify({ [path]: value }, null, 2));
 		} else {
-			copy(JSON.stringify(json, null, 2));
+			copy(JSON.stringify(configuredEventViews.raw, null, 2));
 		}
-	}, [currentDocument, json]);
+	}, [configuredEventViews, currentDocument]);
 
 	const handleDownloadJson = useCallback(() => {
-		if (json) {
+		if (configuredEventViews) {
 			download(
-				JSON.stringify(json, null, 2),
+				JSON.stringify(configuredEventViews.raw, null, 2),
 				"application/json",
 				`${event._id}_from_${event["gulp.source_id"]}.json`,
 			);
 		}
-	}, [json, event._id, event]);
+	}, [configuredEventViews, event._id, event]);
 
 	const handleDownloadLogFile = useCallback(() => {
 		const storageId = json?.["gulp.storage_id"];
@@ -1608,27 +1697,9 @@ export function DisplayEventDialog({
 	// --- UI COMPONENTS: Sub-renders ---
 
 	const highlights = useMemo(() => {
-		if (!displayJson) return null;
+		if (!displayJson || !configuredEventViews) return null;
 
 		const storageId = displayJson["gulp.storage_id"];
-		const tableRows = flattenTableEntries(displayJson).sort((a, b) =>
-			a.key.localeCompare(b.key),
-		);
-		const unflattenObject = sortTreeValueRecursively(
-			Object.keys(displayJson).reduce((res, k) => {
-				k.split(".").reduce(
-					(acc: any, e, i, keys) =>
-						acc[e] ||
-						(acc[e] = isNaN(Number(keys[i + 1]))
-							? keys.length - 1 === i
-								? displayJson[k]
-								: {}
-							: []),
-					res,
-				);
-				return res;
-			}, {}),
-		) as Record<string, unknown>;
 
 		const baseJsonStyles =
 			theme === "light" || theme === "light-old" ? defaultStyles : darkStyles;
@@ -1666,29 +1737,38 @@ export function DisplayEventDialog({
 					onValueChange={selectEventDetailView}
 					className={s.tabs_wrapper}
 				>
-					<TabsList className={s.triggers}>
-						<TabsTrigger value="raw">
-							<Icon
-								name="CodeBracket"
-								size={14}
-							/>{" "}
-							{t("eventDialog.raw")}
-						</TabsTrigger>
-						<TabsTrigger value="table">
-							<Icon
-								name="Table"
-								size={14}
-							/>{" "}
-							{t("eventDialog.table")}
-						</TabsTrigger>
-						<TabsTrigger value="tree">
-							<Icon
-								name="GitFork"
-								size={14}
-							/>{" "}
-							{t("eventDialog.tree")}
-						</TabsTrigger>
-					</TabsList>
+					<div className={s.eventViewToolbar}>
+						<TabsList className={s.triggers}>
+							<TabsTrigger value="raw">
+								<Icon name="CodeBracket" size={14} />{" "}
+								{t("eventDialog.raw")}
+							</TabsTrigger>
+							<TabsTrigger value="table">
+								<Icon name="Table" size={14} />{" "}
+								{t("eventDialog.table")}
+							</TabsTrigger>
+							<TabsTrigger value="tree">
+								<Icon name="GitFork" size={14} />{" "}
+								{t("eventDialog.tree")}
+							</TabsTrigger>
+						</TabsList>
+						<FieldVisibilityMenu
+							orderedItems={orderedEventFields}
+							hiddenItems={hiddenEventFields}
+							onToggleItem={toggleEventField}
+							onSelectAll={selectAllEventFields}
+							onDeselectAll={deselectAllEventFields}
+							onMoveItem={moveEventField}
+							terminology="fields"
+							portalContainer={currentDocument.body}
+							heightBoundaryRef={treeContainerRef}
+							triggerClassName={s.fieldVisibilityTrigger}
+							disabled={
+								!isFieldConfigurationEnabled ||
+								!isEventFieldConfigurationLoaded
+							}
+						/>
+					</div>
 
 					<ContextMenuTrigger
 						asChild
@@ -1723,7 +1803,7 @@ export function DisplayEventDialog({
 								className={s.scrollable}
 							>
 								<JsonView
-									data={unflattenObject}
+									data={configuredEventViews.tree}
 									clickToExpandNode={false}
 									shouldExpandNode={allExpanded}
 									style={jsonStyles}
@@ -1735,7 +1815,7 @@ export function DisplayEventDialog({
 							>
 								<Markdown
 									className={s.highlighter}
-									value={`\`\`\`json\n${JSON.stringify(displayJson, null, 2)}`}
+									value={`\`\`\`json\n${JSON.stringify(configuredEventViews.raw, null, 2)}`}
 								/>
 							</TabsContent>
 							<TabsContent
@@ -1745,7 +1825,7 @@ export function DisplayEventDialog({
 								<Table
 									className={s.tableView}
 									includeIndex={false}
-									values={tableRows}
+									values={configuredEventViews.table}
 								/>
 							</TabsContent>
 						</div>
@@ -1817,6 +1897,7 @@ export function DisplayEventDialog({
 			</ContextMenu>
 		);
 	}, [
+		configuredEventViews,
 		displayJson,
 		eventActionTarget,
 		spawnBanner,
@@ -1829,7 +1910,15 @@ export function DisplayEventDialog({
 		currentDocument,
 		eventDetailView,
 		selectEventDetailView,
+		deselectAllEventFields,
+		hiddenEventFields,
+		isEventFieldConfigurationLoaded,
+		isFieldConfigurationEnabled,
+		moveEventField,
+		orderedEventFields,
+		selectAllEventFields,
 		t,
+		toggleEventField,
 	]);
 
 	/**
@@ -1941,7 +2030,7 @@ export function DisplayEventDialog({
 		[collabPanelHeight],
 	);
 
-	if (!file) {
+	if (!file && !json && !detailLoading) {
 		return (
 			<Dialog
 				callback={onClose}
