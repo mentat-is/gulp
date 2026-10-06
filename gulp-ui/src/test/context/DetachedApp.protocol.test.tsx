@@ -6,6 +6,7 @@ import { DetachedAppProvider } from "@/context/DetachedApp.provider";
 import { Doc } from "@/entities/Doc";
 import { DataStore } from "@/store/DataStore";
 import type { Operation } from "@/entities/Operation";
+import type { Source } from "@/entities/Source";
 
 const mockSocketConstruct = jest.fn<
 	void,
@@ -16,6 +17,7 @@ let mockOwnsIndependentDataStore = false;
 let mockApplicationContextValue: {
 	app: App.Type;
 	detachedEventDetail: Doc.Type | null;
+	setDetachedNotesRenderedSync: (enabled: boolean) => void;
 	requestMainEventAction: (
 		payload: WindowBridge.OpenEventActionRequestPayload,
 	) => boolean;
@@ -443,6 +445,61 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 		expect(getReadyMessages()).toHaveLength(2);
 		expect(privateMessages).toHaveLength(1);
 		expect(container.textContent?.includes("detachedApp.idle")).toBe(true);
+	});
+
+	it("accepts the same rendered sources after visible-only sync is re-enabled", () => {
+		const renderedSourceId = "rendered-source" as Source.Id;
+		act(() => {
+			root.render(
+				<DetachedAppProvider
+					initialApp={App.Base}
+					bridgeId={clientId}
+					coordinatorId={coordinatorId}
+					kind="notes"
+				>
+					<div>notes detached app</div>
+				</DetachedAppProvider>,
+			);
+		});
+		act(() => {
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.DETACHED_BOOTSTRAP,
+				{
+					status: "active",
+					theme: {
+						theme: "classic-dark",
+						mode: "dark",
+						cssVariables: {},
+					},
+				},
+			);
+			mockApplicationContextValue?.setDetachedNotesRenderedSync(true);
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.RENDERED_SOURCES_CHANGED,
+				{ sourceIds: [renderedSourceId] },
+			);
+		});
+		expect(mockApplicationContextValue?.app.timeline.renderedSourceIds).toEqual([
+			renderedSourceId,
+		]);
+
+		act(() => {
+			mockApplicationContextValue?.setDetachedNotesRenderedSync(false);
+			mockApplicationContextValue?.setDetachedNotesRenderedSync(true);
+		});
+		expect(mockApplicationContextValue?.app.timeline.renderedSourceIds).toEqual(
+			[],
+		);
+
+		act(() => {
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.RENDERED_SOURCES_CHANGED,
+				{ sourceIds: [renderedSourceId] },
+			);
+		});
+		expect(mockApplicationContextValue?.app.timeline.renderedSourceIds).toEqual([
+			renderedSourceId,
+		]);
 	});
 
 	it("hydrates compact Table source and query projections to equivalent UI state", () => {

@@ -59,6 +59,7 @@ export namespace Note {
 	 */
 	export interface ListFilter {
 		ids?: Note.Id[];
+		doc_ids?: Doc.Id[];
 		source_ids?: Source.Id[];
 		tags?: string[];
 		tags_and?: boolean;

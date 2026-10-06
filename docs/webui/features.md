@@ -40,7 +40,10 @@ The Notes window supports:
 
 - search by context name, source name, note title, or text;
 - tag filtering;
-- "visible sources only" filtering;
+- "visible sources only" filtering based on the source rows currently rendered by
+  the timeline, including its source-name/context filter and hidden-empty-source
+  setting;
+- filtering notes to events flagged in the active operation;
 - selecting notes;
 - bulk deletion;
 - targeting a note to open or fetch its event in the main tab.

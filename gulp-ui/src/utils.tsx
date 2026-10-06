@@ -78,16 +78,24 @@ export function getCanvasRenderedSourceIds(
  * not mirror render event batches.
  *
  * @param app - Current application state.
+ * @param operationId - Optional operation scope for the rendered-source fallback.
  * @returns Set containing source IDs rendered as timeline rows.
  */
-export function getCanvasRenderedSourceIdSet(app: App.Type): Set<Source.Id> {
-	return new Set(app.timeline.renderedSourceIds ?? getCanvasRenderedSourceIds(app));
+export function getCanvasRenderedSourceIdSet(
+	app: App.Type,
+	operationId?: string | null,
+): Set<Source.Id> {
+	return new Set(
+		app.timeline.renderedSourceIds ??
+			getCanvasRenderedSourceIds(app, operationId),
+	);
 }
 
 export interface NotesWindowFilter {
 	search: string;
 	selectedTags: readonly string[];
 	sourceIds: ReadonlySet<Source.Id>;
+	documentIds?: ReadonlySet<Doc.Id>;
 	sourceById: ReadonlyMap<Source.Id, Source.Type>;
 	contextById: ReadonlyMap<Context.Id, Context.Type>;
 }
@@ -111,6 +119,7 @@ export interface NotesWindowUpdateDeltaResult {
 export interface NotesListFilterOptions {
 	searchMatchingIds: Note.Id[] | undefined;
 	sourceIds: Source.Id[];
+	documentIds?: Doc.Id[];
 	selectedTags: string[];
 	pageSize: number;
 	currentPage: number;
@@ -128,7 +137,7 @@ export function getNoteSourceId(note: Note.Type): Source.Id {
 /**
  * Determines whether a note matches the complete Notes window filter.
  * @param note Canonical DataStore note to evaluate.
- * @param filter Active search, tag, and source restrictions.
+ * @param filter Active search, tag, source, and document restrictions.
  * @returns True when the note should participate in the filtered result set.
  */
 export function noteMatchesNotesWindowFilter(
@@ -137,6 +146,7 @@ export function noteMatchesNotesWindowFilter(
 ): boolean {
 	const sourceId = getNoteSourceId(note);
 	if (!filter.sourceIds.has(sourceId)) return false;
+	if (filter.documentIds && !filter.documentIds.has(note.doc._id)) return false;
 
 	const lowercaseTags = note.tags.map((tag) => tag.toLowerCase());
 	const matchesTags =
@@ -278,6 +288,9 @@ export function buildNotesListFilters(
 	const countFilter: Note.ListFilter = {
 		source_ids: options.sourceIds,
 	};
+	if (options.documentIds) {
+		countFilter.doc_ids = options.documentIds;
+	}
 	if (options.searchMatchingIds) {
 		countFilter.ids = options.searchMatchingIds;
 	}

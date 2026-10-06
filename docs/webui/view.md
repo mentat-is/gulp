@@ -45,12 +45,16 @@ The detached Notes window gives a table-level view of operation notes.
 
 ![Notes window](images/notes-window.png)
 
-It supports search, tag selection, visible-source filtering, row targeting, row
-deletion, multi-select, and bulk deletion. Notes are fetched from the
-collaboration API in pages, with controls for page size, result range, and page
-navigation. The event timestamp column identifies the timestamp of the event
-targeted by each note, rather than the note creation time. The selection control
-can select all filtered note IDs already held in the canonical data store.
+It supports search, tag selection, rendered-source filtering, flagged-event
+filtering, row targeting, row deletion, multi-select, and bulk deletion. The
+rendered-source option follows the exact source rows currently displayed by the
+timeline, after its source-name/context filter and hidden-empty-source setting.
+The flagged-event option restricts notes by the active operation's browser-local
+flagged event IDs. Notes are fetched from the collaboration API in pages, with
+controls for page size, result range, and page navigation. The event timestamp
+column identifies the timestamp of the event targeted by each note, rather than
+the note creation time. The selection control can select all filtered note IDs
+already held in the canonical data store.
 
 The canonical note snapshot used for free-text matching, tag options, timeline
 badges, and cross-page selection is separate from the open result page. Timeline

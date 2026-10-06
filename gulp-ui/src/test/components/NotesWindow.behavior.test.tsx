@@ -34,6 +34,7 @@ interface MockChildrenProps {
 }
 
 interface MockCheckboxProps {
+	id?: string;
 	checked?: boolean;
 	onCheckedChange?: (checked: boolean) => void;
 }
@@ -71,6 +72,8 @@ const mockSendControlMessage = jest.fn<
 >();
 const mockNotesListCalls: Note.ListFilter[] = [];
 const mockNotesCountCalls: Note.ListFilter[] = [];
+let mockFlaggedDocIds = new Set<Doc.Id>();
+const mockInvalidateFlagCache = jest.fn();
 let mockNotesListImplementation = async (
 	_filter: Note.ListFilter,
 	_signal?: AbortSignal,
@@ -142,7 +145,15 @@ jest.mock("sonner", () => ({
 }));
 
 jest.mock("@/entities/Doc", () => ({
-	Doc: { Entity: {} },
+	Doc: {
+		Entity: {
+			flag: {
+				KEY: "flagged-events",
+				getList: (): Set<Doc.Id> => new Set(mockFlaggedDocIds),
+				invalidateCache: (): void => mockInvalidateFlagCache(),
+			},
+		},
+	},
 }));
 
 jest.mock("@/entities/Source", () => ({
@@ -218,10 +229,12 @@ jest.mock("@/ui/Banner", () => {
 jest.mock("@/ui/Checkbox", () => {
 	return {
 		Checkbox: ({
+			id,
 			checked,
 			onCheckedChange,
 		}: MockCheckboxProps): ReactNode =>
 			<button
+				id={id}
 				type="button"
 				data-testid="mock-checkbox"
 				aria-pressed={Boolean(checked)}
@@ -414,7 +427,12 @@ function createNote(
  */
 function getFilteredNotes(filter: Note.ListFilter): Note.Type[] {
 	const sourceIds = new Set(filter.source_ids ?? []);
-	return DataStore.notes.filter((note) => sourceIds.has(note.source_id));
+	const documentIds = filter.doc_ids ? new Set(filter.doc_ids) : null;
+	return DataStore.notes.filter(
+		(note) =>
+			sourceIds.has(note.source_id) &&
+			(!documentIds || documentIds.has(note.doc._id)),
+	);
 }
 
 describe("NotesWindow semantic requests", () => {
@@ -428,6 +446,8 @@ describe("NotesWindow semantic requests", () => {
 		DataStore.notes = [createNote("note-1")];
 		mockNotesListCalls.length = 0;
 		mockNotesCountCalls.length = 0;
+		mockFlaggedDocIds = new Set();
+		mockInvalidateFlagCache.mock.calls.splice(0);
 		mockSendControlMessage.mock.calls.splice(0);
 		mockNotesListImplementation = async (filter) =>
 			getFilteredNotes(filter);
@@ -522,7 +542,17 @@ describe("NotesWindow semantic requests", () => {
 		);
 	});
 
-	it("ignores rendered-source changes until visible-only filtering is enabled", async () => {
+	it("uses the exact rendered sources whenever visible-only filtering is toggled", async () => {
+		mockApp = {
+			...mockApp,
+			target: {
+				...mockApp.target,
+				files: mockApp.target.files.map((source) => ({
+					...source,
+					selected: true,
+				})),
+			},
+		};
 		await renderWindow();
 		mockApp = {
 			...mockApp,
@@ -537,15 +567,16 @@ describe("NotesWindow semantic requests", () => {
 		expect(getNotesCountCallCount()).toBe(1);
 
 		const visibleOnlyCheckbox = container.querySelector<HTMLButtonElement>(
-			'[data-testid="mock-checkbox"]',
+			"#notes-visible-sources-only",
 		);
 		expect(visibleOnlyCheckbox).not.toBeNull();
 		await act(async () => {
 			visibleOnlyCheckbox?.click();
 			await Promise.resolve();
 		});
-		expect(getNotesListCallCount()).toBe(1);
-		expect(getNotesCountCallCount()).toBe(1);
+		expect(getNotesListCallCount()).toBe(2);
+		expect(getNotesCountCallCount()).toBe(2);
+		expect(mockNotesListCalls.at(-1)?.source_ids).toEqual([SOURCE_BETA_ID]);
 
 		mockApp = {
 			...mockApp,
@@ -556,8 +587,88 @@ describe("NotesWindow semantic requests", () => {
 			},
 		};
 		await renderWindow();
-		expect(getNotesListCallCount()).toBe(2);
-		expect(getNotesCountCallCount()).toBe(2);
+		expect(getNotesListCallCount()).toBe(3);
+		expect(getNotesCountCallCount()).toBe(3);
+		expect(mockNotesListCalls.at(-1)?.source_ids).toEqual([SOURCE_ALPHA_ID]);
+
+		await act(async () => {
+			visibleOnlyCheckbox?.click();
+			await Promise.resolve();
+		});
+		expect(getNotesListCallCount()).toBe(4);
+		expect(getNotesCountCallCount()).toBe(4);
+		expect(mockNotesListCalls.at(-1)?.source_ids).toEqual([
+			SOURCE_ALPHA_ID,
+			SOURCE_BETA_ID,
+		]);
+	});
+
+	it("sends flagged event IDs as doc_ids when flagged-only filtering is enabled", async () => {
+		const unflaggedNote = createNote("note-unflagged");
+		const flaggedNote = createNote("note-flagged");
+		DataStore.notes = [unflaggedNote, flaggedNote];
+		mockFlaggedDocIds = new Set([flaggedNote.doc._id]);
+		await renderWindow();
+
+		const flaggedOnlyCheckbox = container.querySelector<HTMLButtonElement>(
+			"#notes-flagged-events-only",
+		);
+		expect(flaggedOnlyCheckbox).not.toBeNull();
+		await act(async () => {
+			flaggedOnlyCheckbox?.click();
+			await Promise.resolve();
+		});
+
+		expect(mockNotesListCalls.at(-1)?.doc_ids).toEqual([
+			flaggedNote.doc._id,
+		]);
+		expect(mockNotesCountCalls.at(-1)?.doc_ids).toEqual([
+			flaggedNote.doc._id,
+		]);
+		expect(
+			container.querySelector(`[data-note-id="${flaggedNote.id}"]`),
+		).not.toBeNull();
+		expect(
+			container.querySelector('[data-note-id="note-unflagged"]'),
+		).toBeNull();
+
+		mockFlaggedDocIds = new Set([unflaggedNote.doc._id]);
+		await act(async () => {
+			window.dispatchEvent(
+				new StorageEvent("storage", { key: "flagged-events" }),
+			);
+			await Promise.resolve();
+		});
+		expect(mockInvalidateFlagCache).toHaveBeenCalledTimes(1);
+		expect(mockNotesListCalls.at(-1)?.doc_ids).toEqual([
+			unflaggedNote.doc._id,
+		]);
+		expect(
+			container.querySelector(`[data-note-id="${unflaggedNote.id}"]`),
+		).not.toBeNull();
+
+		await act(async () => {
+			flaggedOnlyCheckbox?.click();
+			await Promise.resolve();
+		});
+		expect(mockNotesListCalls.at(-1)?.doc_ids).toBeUndefined();
+		expect(mockNotesCountCalls.at(-1)?.doc_ids).toBeUndefined();
+	});
+
+	it("does not request every note when flagged-only filtering has no event IDs", async () => {
+		await renderWindow();
+		const flaggedOnlyCheckbox = container.querySelector<HTMLButtonElement>(
+			"#notes-flagged-events-only",
+		);
+
+		await act(async () => {
+			flaggedOnlyCheckbox?.click();
+			await Promise.resolve();
+		});
+
+		expect(getNotesListCallCount()).toBe(1);
+		expect(getNotesCountCallCount()).toBe(1);
+		expect(container.textContent?.includes("tableView.noData")).toBe(true);
 	});
 
 	it("patches safe realtime updates without a request and refreshes membership changes once", async () => {

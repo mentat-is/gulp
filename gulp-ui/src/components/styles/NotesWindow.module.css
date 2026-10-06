@@ -52,12 +52,19 @@
   gap: 8px;
 }
 
-.visibleSourceFilter {
+.filterOptionsRow {
   min-height: 28px;
   padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
-.visibleSourceFilter button {
+.filterOption {
+  min-height: 28px;
+}
+
+.filterOption button {
   width: 20px;
   height: 20px;
 }

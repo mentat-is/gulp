@@ -9,6 +9,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { Application } from "@/context/Application.context";
+import { Doc } from "@/entities/Doc";
 import { Note } from "@/entities/Note";
 import { Select } from "@/ui/Select";
 import { Stack } from "@/ui/Stack";
@@ -187,6 +188,8 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const [appliedSearch, setAppliedSearch] = useState("");
 	const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 	const [showOnlyVisibleSources, setShowOnlyVisibleSources] = useState(false);
+	const [showOnlyFlaggedEvents, setShowOnlyFlaggedEvents] = useState(false);
+	const [, setFlagsRevision] = useState(0);
 	const [selectedNoteIds, setSelectedNoteIds] = useState<Set<Note.Id>>(
 		new Set(),
 	);
@@ -234,10 +237,11 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const canvasRenderedSourceIds = useMemo(
 		() =>
 			showOnlyVisibleSources
-				? getCanvasRenderedSourceIdSet(app)
+				? getCanvasRenderedSourceIdSet(app, selectedOperationId)
 				: null,
 		[
 			showOnlyVisibleSources,
+			selectedOperationId,
 			app.target.files,
 			app.target.contexts,
 			app.timeline.filter,
@@ -249,8 +253,8 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 
 	const filteredSourceIdValues =
 		showOnlyVisibleSources && canvasRenderedSourceIds
-			? selectedSourceIds.filter((sourceId) =>
-					canvasRenderedSourceIds.has(sourceId),
+			? [...canvasRenderedSourceIds].sort((left, right) =>
+					left.localeCompare(right),
 				)
 			: selectedSourceIds;
 	const filteredSourceIds = useStableSemanticArray(filteredSourceIdValues);
@@ -265,6 +269,17 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const contextById = useMemo(
 		() => new Map(app.target.contexts.map((context) => [context.id, context])),
 		[app.target.contexts],
+	);
+	const flaggedDocumentIdValues =
+		showOnlyFlaggedEvents && selectedOperationId
+			? Array.from(Doc.Entity.flag.getList(selectedOperationId)).sort(
+					(left, right) => left.localeCompare(right),
+				)
+			: [];
+	const flaggedDocumentIds = useStableSemanticArray(flaggedDocumentIdValues);
+	const flaggedDocumentIdSet = useMemo(
+		() => new Set(flaggedDocumentIds),
+		[flaggedDocumentIds],
 	);
 
 	const availableTags = useMemo(() => {
@@ -316,6 +331,9 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 						search: appliedSearch,
 						selectedTags: selectedTagValues,
 						sourceIds: filteredSourceIdSet,
+						documentIds: showOnlyFlaggedEvents
+							? flaggedDocumentIdSet
+							: undefined,
 						sourceById,
 						contextById,
 					}),
@@ -326,6 +344,8 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 			appliedSearch,
 			selectedTagValues,
 			filteredSourceIdSet,
+			showOnlyFlaggedEvents,
+			flaggedDocumentIdSet,
 			sourceById,
 			contextById,
 		],
@@ -336,6 +356,9 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 			buildNotesListFilters({
 				searchMatchingIds,
 				sourceIds: filteredSourceIds,
+				documentIds: showOnlyFlaggedEvents
+					? flaggedDocumentIds
+					: undefined,
 				selectedTags: selectedTagValues,
 				pageSize,
 				currentPage: queryCurrentPage,
@@ -343,6 +366,8 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		[
 			searchMatchingIds,
 			filteredSourceIds,
+			showOnlyFlaggedEvents,
+			flaggedDocumentIds,
 			selectedTagValues,
 			pageSize,
 			queryCurrentPage,
@@ -352,11 +377,15 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const queryCanReturnNotes =
 		Boolean(selectedOperationId) &&
 		filteredSourceIds.length > 0 &&
+		(!showOnlyFlaggedEvents || flaggedDocumentIds.length > 0) &&
 		(searchMatchingIds === undefined || searchMatchingIds.length > 0);
 	const totalPages = Math.max(1, Math.ceil(totalHits / pageSize));
 	const notesRequestKey = JSON.stringify([
 		selectedOperationId ?? null,
+		showOnlyVisibleSources,
 		filteredSourceIds,
+		showOnlyFlaggedEvents,
+		flaggedDocumentIds,
 		searchMatchingIds ?? null,
 		selectedTagValues,
 		pageSize,
@@ -483,6 +512,22 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	}, [search]);
 
 	useEffect(() => {
+		/**
+		 * Invalidates and refreshes flagged-document state changed by another window.
+		 * @param event Browser storage event for the shared flagged-event list.
+		 * @returns Nothing.
+		 */
+		const handleFlagStorageChange = (event: StorageEvent): void => {
+			if (event.key !== Doc.Entity.flag.KEY) return;
+			Doc.Entity.flag.invalidateCache();
+			setFlagsRevision((revision) => revision + 1);
+		};
+
+		window.addEventListener("storage", handleFlagStorageChange);
+		return () => window.removeEventListener("storage", handleFlagStorageChange);
+	}, []);
+
+	useEffect(() => {
 		setSelectedTags((previousTags) => {
 			const nextTags = new Set(
 				[...previousTags].filter((tag) =>
@@ -530,6 +575,9 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 						search: appliedSearch,
 						selectedTags: selectedTagValues,
 						sourceIds: filteredSourceIdSet,
+						documentIds: showOnlyFlaggedEvents
+							? flaggedDocumentIdSet
+							: undefined,
 						sourceById,
 						contextById,
 					},
@@ -561,6 +609,8 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		appliedSearch,
 		selectedTagValues,
 		filteredSourceIdSet,
+		showOnlyFlaggedEvents,
+		flaggedDocumentIdSet,
 		sourceById,
 		contextById,
 	]);
@@ -622,6 +672,16 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		setCurrentPage(1);
 		setSelectedNoteIds(new Set());
 	}, [setDetachedNotesRenderedSync]);
+
+	/**
+	 * Toggles the flagged-event restriction and resets pagination.
+	 * @returns Nothing.
+	 */
+	const toggleFlaggedEvents = useCallback((): void => {
+		setShowOnlyFlaggedEvents((flaggedOnly) => !flaggedOnly);
+		setCurrentPage(1);
+		setSelectedNoteIds(new Set());
+	}, []);
 
 	/**
 	 * Selects or deselects every note displayed on the current page.
@@ -905,23 +965,45 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 							))}
 						</Select.Content>
 					</Select.Multi.Root>
-					<Stack
-						gap={10}
-						ai="center"
-						flex={false}
-						className={s.visibleSourceFilter}
-					>
-						<Checkbox
-							checked={showOnlyVisibleSources}
-							onCheckedChange={toggleVisibleSources}
-						/>
-						<span
-							className={s.helperText}
-							onClick={toggleVisibleSources}
+					<div className={s.filterOptionsRow}>
+						<Stack
+							gap={10}
+							ai="center"
+							flex={false}
+							className={s.filterOption}
 						>
-							{t("notes.visibleSourcesOnly")}
-						</span>
-					</Stack>
+							<Checkbox
+								id="notes-visible-sources-only"
+								checked={showOnlyVisibleSources}
+								onCheckedChange={toggleVisibleSources}
+							/>
+							<span
+								className={s.helperText}
+								onClick={toggleVisibleSources}
+							>
+								{t("notes.visibleSourcesOnly")}
+							</span>
+						</Stack>
+						<Stack
+							gap={10}
+							ai="center"
+							flex={false}
+							className={s.filterOption}
+						>
+							<Checkbox
+								id="notes-flagged-events-only"
+								checked={showOnlyFlaggedEvents}
+								onCheckedChange={toggleFlaggedEvents}
+							/>
+							<span
+								className={s.helperText}
+								onClick={toggleFlaggedEvents}
+							>
+								{t("filterFile.flaggedOnly")}
+							</span>
+							<Icon name="Flag" />
+						</Stack>
+					</div>
 				</div>
 
 				<TableHeader

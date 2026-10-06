@@ -186,9 +186,11 @@ scale, render caches, complete timeline event collections, or render-version
 counters.
 
 The Notes “visible sources only” option enables the rendered-source
-subscription. The subscription is disabled when that option is off. Table
-query/frame synchronization follows the same opt-in model through its
-synchronized mode.
+subscription and sends those exact source IDs with the paginated note requests.
+The subscription is disabled when that option is off. The Notes flagged-event
+option sends the active operation's flagged event IDs as a collaboration
+`doc_ids` filter. Table query/frame synchronization follows the same opt-in
+model through its synchronized mode.
 
 ## Detached-to-main actions
 

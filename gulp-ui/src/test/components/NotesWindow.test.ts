@@ -157,9 +157,11 @@ describe("NotesWindow pagination helpers", () => {
 
 	it("builds existing GulpCollabFilter fields for the requested page and count", () => {
 		const ids = [createNote(1).id, createNote(2).id];
+		const documentIds = [createNote(2).doc._id];
 		const { pageFilter, countFilter } = buildNotesListFilters({
 			searchMatchingIds: ids,
 			sourceIds: [SOURCE_ALPHA_ID],
+			documentIds,
 			selectedTags: ["shared", "even"],
 			pageSize: 50,
 			currentPage: 3,
@@ -167,6 +169,7 @@ describe("NotesWindow pagination helpers", () => {
 
 		expect(countFilter).toEqual({
 			ids,
+			doc_ids: documentIds,
 			source_ids: [SOURCE_ALPHA_ID],
 			tags: ["shared", "even"],
 			tags_and: true,
@@ -177,6 +180,30 @@ describe("NotesWindow pagination helpers", () => {
 			offset: 100,
 			sort: [["time_pin", "desc"]],
 		});
+	});
+
+	it("matches notes only when their event is included in the document filter", () => {
+		const note = createNote(2);
+		expect(
+			noteMatchesNotesWindowFilter(note, {
+				search: "",
+				selectedTags: [],
+				sourceIds: new Set([SOURCE_ALPHA_ID]),
+				documentIds: new Set([note.doc._id]),
+				sourceById,
+				contextById,
+			}),
+		).toBe(true);
+		expect(
+			noteMatchesNotesWindowFilter(note, {
+				search: "",
+				selectedTags: [],
+				sourceIds: new Set([SOURCE_ALPHA_ID]),
+				documentIds: new Set(),
+				sourceById,
+				contextById,
+			}),
+		).toBe(false);
 	});
 
 	it("limits a 3,000-note result to a 50-record backend page", () => {

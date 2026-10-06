@@ -1193,6 +1193,9 @@ export function DetachedAppProvider({
 			}
 			notesRenderedSyncEnabledRef.current = enabled;
 			if (enabled) {
+				// The main window may resend the same rendered rows after a disable/enable
+				// cycle, so the cleared local snapshot must not retain its old signature.
+				delete payloadSignaturesRef.current.rendered;
 				setInfo((previous) => ({
 					...previous,
 					timeline: {
