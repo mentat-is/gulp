@@ -223,7 +223,8 @@ class GulpServer:
         self, r: Request, ex: Any
     ) -> JSendResponse:
         """
-        set error code 400 to generic bad requests
+        turns an exception raised while serving a request into the JSend error
+        response and its HTTP status code, and logs it (see _log_api_error).
         """
         from gulp.api.collab.structs import (
             MissingPermission,
@@ -284,22 +285,58 @@ class GulpServer:
             # suppress printing of 404s for request_get_by_id to avoid log spam, since it's frequently polled by the client for pending requests
             print_error = False
         # print("***** print_response=%r, r.url.path=%s, status_code=%d, ex=%s" % (print_error, r.url.path, status_code, ex))
+        request_info = {
+            "path": r.url.path,
+            "method": r.method,
+            "query": str(r.query_params),
+            "headers": dict(r.headers),
+            "body": body,
+        }
         js = JSendResponse.error(
             req_id=req_id,
             ex=ex,
-            data={
-                "request": {
-                    "path": r.url.path,
-                    "method": r.method,
-                    "query": str(r.query_params),
-                    "headers": dict(r.headers),
-                    "body": body,
-                }
-            },
+            data={"request": request_info},
             name=name,
-            print_response=print_error,
+            # the response is not logged as a whole (it used to be, at ERROR, for
+            # every failed request): _log_api_error writes one readable line
+            print_response=False,
         )
+        if print_error:
+            self._log_api_error(status_code, name, ex, request_info, req_id)
         return JSONResponse(js, status_code=status_code)
+
+    @staticmethod
+    def _log_api_error(
+        status_code: int, name: str, ex: Any, request_info: dict, req_id: str | None
+    ) -> None:
+        """
+        logs a failed request as one line: method, path, status, error name and message.
+
+        A client error (4xx: wrong password, missing permission, bad parameters,
+        not found) is the caller's mistake, logged at WARNING without a traceback;
+        a server error (5xx) is logged at ERROR with its traceback. The request
+        details (query, headers, body) go to detail=, so only in dev_mode.
+
+        Args:
+            status_code (int): the HTTP status code returned.
+            name (str): the error (exception class) name.
+            ex (Any): the exception, or its text.
+            request_info (dict): path, method, query, headers and body of the request.
+            req_id (str | None): the request id, added to the log context.
+        """
+        message = (
+            f"{request_info['method']} {request_info['path']} -> {status_code} "
+            f"{name}: {muty.string.make_shorter(str(ex), max_len=300)}"
+        )
+        if status_code >= 500:
+            Glug.get_instance().error(
+                message,
+                exc_info=ex if isinstance(ex, BaseException) else None,
+                detail=request_info,
+                req_id=req_id,
+            )
+        else:
+            Glug.get_instance().warning(message, detail=request_info, req_id=req_id)
 
     def _add_routers(self):
         from gulp.api.server.db import router as db_router

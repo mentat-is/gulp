@@ -1,5 +1,13 @@
 # v2.0.0
 
+- a failed API request is now logged as one readable line, e.g.
+  `POST /login -> 401 WrongUsernameOrPassword: wrong password for
+  user_id=admin`: at `WARNING` without traceback for a client error (4xx),
+  at `ERROR` with traceback for a server error (5xx). It used to be the whole
+  JSON error response (request headers, body, traceback) dumped at `ERROR`
+  for every failure, a wrong password included. The request details are in
+  `detail=` (dev mode only); the response sent to the client is unchanged.
+  See `docs/logging.md`, "Failed API requests".
 - `Glug` now masks credentials in everything it writes (stdout, `--log-file`,
   the JSON files): the value following `token`, `password` or `pwd_hash`
   (also `access_token` and the like) becomes `***`, in messages, hints,

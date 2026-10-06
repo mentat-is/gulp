@@ -14,6 +14,7 @@
   - [Configuration (CLI flags)](#configuration-cli-flags)
   - [Runtime reconfiguration](#runtime-reconfiguration)
   - [Process bootstrap: main and workers](#process-bootstrap-main-and-workers)
+  - [Failed API requests](#failed-api-requests)
   - [Credentials are masked](#credentials-are-masked)
   - [Third-party loggers](#third-party-loggers)
   - [Shipping logs to OpenSearch](#shipping-logs-to-opensearch)
@@ -384,6 +385,27 @@ run (there are a couple of spots in `config.py`, reached even from
 minimal CLI paths like `gulp --stop` that never bootstrap `Glug` at all)
 always passes an explicit `name="glug"` rather than a bare call, for exactly
 this reason.
+
+## Failed API requests
+
+Every exception raised while serving a request goes through one handler
+(`GulpServer._bad_request_exception_handler`), which builds the JSend error
+response and logs the failure as **one line**:
+
+```text
+... WARN gulp.api.server_api:_log_api_error:339[Task-49]  POST /login -> 401 WrongUsernameOrPassword: wrong password for user_id=admin  {req_id=f9ce6fa0-...}
+```
+
+- **4xx** (wrong credentials, expired session, missing permission, bad
+  parameters, not found): the caller's mistake, logged at `WARNING`, without
+  a traceback.
+- **5xx**: a failure of gULP or of a backing service, logged at `ERROR` with
+  its traceback.
+
+The request details (query, headers, body) are attached as `detail=`, so
+they appear only in dev mode. The `404` of the polled `/request_get_by_id`
+is not logged at all. The response sent to the client is not affected by
+any of this.
 
 ## Credentials are masked
 
