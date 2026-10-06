@@ -278,6 +278,30 @@ describe("DisplayGroupDialog EventStore pagination", () => {
 		).toBeNull();
 	});
 
+	it("delegates event selection when the caller owns navigation", () => {
+		const event = createEvent("delegated-event", 1);
+		const onSelectEvent = jest.fn<void, [Doc.Type]>();
+		const onClose = jest.fn();
+		act(() => {
+			root.render(
+				<DisplayGroupDialog
+					events={[event]}
+					onSelectEvent={onSelectEvent}
+					onClose={onClose}
+				/>,
+			);
+		});
+
+		act(() => {
+			container.querySelector<HTMLElement>(
+				'[data-event-id="delegated-event"]',
+			)?.click();
+		});
+
+		expect(onSelectEvent).toHaveBeenCalledWith(event);
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
 	it("shows the compact custom-field label instead of a missing event code", () => {
 		const customEvent: Doc.Type = {
 			...createEvent("custom-label", 1),

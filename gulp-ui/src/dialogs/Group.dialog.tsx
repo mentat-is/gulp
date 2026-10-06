@@ -291,6 +291,7 @@ interface DisplayGroupDialogCommonProps {
 	anchor?: { x: number; y: number } | null;
 	groupKind?: DisplayGroupKind;
 	onClose?: () => void;
+	onSelectEvent?: (event: Doc.Type) => void;
 	preserveTimelineTarget?: boolean;
 }
 
@@ -340,6 +341,7 @@ export function DisplayGroupDialog(props: DisplayGroupDialogProps) {
 		anchor,
 		groupKind = "events",
 		onClose,
+		onSelectEvent,
 		preserveTimelineTarget = false,
 	} = props;
 	const { spawnDialog, Info, app, currentDocument } = Application.use();
@@ -681,19 +683,25 @@ export function DisplayGroupDialog(props: DisplayGroupDialogProps) {
 		);
 
 	/**
-	 * Opens the selected event and keeps the timeline crosshair focused on it.
+	 * Delegates event selection when requested, otherwise opens the event locally
+	 * and keeps the timeline crosshair focused on it.
 	 *
 	 * @param event Event row selected by the user.
 	 * @returns Nothing.
 	 */
 	const handleSelectEvent = useCallback(
 		(event: Doc.Type) => {
+			if (onSelectEvent) {
+				onSelectEvent(event);
+				onClose?.();
+				return;
+			}
 			Info.setTimelineTarget(event);
 			onClose?.();
 			spawnDialog(null);
 			spawnDialog(<DisplayEventDialog event={event} />);
 		},
-		[Info, onClose, spawnDialog],
+		[Info, onClose, onSelectEvent, spawnDialog],
 	);
 
 	/**

@@ -72,6 +72,7 @@ import { FieldVisibilityMenu } from "@/ui/FieldVisibilityMenu";
 import { useTableConfig } from "@/hooks/useTableConfig";
 import {
 	buildConfiguredEventFieldViews,
+	getRelatedLinkEvents,
 	getEventLeafFieldPaths,
 	normalizeEventFieldPath,
 } from "@/utils";
@@ -107,25 +108,6 @@ interface EventSourceFieldCatalogState {
 	sourceId: Source.Id;
 	fields: string[];
 	loaded: boolean;
-}
-
-/**
- * Resolves every document related to a link, including the root document and
- * connected destination documents, while preserving stored link order.
- * @param link Link whose related events should be displayed.
- * @returns Related documents that are currently available in the document index.
- */
-async function getRelatedLinkEvents(link: Link.Type): Promise<Doc.Type[]> {
-	const relatedDocumentIds: Doc.Id[] = [];
-	const seenDocIds = new Set<Doc.Id>();
-
-	for (const docId of [link.doc_id_from, ...link.doc_ids]) {
-		if (seenDocIds.has(docId)) continue;
-		seenDocIds.add(docId);
-		relatedDocumentIds.push(docId);
-	}
-
-	return DataStore.Events.getByIds(relatedDocumentIds);
 }
 
 /**

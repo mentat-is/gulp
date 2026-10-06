@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { DetachedAppProvider } from "@/context/DetachedApp.provider";
 import { WindowBridge } from "@/lib/WindowBridge";
-import { NotesWindow } from "@/components/NotesWindow";
+import { NotesLinksWIndows } from "@/components/NotesLinksWIndows";
 import { TableViewWindow } from "@/components/TableViewWindow";
 import { DashboardViewWindow } from "@/components/DashboardViewWindow";
 import { AIAssistantWindow } from "@/components/AIAssistantWindow";
@@ -151,7 +151,7 @@ function DetachedRouteContent({
 	assistantPluginFilename?: string;
 }) {
 	if (kind === "notes") {
-		return <NotesWindow onClose={() => window.close()} />;
+		return <NotesLinksWIndows onClose={() => window.close()} />;
 	}
 
 	if (kind === "table") {

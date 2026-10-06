@@ -292,10 +292,10 @@ export function OperationTimeline() {
 	const menuTopItems = useMemo<MenuItem[]>(
 		() => [
 			{
-				label: t("operationView.menu.openNotesWindow"),
+				label: t("operationView.menu.openNotesLinksWIndows"),
 				icon: "FileText",
 				category: t("operationView.menu.notesSources"),
-				action: () => detachedWindows.openNotesWindow(),
+				action: () => detachedWindows.openNotesLinksWIndows(),
 			},
 			{
 				label: t("operationView.menu.openTableWindow"),

@@ -32,11 +32,14 @@ be edited or deleted from the event panel.
 
 ![Event detail notes](images/event-detail-notes.png)
 
-The detached Notes window lists operation notes in a table.
+The detached Notes & Links window provides Notes and Links tables for the selected
+operation and sources.
 
-![Notes window](images/notes-window.png)
+![Notes window](images/notes-windows.png)
 
-The Notes window supports:
+![Links window](images/links-windows.png)
+
+The Notes & Links window supports:
 
 - search by context name, source name, note title, or text;
 - tag filtering;
@@ -47,6 +50,24 @@ The Notes window supports:
 - selecting notes;
 - bulk deletion;
 - targeting a note to open or fetch its event in the main tab.
+
+The Links tab shows each link's glyph, colored title, description, tags, and
+origin event ID. Its case-insensitive search covers title and description text
+plus exact tags. The visible page and matching count are loaded from the
+collaboration API when the tab opens and whenever its debounced query or
+20/50/100-row pagination changes. Current-page and all-filtered selection plus
+confirmed bulk deletion remain backed by stable canonical link IDs. The origin
+ID and entries in the related-events popup target their event in the main
+operation window. Row actions open the available origin and destination events
+or delete the complete link after confirmation.
+
+Realtime Link creation or deletion leaves the current page stable and displays
+a changes-available warning. The analyst explicitly refreshes to load and
+acknowledge the latest matching page; renderer state still receives the compact
+delta immediately.
+
+Creating, editing, connecting, disconnecting, or deleting a Link applies the
+mutation result directly instead of reloading the complete Link collection.
 
 See [Detached Applications](detached-windows.md) for lifecycle, synchronization,
 and request behavior shared by detached views.

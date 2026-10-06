@@ -1,5 +1,6 @@
 import "@/global.css";
 import {
+	type MouseEvent as ReactMouseEvent,
 	useState,
 	useMemo,
 	useRef,
@@ -11,11 +12,16 @@ import { toast } from "sonner";
 import { Application } from "@/context/Application.context";
 import { Doc } from "@/entities/Doc";
 import { Note } from "@/entities/Note";
+import { Link } from "@/entities/Link";
 import { Select } from "@/ui/Select";
 import { Stack } from "@/ui/Stack";
 import { Input } from "@/ui/Input";
 import { Banner as UIBanner } from "@/ui/Banner";
-import { DataStore, type NotesSyncChange } from "@/store/DataStore";
+import {
+	DataStore,
+	type LinksRealtimeSyncChange,
+	type NotesSyncChange,
+} from "@/store/DataStore";
 import { Checkbox } from "@/ui/Checkbox";
 import { Button } from "@/ui/Button";
 import { Toggle } from "@/ui/Toggle";
@@ -25,19 +31,24 @@ import { WindowBridge } from "@/lib/WindowBridge";
 import { Table } from "./Table";
 import { Icon } from "@/ui/Icon";
 import { TableHeader } from "@/ui/TableHeader";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/Tabs";
 import { Locale } from "@/locales";
+import { DisplayGroupDialog } from "@/dialogs/Group.dialog";
 import {
 	acknowledgeNotesChangeSequence,
 	advanceNotesChangeSequence,
-	applyNotesWindowUpdateDelta,
+	buildLinksListFilters,
+	applyNotesLinksWIndowsUpdateDelta,
 	buildNotesListFilters,
 	getCanvasRenderedSourceIdSet,
+	getRelatedLinkEvents,
 	getNoteSourceId,
+	getSearchMatchingLinkIds,
 	getSearchMatchingNoteIds,
-	noteMatchesNotesWindowFilter,
+	noteMatchesNotesLinksWIndowsFilter,
 } from "@/utils";
 
-import s from "./styles/NotesWindow.module.css";
+import s from "./styles/NotesLinksWIndows.module.css";
 
 interface FloatingWindowProps {
 	onClose: () => void;
@@ -45,6 +56,11 @@ interface FloatingWindowProps {
 
 interface BulkDeleteNotesBannerProps {
 	noteIds: Note.Id[];
+	onDeleted: () => void;
+}
+
+interface BulkDeleteLinksBannerProps {
+	linkIds: Link.Id[];
 	onDeleted: () => void;
 }
 
@@ -64,9 +80,26 @@ interface NotesTableRow extends Record<string, unknown> {
 	icon: Icon.Name;
 }
 
+interface LinksTableRow extends Record<string, unknown> {
+	id: Link.Id;
+	_id: Link.Id;
+	title: string;
+	description: string;
+	tags: string;
+	originEventId: Doc.Id;
+	color: string;
+	rawLink: Link.Type;
+	icon: Icon.Name;
+}
+
 interface NotesQuerySnapshot {
 	operationId: Note.Type["operation_id"] | undefined;
 	notes: Note.Type[];
+}
+
+interface LinksQuerySnapshot {
+	operationId: Link.Type["operation_id"] | undefined;
+	links: Link.Type[];
 }
 
 interface NotesPageRequest {
@@ -77,15 +110,24 @@ interface NotesPageRequest {
 	currentPage: number;
 }
 
+interface LinksPageRequest {
+	pageFilter: Link.ListFilter;
+	countFilter: Link.ListFilter;
+	queryCanReturnLinks: boolean;
+	pageSize: number;
+	currentPage: number;
+}
+
 const NOTES_TABLE_VIRTUALIZATION = {
 	threshold: 20,
 	overscan: 8,
 	estimatedRowHeight: 28,
 } as const;
 
-const NOTES_PAGE_SIZES = [20, 50, 100] as const;
-const NOTES_SEARCH_DEBOUNCE_MSEC = 250;
+const TABLE_PAGE_SIZES = [20, 50, 100] as const;
+const TABLE_SEARCH_DEBOUNCE_MSEC = 250;
 const EMPTY_NOTE_IDS: Note.Id[] = [];
+const EMPTY_LINK_IDS: Link.Id[] = [];
 
 /**
  * Keeps an array reference stable while its ordered primitive values are equal.
@@ -157,11 +199,63 @@ function BulkDeleteNotesBanner({
 }
 
 /**
- * Displays a paginated, filterable Notes table for the selected operation.
- * @param props Detached-window lifecycle properties.
- * @returns Notes window content.
+ * Renders the confirmation banner for deleting links selected across pages.
+ * @param props Selected link identifiers and success callback.
+ * @returns Bulk-delete confirmation banner.
  */
-export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
+function BulkDeleteLinksBanner({
+	linkIds,
+	onDeleted,
+}: BulkDeleteLinksBannerProps) {
+	const { Info, destroyBanner } = Application.use();
+	const { t } = Locale.use();
+	const [loading, setLoading] = useState(false);
+	const [isSubmitted, setIsSubmitted] = useState(false);
+
+	/**
+	 * Deletes all selected links and closes the confirmation banner.
+	 * @returns Promise resolved after link state has been synchronized.
+	 */
+	const confirmDelete = async (): Promise<void> => {
+		setLoading(true);
+		try {
+			await Info.links_delete_bulk(linkIds);
+			onDeleted();
+			destroyBanner();
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	return (
+		<UIBanner
+			title={t("links.deleteSelected", { count: linkIds.length })}
+			done={
+				<Button
+					loading={loading}
+					icon="Trash2"
+					variant="glass"
+					onClick={confirmDelete}
+					disabled={!isSubmitted}
+				/>
+			}
+		>
+			<p>{t("links.deleteConfirm", { count: linkIds.length })}</p>
+			<Toggle
+				option={[t("common.noDontDelete"), t("common.yesImSure")]}
+				checked={isSubmitted}
+				onCheckedChange={setIsSubmitted}
+			/>
+		</UIBanner>
+	);
+}
+
+/**
+ * Displays paginated, filterable Notes and Links tables for the selected operation.
+ * @param props Detached-window lifecycle properties.
+ * @returns Notes & Links window content.
+ */
+export function NotesLinksWIndows({ onClose: _onClose }: FloatingWindowProps) {
 	const {
 		Info,
 		app,
@@ -184,6 +278,41 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const selectedOperationId = app.target.operations.find(
 		(operation) => operation.selected,
 	)?.id;
+	const operationLinks = useMemo(
+		() =>
+			DataStore.links.filter(
+				(link) => link.operation_id === selectedOperationId,
+			),
+		[dataStoreVersion, selectedOperationId],
+	);
+	const [linksQuerySnapshot, setLinksQuerySnapshot] =
+		useState<LinksQuerySnapshot>(() => ({
+			operationId: selectedOperationId,
+			links: [...operationLinks],
+		}));
+	const queryLinks =
+		linksQuerySnapshot.operationId === selectedOperationId
+			? linksQuerySnapshot.links
+			: operationLinks;
+	const queryLinksRef = useRef<Link.Type[]>(queryLinks);
+	queryLinksRef.current = queryLinks;
+	const [activeTab, setActiveTab] = useState<"notes" | "links">("notes");
+	const [linkSearch, setLinkSearch] = useState("");
+	const [appliedLinkSearch, setAppliedLinkSearch] = useState("");
+	const [linkPageSize, setLinkPageSize] = useState(50);
+	const [linkCurrentPage, setLinkCurrentPage] = useState(1);
+	const [pageLinks, setPageLinks] = useState<Link.Type[]>([]);
+	const [linkTotalHits, setLinkTotalHits] = useState(0);
+	const [linkLoading, setLinkLoading] = useState(false);
+	const [linksCollectionRevision, setLinksCollectionRevision] = useState(0);
+	const [pendingLinksChangeSequence, setPendingLinksChangeSequence] =
+		useState<number | null>(null);
+	const pendingLinksChangeSequenceRef = useRef<number | null>(null);
+	const linksRefreshAcknowledgementRef = useRef<number | null>(null);
+	const linksRequestControllerRef = useRef<AbortController | null>(null);
+	const [selectedLinkIds, setSelectedLinkIds] = useState<Set<Link.Id>>(
+		new Set(),
+	);
 	const [search, setSearch] = useState("");
 	const [appliedSearch, setAppliedSearch] = useState("");
 	const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
@@ -211,11 +340,17 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const [currentPage, setCurrentPage] = useState(1);
 	const [pendingNotesChangeSequence, setPendingNotesChangeSequence] =
 		useState<number | null>(null);
+	const pendingNotesChangeSequenceRef = useRef<number | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [refreshRevision, setRefreshRevision] = useState(0);
 	const refreshAcknowledgementRef = useRef<number | null>(null);
 	const notesRequestControllerRef = useRef<AbortController | null>(null);
 	const windowRef = useRef<HTMLDivElement>(null);
+	const [linkedEventsPopup, setLinkedEventsPopup] = useState<{
+		events: Doc.Type[];
+		anchor: { x: number; y: number };
+		operationId: Link.Type["operation_id"];
+	} | null>(null);
 
 	const selectedSourceIdValues = useMemo(
 		() =>
@@ -233,6 +368,72 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const currentPageScopeRef = useRef(queryScopeKey);
 	const queryCurrentPage =
 		currentPageScopeRef.current === queryScopeKey ? currentPage : 1;
+	const queryLinkCurrentPage =
+		currentPageScopeRef.current === queryScopeKey ? linkCurrentPage : 1;
+
+	const searchMatchingLinkIdValues = useMemo(() => {
+		const matchingIds = getSearchMatchingLinkIds(
+			queryLinks,
+			appliedLinkSearch,
+		);
+		return matchingIds?.sort((left, right) => left.localeCompare(right));
+	}, [queryLinks, appliedLinkSearch]);
+	const stableSearchMatchingLinkIds = useStableSemanticArray(
+		searchMatchingLinkIdValues ?? EMPTY_LINK_IDS,
+	);
+	const searchMatchingLinkIds =
+		searchMatchingLinkIdValues === undefined
+			? undefined
+			: stableSearchMatchingLinkIds;
+	const allFilteredLinkIds = useMemo(
+		() =>
+			getSearchMatchingLinkIds(operationLinks, appliedLinkSearch) ??
+			operationLinks.map((link) => link.id),
+		[operationLinks, appliedLinkSearch],
+	);
+	const {
+		pageFilter: linkPageFilter,
+		countFilter: linkCountFilter,
+	} = useMemo(
+		() =>
+			buildLinksListFilters({
+				searchMatchingIds: searchMatchingLinkIds,
+				pageSize: linkPageSize,
+				currentPage: queryLinkCurrentPage,
+			}),
+		[
+			searchMatchingLinkIds,
+			linkPageSize,
+			queryLinkCurrentPage,
+		],
+	);
+	const queryCanReturnLinks =
+		activeTab === "links" &&
+		Boolean(selectedOperationId) &&
+		(searchMatchingLinkIds === undefined ||
+			searchMatchingLinkIds.length > 0);
+	const linksRequestKey = JSON.stringify([
+		activeTab,
+		selectedOperationId ?? null,
+		searchMatchingLinkIds ?? null,
+		linkPageSize,
+		queryLinkCurrentPage,
+		linksCollectionRevision,
+	]);
+	const linksPageRequestRef = useRef<LinksPageRequest>({
+		pageFilter: linkPageFilter,
+		countFilter: linkCountFilter,
+		queryCanReturnLinks,
+		pageSize: linkPageSize,
+		currentPage: queryLinkCurrentPage,
+	});
+	linksPageRequestRef.current = {
+		pageFilter: linkPageFilter,
+		countFilter: linkCountFilter,
+		queryCanReturnLinks,
+		pageSize: linkPageSize,
+		currentPage: queryLinkCurrentPage,
+	};
 
 	const canvasRenderedSourceIds = useMemo(
 		() =>
@@ -327,7 +528,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		() =>
 			DataStore.notes
 				.filter((note) =>
-					noteMatchesNotesWindowFilter(note, {
+					noteMatchesNotesLinksWIndowsFilter(note, {
 						search: appliedSearch,
 						selectedTags: selectedTagValues,
 						sourceIds: filteredSourceIdSet,
@@ -415,9 +616,14 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const acknowledgeSuccessfulRefresh = useCallback(
 		(sequence: number | null): void => {
 			if (sequence === null) return;
-			setPendingNotesChangeSequence((pendingSequence) =>
-				acknowledgeNotesChangeSequence(pendingSequence, sequence),
-			);
+			setPendingNotesChangeSequence((pendingSequence) => {
+				const nextSequence = acknowledgeNotesChangeSequence(
+					pendingSequence,
+					sequence,
+				);
+				pendingNotesChangeSequenceRef.current = nextSequence;
+				return nextSequence;
+			});
 		},
 		[],
 	);
@@ -502,14 +708,176 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		[],
 	);
 
+	useEffect(
+		() =>
+			DataStore.subscribeRenderChanges((change) => {
+				if (change.type !== "links" || change.mutation !== "replace") {
+					return;
+				}
+				const linksSnapshot = DataStore.links.filter(
+					(link) => link.operation_id === selectedOperationId,
+				);
+				queryLinksRef.current = linksSnapshot;
+				setLinksQuerySnapshot({
+					operationId: selectedOperationId,
+					links: linksSnapshot,
+				});
+				setLinksCollectionRevision(change.collectionRevision);
+			}),
+		[selectedOperationId],
+	);
+
 	useEffect(() => {
+		/**
+		 * Keeps updates live while holding create/delete changes behind a refresh.
+		 * @param change Realtime Links synchronization event for this window realm.
+		 * @returns Nothing.
+		 */
+		const handleLinksSyncChange = (
+			change: LinksRealtimeSyncChange,
+		): void => {
+			if (change.operationId !== selectedOperationId) return;
+			if (change.mutation === "update") {
+				const linksSnapshot = DataStore.links.filter(
+					(link) => link.operation_id === selectedOperationId,
+				);
+				queryLinksRef.current = linksSnapshot;
+				setLinksQuerySnapshot({
+					operationId: selectedOperationId,
+					links: linksSnapshot,
+				});
+				setLinksCollectionRevision((revision) => revision + 1);
+				return;
+			}
+			const nextSequence = Math.max(
+				pendingLinksChangeSequenceRef.current ?? 0,
+				change.sequence,
+			);
+			pendingLinksChangeSequenceRef.current = nextSequence;
+			setPendingLinksChangeSequence(nextSequence);
+		};
+
+		return DataStore.subscribeLinksSyncChanges(handleLinksSyncChange);
+	}, [selectedOperationId]);
+
+	/**
+	 * Clears only the Links changes covered by one successful explicit refresh.
+	 * @param sequence Realtime sequence captured when refresh started.
+	 * @returns Nothing.
+	 */
+	const acknowledgeSuccessfulLinksRefresh = useCallback(
+		(sequence: number | null): void => {
+			if (sequence === null) return;
+			setPendingLinksChangeSequence((pendingSequence) => {
+				const nextSequence =
+					pendingSequence !== null && pendingSequence <= sequence
+					? null
+					: pendingSequence;
+				pendingLinksChangeSequenceRef.current = nextSequence;
+				return nextSequence;
+			});
+		},
+		[],
+	);
+
+	/**
+	 * Fetches the active link page and matching total while rejecting stale results.
+	 * @returns Promise resolved after the latest request updates table state.
+	 */
+	const fetchLinksPage = useCallback(async (): Promise<void> => {
+		const {
+			pageFilter: requestPageFilter,
+			countFilter: requestCountFilter,
+			queryCanReturnLinks: requestCanReturnLinks,
+			pageSize: requestPageSize,
+			currentPage: requestPage,
+		} = linksPageRequestRef.current;
+		const refreshSequence = linksRefreshAcknowledgementRef.current;
+		linksRefreshAcknowledgementRef.current = null;
+		linksRequestControllerRef.current?.abort();
+		if (!requestCanReturnLinks) {
+			linksRequestControllerRef.current = null;
+			setPageLinks([]);
+			setLinkTotalHits(0);
+			setLinkLoading(false);
+			acknowledgeSuccessfulLinksRefresh(refreshSequence);
+			return;
+		}
+
+		const requestController = new AbortController();
+		linksRequestControllerRef.current = requestController;
+		setPageLinks([]);
+		setLinkLoading(true);
+		try {
+			const [links, count] = await Promise.all([
+				infoRef.current.links_list(
+					requestPageFilter,
+					requestController.signal,
+				),
+				infoRef.current.links_count(
+					requestCountFilter,
+					requestController.signal,
+				),
+			]);
+			if (
+				requestController.signal.aborted ||
+				linksRequestControllerRef.current !== requestController
+			) {
+				return;
+			}
+
+			const nextTotalPages = Math.max(
+				1,
+				Math.ceil(count / requestPageSize),
+			);
+			setLinkTotalHits(count);
+			if (requestPage > nextTotalPages) {
+				acknowledgeSuccessfulLinksRefresh(refreshSequence);
+				setLinkCurrentPage(nextTotalPages);
+				return;
+			}
+			setPageLinks(links);
+			acknowledgeSuccessfulLinksRefresh(refreshSequence);
+		} catch {
+			if (!requestController.signal.aborted) {
+				toast.error(translateRef.current("tableView.fetchFailed"));
+			}
+		} finally {
+			if (linksRequestControllerRef.current === requestController) {
+				linksRequestControllerRef.current = null;
+				setLinkLoading(false);
+			}
+		}
+	}, [acknowledgeSuccessfulLinksRefresh]);
+
+	useEffect(() => {
+		fetchLinksPage();
+	}, [fetchLinksPage, linksRequestKey]);
+
+	useEffect(
+		() => () => linksRequestControllerRef.current?.abort(),
+		[],
+	);
+
+	useEffect(() => {
+		if (search === appliedSearch) return;
 		const timeout = window.setTimeout(() => {
 			setAppliedSearch(search);
 			setCurrentPage(1);
 			setSelectedNoteIds(new Set());
-		}, NOTES_SEARCH_DEBOUNCE_MSEC);
+		}, TABLE_SEARCH_DEBOUNCE_MSEC);
 		return () => window.clearTimeout(timeout);
-	}, [search]);
+	}, [search, appliedSearch]);
+
+	useEffect(() => {
+		if (linkSearch === appliedLinkSearch) return;
+		const timeout = window.setTimeout(() => {
+			setAppliedLinkSearch(linkSearch);
+			setLinkCurrentPage(1);
+			setSelectedLinkIds(new Set());
+		}, TABLE_SEARCH_DEBOUNCE_MSEC);
+		return () => window.clearTimeout(timeout);
+	}, [linkSearch, appliedLinkSearch]);
 
 	useEffect(() => {
 		/**
@@ -567,7 +935,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 				return;
 			}
 			if (change.mutation === "update") {
-				const updateResult = applyNotesWindowUpdateDelta({
+				const updateResult = applyNotesLinksWIndowsUpdateDelta({
 					queryNotes: queryNotesRef.current,
 					pageNotes: pageNotesRef.current,
 					updatedNotes: change.notes,
@@ -598,9 +966,12 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 				}
 				return;
 			}
-			setPendingNotesChangeSequence((pendingSequence) =>
-				advanceNotesChangeSequence(pendingSequence, change),
+			const nextSequence = advanceNotesChangeSequence(
+				pendingNotesChangeSequenceRef.current,
+				change,
 			);
+			pendingNotesChangeSequenceRef.current = nextSequence;
+			setPendingNotesChangeSequence(nextSequence);
 		};
 
 		return DataStore.subscribeNotesSyncChanges(handleNotesSyncChange);
@@ -625,10 +996,36 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 			notes: notesSnapshot,
 		});
 		refreshAcknowledgementRef.current = null;
+		pendingNotesChangeSequenceRef.current = null;
 		setPendingNotesChangeSequence(null);
 		setCurrentPage(1);
 		setSelectedNoteIds(new Set());
+		const linksSnapshot = DataStore.links.filter(
+			(link) => link.operation_id === selectedOperationId,
+		);
+		queryLinksRef.current = linksSnapshot;
+		setLinksQuerySnapshot({
+			operationId: selectedOperationId,
+			links: linksSnapshot,
+		});
+		linksRefreshAcknowledgementRef.current = null;
+		pendingLinksChangeSequenceRef.current = null;
+		setPendingLinksChangeSequence(null);
+		setLinkCurrentPage(1);
+		setSelectedLinkIds(new Set());
 	}, [queryScopeKey, selectedOperationId]);
+
+	useEffect(() => {
+		const availableLinkIds = new Set(allFilteredLinkIds);
+		setSelectedLinkIds((previousIds) => {
+			const retainedIds = new Set(
+				[...previousIds].filter((linkId) => availableLinkIds.has(linkId)),
+			);
+			return retainedIds.size === previousIds.size
+				? previousIds
+				: retainedIds;
+		});
+	}, [allFilteredLinkIds]);
 
 	/**
 	 * Clears selection, acknowledges canonical notes, and reloads the first page.
@@ -642,11 +1039,67 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 			notes: notesSnapshot,
 		});
 		refreshAcknowledgementRef.current =
-			pendingNotesChangeSequence;
+			pendingNotesChangeSequenceRef.current;
 		setSelectedNoteIds(new Set());
 		setCurrentPage(1);
 		setRefreshRevision((revision) => revision + 1);
-	}, [pendingNotesChangeSequence, selectedOperationId]);
+	}, [selectedOperationId]);
+
+	/**
+	 * Acknowledges canonical Links and reloads the first backend page.
+	 * @returns Nothing.
+	 */
+	const refreshLinks = useCallback((): void => {
+		const linksSnapshot = DataStore.links.filter(
+			(link) => link.operation_id === selectedOperationId,
+		);
+		queryLinksRef.current = linksSnapshot;
+		setLinksQuerySnapshot({
+			operationId: selectedOperationId,
+			links: linksSnapshot,
+		});
+		linksRefreshAcknowledgementRef.current =
+			pendingLinksChangeSequenceRef.current;
+		setSelectedLinkIds(new Set());
+		setLinkCurrentPage(1);
+		setLinksCollectionRevision((revision) => revision + 1);
+	}, [selectedOperationId]);
+
+	/**
+	 * Reloads the current Notes page after a deletion initiated by this window.
+	 * @returns Nothing.
+	 */
+	const reloadCurrentNotesPage = useCallback((): void => {
+		const notesSnapshot = [...DataStore.notes];
+		queryNotesRef.current = notesSnapshot;
+		setQuerySnapshot({
+			operationId: selectedOperationId,
+			notes: notesSnapshot,
+		});
+		refreshAcknowledgementRef.current =
+			pendingNotesChangeSequenceRef.current;
+		setSelectedNoteIds(new Set());
+		setRefreshRevision((revision) => revision + 1);
+	}, [selectedOperationId]);
+
+	/**
+	 * Reloads the current Links page after a deletion initiated by this window.
+	 * @returns Nothing.
+	 */
+	const reloadCurrentLinksPage = useCallback((): void => {
+		const linksSnapshot = DataStore.links.filter(
+			(link) => link.operation_id === selectedOperationId,
+		);
+		queryLinksRef.current = linksSnapshot;
+		setLinksQuerySnapshot({
+			operationId: selectedOperationId,
+			links: linksSnapshot,
+		});
+		linksRefreshAcknowledgementRef.current =
+			pendingLinksChangeSequenceRef.current;
+		setSelectedLinkIds(new Set());
+		setLinksCollectionRevision((revision) => revision + 1);
+	}, [selectedOperationId]);
 
 	/**
 	 * Applies a new tag selection and resets query-dependent selection state.
@@ -725,11 +1178,91 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		spawnBanner(
 			<BulkDeleteNotesBanner
 				noteIds={[...selectedNoteIds]}
-				onDeleted={refreshNotes}
+				onDeleted={reloadCurrentNotesPage}
 			/>,
 			"table",
 		);
-	}, [selectedNoteIds, spawnBanner, refreshNotes]);
+	}, [selectedNoteIds, spawnBanner, reloadCurrentNotesPage]);
+
+	/**
+	 * Applies the Links search and resets its query-dependent table state.
+	 * @param value Current search field value.
+	 * @returns Nothing.
+	 */
+	const handleLinkSearchChange = useCallback((value: string): void => {
+		setLinkSearch(value);
+	}, []);
+
+	/**
+	 * Selects or deselects every link displayed on the current page.
+	 * @param checked Whether current-page link IDs should be selected.
+	 * @returns Nothing.
+	 */
+	const handleSelectLinkPage = useCallback(
+		(checked: boolean): void => {
+			setSelectedLinkIds((previousIds) => {
+				const nextIds = new Set(previousIds);
+				pageLinks.forEach((link) => {
+					if (checked) nextIds.add(link.id);
+					else nextIds.delete(link.id);
+				});
+				return nextIds;
+			});
+		},
+		[pageLinks],
+	);
+
+	/**
+	 * Selects every filtered link or clears the complete Links selection.
+	 * @param checked Whether all filtered link IDs should be selected.
+	 * @returns Nothing.
+	 */
+	const handleSelectAllFilteredLinks = useCallback(
+		(checked: boolean): void => {
+			setSelectedLinkIds(
+				checked ? new Set(allFilteredLinkIds) : new Set(),
+			);
+		},
+		[allFilteredLinkIds],
+	);
+
+	/**
+	 * Opens bulk-delete confirmation for the current Links selection.
+	 * @returns Nothing.
+	 */
+	const handleBulkDeleteLinks = useCallback((): void => {
+		if (selectedLinkIds.size === 0) return;
+		spawnBanner(
+			<BulkDeleteLinksBanner
+				linkIds={[...selectedLinkIds]}
+				onDeleted={reloadCurrentLinksPage}
+			/>,
+			"table",
+		);
+	}, [selectedLinkIds, spawnBanner, reloadCurrentLinksPage]);
+
+	/**
+	 * Targets an event in the main operation window.
+	 * @param docId Event document identifier.
+	 * @param operationId Operation containing the event.
+	 * @returns Nothing.
+	 */
+	const navigateToEvent = useCallback(
+		(
+			docId: Doc.Id,
+			operationId: Note.Type["operation_id"],
+		): void => {
+			WindowBridge.sendControlMessage(
+				WindowBridge.MessageType.NAVIGATE_TO_EVENT,
+				{
+					docId,
+					operationId,
+				},
+				detachedCoordinatorId ?? undefined,
+			);
+		},
+		[detachedCoordinatorId],
+	);
 
 	/**
 	 * Targets the event associated with a note in the main operation window.
@@ -737,15 +1270,59 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	 * @returns Nothing.
 	 */
 	const targetNoteButtonHandler = useCallback((note: Note.Type): void => {
-		WindowBridge.sendControlMessage(
-			WindowBridge.MessageType.NAVIGATE_TO_EVENT,
-			{
-				docId: note.doc._id,
-				operationId: note.operation_id,
-			},
-			detachedCoordinatorId ?? undefined,
-		);
-	}, [detachedCoordinatorId]);
+		navigateToEvent(note.doc._id, note.operation_id);
+	}, [navigateToEvent]);
+
+	/**
+	 * Targets the event from which a link was created in the main operation window.
+	 * @param link Link whose origin event should be targeted.
+	 * @returns Nothing.
+	 */
+	const targetLinkOriginHandler = useCallback((link: Link.Type): void => {
+		navigateToEvent(link.doc_id_from, link.operation_id);
+	}, [navigateToEvent]);
+
+	/**
+	 * Opens the origin and destination events currently available for a link.
+	 * @param link Link whose events should be displayed.
+	 * @param triggerEvent Action click used to anchor the event list.
+	 * @returns Promise resolved after available events have been loaded.
+	 */
+	const handleOpenLinkedEvents = useCallback(
+		async (
+			link: Link.Type,
+			triggerEvent: ReactMouseEvent<HTMLButtonElement>,
+		): Promise<void> => {
+			const rect = triggerEvent.currentTarget.getBoundingClientRect();
+			const linkedEvents = await getRelatedLinkEvents(link);
+			if (linkedEvents.length === 0) return;
+
+			setLinkedEventsPopup({
+				events: linkedEvents,
+				anchor: { x: rect.left, y: rect.top },
+				operationId: link.operation_id,
+			});
+		},
+		[],
+	);
+
+	/**
+	 * Opens the existing complete-link deletion confirmation.
+	 * @param link Link selected by the row action.
+	 * @returns Nothing.
+	 */
+	const handleDeleteLink = useCallback(
+		(link: Link.Type): void => {
+			spawnBanner(
+				<Link.Delete.Banner
+					link={link}
+					onDeleted={reloadCurrentLinksPage}
+				/>,
+				"table",
+			);
+		},
+		[spawnBanner, reloadCurrentLinksPage],
+	);
 
 	/**
 	 * Opens the existing row-delete confirmation.
@@ -757,11 +1334,12 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 			spawnBanner(
 				<Note.Delete.Banner
 					note={note}
+					onDeleted={reloadCurrentNotesPage}
 				/>,
 				"table",
 			);
 		},
-		[spawnBanner],
+		[spawnBanner, reloadCurrentNotesPage],
 	);
 
 	const tableValues = useMemo<NotesTableRow[]>(
@@ -855,7 +1433,13 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 							size={12}
 							className={s.titleIcon}
 						/>
-						{row.title}
+						<span
+							className={s.titleText}
+							data-table-tooltip-trigger="true"
+							data-table-tooltip-text={row.title}
+						>
+							{row.title}
+						</span>
 					</span>
 				),
 			},
@@ -904,12 +1488,158 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		[t],
 	);
 
+	const linkTableValues = useMemo<LinksTableRow[]>(
+		() =>
+			pageLinks.map((link) => ({
+				id: link.id,
+				_id: link.id,
+				title: String(link.name ?? ""),
+				description: link.description || "-",
+				tags: link.tags.join(", ") || "-",
+				originEventId: link.doc_id_from,
+				color: link.color || "var(--accent)",
+				rawLink: link,
+				icon: Link.Entity.icon(link),
+			})),
+		[pageLinks],
+	);
+
+	const selectedLinkRows = useMemo(() => {
+		const indices = new Set<number>();
+		linkTableValues.forEach((item, index) => {
+			if (selectedLinkIds.has(item.id)) indices.add(index);
+		});
+		return indices;
+	}, [linkTableValues, selectedLinkIds]);
+
+	const isAllFilteredLinksSelected =
+		allFilteredLinkIds.length > 0 &&
+		allFilteredLinkIds.every((linkId) => selectedLinkIds.has(linkId));
+
+	/**
+	 * Converts a Links row checkbox index into its stable link ID.
+	 * @param index Current-page row index.
+	 * @param selected Whether the row should be selected.
+	 * @returns Nothing.
+	 */
+	const handleLinkRowSelect = useCallback(
+		(index: number, selected: boolean): void => {
+			const item = linkTableValues[index];
+			if (!item) return;
+			setSelectedLinkIds((previousIds) => {
+				const nextIds = new Set(previousIds);
+				if (selected) nextIds.add(item.id);
+				else nextIds.delete(item.id);
+				return nextIds;
+			});
+		},
+		[linkTableValues],
+	);
+
+	const linkTableActions = useMemo<Table.Action<LinksTableRow>[]>(
+		() => [
+			{
+				icon: "MagnifyingGlassSmall",
+				label: t("eventDialog.showLinkedEvents"),
+				onClick: (row, _index, actionEvent) => {
+					void handleOpenLinkedEvents(row.rawLink, actionEvent);
+				},
+			},
+			{
+				icon: "Trash2",
+				label: t("link.deleteTitle"),
+				onClick: (row) => handleDeleteLink(row.rawLink),
+			},
+		],
+		[handleDeleteLink, handleOpenLinkedEvents, t],
+	);
+
+	const linkTableColumns = useMemo<Table.ColumnDefinition<LinksTableRow>[]>(
+		() => [
+			{
+				key: "title",
+				label: t("common.title"),
+				width: 220,
+				render: (_value, row) => (
+					<span
+						className={s.titleValue}
+						style={{ color: row.color }}
+					>
+						<Icon
+							name={row.icon}
+							color="currentColor"
+							size={12}
+							className={s.titleIcon}
+						/>
+						<span
+							className={s.titleText}
+							data-table-tooltip-trigger="true"
+							data-table-tooltip-text={row.title}
+						>
+							{row.title}
+						</span>
+					</span>
+				),
+			},
+			{
+				key: "description",
+				label: t("common.description"),
+				width: 360,
+			},
+			{
+				key: "tags",
+				label: t("common.tags"),
+				width: 180,
+			},
+			{
+				key: "originEventId",
+				label: t("common.event"),
+				width: 300,
+				render: (_value, row) => (
+					<Button
+						variant="tertiary"
+						className={s.originEventLink}
+						title={t("tableView.targetEvent")}
+						onClick={() => targetLinkOriginHandler(row.rawLink)}
+					>
+						{row.originEventId}
+					</Button>
+				),
+			},
+		],
+		[t, targetLinkOriginHandler],
+	);
+
 	return (
-		<div className={s.main}>
+		<Tabs
+			value={activeTab}
+			onValueChange={(value) =>
+				setActiveTab(value as "notes" | "links")
+			}
+			className={s.main}
+		>
 			<div className={s.header}>
-				<h3>{t("notes.title")}</h3>
+				<TabsList className={s.tabsList}>
+					<TabsTrigger value="notes">
+						<Icon
+							name="StickyNote"
+							size={14}
+						/>
+						{t("notes.title")}
+					</TabsTrigger>
+					<TabsTrigger value="links">
+						<Icon
+							name="GitPullRequestCreate"
+							size={14}
+						/>
+						{t("eventDialog.links")}
+					</TabsTrigger>
+				</TabsList>
 			</div>
-			<div className={s.content}>
+			<TabsContent
+				value="notes"
+				className={s.content}
+			>
 				{pendingNotesChangeSequence !== null && (
 					<Notification
 						variant="warning"
@@ -1027,7 +1757,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 						currentPage,
 						totalItems: totalHits,
 						pageSize,
-						pageSizeOptions: NOTES_PAGE_SIZES,
+						pageSizeOptions: TABLE_PAGE_SIZES,
 						disabled: loading,
 						onPageChange: setCurrentPage,
 						onPageSizeChange: (value) => {
@@ -1064,12 +1794,112 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 						<p className={s.placeholder}>{t("tableView.noData")}</p>
 					)}
 				</div>
-			</div>
+			</TabsContent>
+			<TabsContent
+				value="links"
+				className={s.content}
+			>
+				{pendingLinksChangeSequence !== null && (
+					<Notification
+						variant="warning"
+						icon="Warning"
+						className={s.newNotesWarning}
+						jc="space-between"
+						gap={8}
+					>
+						<span className={s.newNotesMessage}>
+							{t("links.changesAvailable")}
+						</span>
+						<Button
+							variant="secondary"
+							icon="RotateCcw"
+							onClick={refreshLinks}
+						>
+							{t("common.refresh")}
+						</Button>
+					</Notification>
+				)}
+				<div className={s.filters}>
+					<Input
+						placeholder={t("common.search")}
+						icon="MagnifyingGlass"
+						variant="highlighted"
+						value={linkSearch}
+						onChange={(event) =>
+							handleLinkSearchChange(event.target.value)
+						}
+					/>
+				</div>
+				<TableHeader
+					allSelected={isAllFilteredLinksSelected}
+					selectionLabel={t("links.selectAllFiltered", {
+						count: allFilteredLinkIds.length,
+					})}
+					onSelectionChange={handleSelectAllFilteredLinks}
+					actionsDisabled={selectedLinkIds.size === 0}
+					actions={[
+						{
+							id: "delete",
+							icon: "Trash2",
+							label: t("links.deleteSelected", {
+								count: selectedLinkIds.size,
+							}),
+							onSelect: handleBulkDeleteLinks,
+						},
+					]}
+					pagination={{
+						currentPage: linkCurrentPage,
+						totalItems: linkTotalHits,
+						pageSize: linkPageSize,
+						pageSizeOptions: TABLE_PAGE_SIZES,
+						disabled: linkLoading,
+						onPageChange: setLinkCurrentPage,
+						onPageSizeChange: (value) => {
+							setLinkPageSize(value);
+							setLinkCurrentPage(1);
+						},
+					}}
+					container={windowRef.current}
+				/>
+				<div className={s.result}>
+					{linkLoading ? (
+						<p className={s.placeholder}>{t("tableView.loadingData")}</p>
+					) : linkTableValues.length > 0 ? (
+						<Table
+							values={linkTableValues}
+							columns={linkTableColumns}
+							includeIndex={false}
+							selectable={true}
+							selectedrows={selectedLinkRows}
+							onrowselect={handleLinkRowSelect}
+							onSelectAll={handleSelectLinkPage}
+							actions={linkTableActions}
+							columnVisibility={true}
+							persistId="notes_window_links_paginated_v2"
+							virtualization={NOTES_TABLE_VIRTUALIZATION}
+						/>
+					) : (
+						<p className={s.placeholder}>{t("tableView.noData")}</p>
+					)}
+				</div>
+			</TabsContent>
+			{linkedEventsPopup && (
+				<DisplayGroupDialog
+					events={linkedEventsPopup.events}
+					anchor={linkedEventsPopup.anchor}
+					groupKind="links"
+					onClose={() => setLinkedEventsPopup(null)}
+					onSelectEvent={(event) =>
+						navigateToEvent(event._id, linkedEventsPopup.operationId)
+					}
+					preserveTimelineTarget
+				/>
+			)}
 			{banner?.target === "table" ? banner.node : null}
 			<div
 				ref={windowRef}
 				className={s.portalContainer}
 			/>
-		</div>
+		</Tabs>
 	);
 }

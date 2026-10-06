@@ -1,4 +1,5 @@
 import type { Doc } from "@/entities/Doc";
+import type { Link } from "@/entities/Link";
 import type { Note } from "@/entities/Note";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
@@ -6,6 +7,7 @@ import type { EventSourceSummary } from "@/event-store/EventStore.types";
 import {
 	DataStore,
 	type DataStoreRenderChange,
+	type LinksRealtimeSyncChange,
 	type NotesSyncChange,
 } from "@/store/DataStore";
 
@@ -47,6 +49,22 @@ function createNote(id: string): Note.Type {
 		source_id: SOURCE_ID,
 		doc: createDocument(`${id}-doc`, 100),
 	} as Note.Type;
+}
+
+/** Creates one minimal link fixture for semantic synchronization tests. */
+function createLink(id: string): Link.Type {
+	return {
+		id: id as Link.Id,
+		type: "link",
+		operation_id: OPERATION_ID,
+		owner_user_id: "user",
+		description: "Description",
+		tags: [],
+		color: "#123456",
+		doc_id_from: `${id}-origin` as Doc.Id,
+		doc_ids: [],
+		glyph_id: "glyph" as Link.Type["glyph_id"],
+	};
 }
 
 /** Creates one complete compact source authority fixture. */
@@ -494,6 +512,49 @@ describe("DataStore render mutation contracts", () => {
 		expect(created.operationId).toBe(OPERATION_ID);
 		expect(created.notes).toEqual([note, secondNote]);
 		expect(deleted.noteIds).toEqual([note.id]);
+	});
+
+	it("publishes and relays sequenced realtime Link deltas", () => {
+		const link = createLink("created-link");
+		const changes: LinksRealtimeSyncChange[] = [];
+		const unsubscribe = DataStore.subscribeLinksSyncChanges((change) => {
+			changes.push(change);
+		});
+
+		const created = DataStore.publishLinksUpsertDelta(
+			OPERATION_ID,
+			"create",
+			[link],
+		);
+		const updated = DataStore.publishLinksUpsertDelta(
+			OPERATION_ID,
+			"update",
+			[link],
+		);
+		const relayedSequence = updated.sequence + 10;
+		DataStore.relayLinksRealtimeDelta({
+			type: "links-sync",
+			mutation: "delete",
+			operationId: OPERATION_ID,
+			sequence: relayedSequence,
+			linkIds: [link.id],
+		});
+		const deleted = DataStore.publishLinksDeleteDelta(
+			OPERATION_ID,
+			[link.id],
+		);
+		unsubscribe();
+
+		expect(changes.map((change) => change.mutation)).toEqual([
+			"create",
+			"update",
+			"delete",
+			"delete",
+		]);
+		expect(updated.sequence).toBe(created.sequence + 1);
+		expect(deleted.sequence).toBe(relayedSequence + 1);
+		expect(created.links).toEqual([link]);
+		expect(deleted.linkIds).toEqual([link.id]);
 	});
 
 	it("publishes a deletion delta even when the canonical note is already absent", () => {

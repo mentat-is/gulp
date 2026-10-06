@@ -37,6 +37,13 @@ export namespace Link {
 		[key: string]: any;
 	}
 
+	/** Existing GulpCollabFilter fields used by paginated link-list requests. */
+	export interface ListFilter {
+		ids?: Link.Id[];
+		limit?: number;
+		offset?: number;
+	}
+
 	export class Entity {
 		public static icon = Internal.IconExtractor.activate<Link.Type | null>(
 			Default.Icon.LINK,
@@ -124,9 +131,15 @@ export namespace Link {
 		export namespace Banner {
 			export interface Props extends UIBanner.Props {
 				link: Link.Type;
+				/** Called after the link is removed from the canonical DataStore. */
+				onDeleted?: () => void;
 			}
 		}
-		export function Banner({ link, ...props }: Link.Delete.Banner.Props) {
+		export function Banner({
+			link,
+			onDeleted,
+			...props
+		}: Link.Delete.Banner.Props) {
 			const { Info, destroyBanner } = Application.use();
 			const { t } = Locale.use();
 			const [loading, setLoading] = useState<boolean>(false);
@@ -146,6 +159,7 @@ export namespace Link {
 				setLoading(true);
 				await Info.link_delete(link);
 				setLoading(false);
+				onDeleted?.();
 				if (props.back) {
 					props.back();
 				} else {

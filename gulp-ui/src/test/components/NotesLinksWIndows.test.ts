@@ -4,15 +4,19 @@ import type { Glyph } from "@/entities/Glyph";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
 import type { User } from "@/entities/User";
+import type { Link } from "@/entities/Link";
 import type { Note } from "@/entities/Note";
 import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import {
 	acknowledgeNotesChangeSequence,
 	advanceNotesChangeSequence,
-	applyNotesWindowUpdateDelta,
+	applyNotesLinksWIndowsUpdateDelta,
+	buildLinksListFilters,
 	buildNotesListFilters,
+	getSearchMatchingLinkIds,
 	getSearchMatchingNoteIds,
-	noteMatchesNotesWindowFilter,
+	linkMatchesNotesLinksWIndowsSearch,
+	noteMatchesNotesLinksWIndowsFilter,
 } from "@/utils";
 
 jest.mock("@/entities/Doc", () => ({
@@ -22,13 +26,13 @@ jest.mock("@/entities/Source", () => ({
 	Source: { Entity: { rendered: () => [] } },
 }));
 
-const OPERATION_ID = "notes-window-operation" as Operation.Id;
-const CONTEXT_ALPHA_ID = "notes-window-context-alpha" as Context.Id;
-const CONTEXT_BETA_ID = "notes-window-context-beta" as Context.Id;
-const SOURCE_ALPHA_ID = "notes-window-source-alpha" as Source.Id;
-const SOURCE_BETA_ID = "notes-window-source-beta" as Source.Id;
-const USER_ID = "notes-window-user" as User.Id;
-const GLYPH_ID = "notes-window-glyph" as Glyph.Id;
+const OPERATION_ID = "notes-links-windows-operation" as Operation.Id;
+const CONTEXT_ALPHA_ID = "notes-links-windows-context-alpha" as Context.Id;
+const CONTEXT_BETA_ID = "notes-links-windows-context-beta" as Context.Id;
+const SOURCE_ALPHA_ID = "notes-links-windows-source-alpha" as Source.Id;
+const SOURCE_BETA_ID = "notes-links-windows-source-beta" as Source.Id;
+const USER_ID = "notes-links-windows-user" as User.Id;
+const GLYPH_ID = "notes-links-windows-glyph" as Glyph.Id;
 
 const sourceById = new Map<Source.Id, Source.Type>([
 	[
@@ -69,7 +73,7 @@ const contextById = new Map<Context.Id, Context.Type>([
 ]);
 
 /**
- * Creates a canonical note fixture for Notes window filtering and paging tests.
+ * Creates a canonical note fixture for Notes & Links window filtering and paging tests.
  * @param index Stable numeric fixture index.
  * @param overrides Optional fields that customize the generated note.
  * @returns Note fixture linked to a deterministic source and context.
@@ -83,7 +87,7 @@ function createNote(
 	const contextId =
 		index % 2 === 0 ? CONTEXT_ALPHA_ID : CONTEXT_BETA_ID;
 	return {
-		id: `notes-window-note-${index}` as Note.Id,
+		id: `notes-links-windows-note-${index}` as Note.Id,
 		type: "note",
 		operation_id: OPERATION_ID,
 		tags: index % 2 === 0 ? ["even", "shared"] : ["odd", "shared"],
@@ -92,7 +96,7 @@ function createNote(
 		color: null,
 		source_id: sourceId,
 		doc: {
-			_id: `notes-window-doc-${index}` as Doc.Id,
+			_id: `notes-links-windows-doc-${index}` as Doc.Id,
 			gulp_timestamp: index,
 			"gulp.source_id": sourceId,
 			"gulp.event_code": 1,
@@ -107,7 +111,74 @@ function createNote(
 	};
 }
 
-describe("NotesWindow pagination helpers", () => {
+/** Creates a minimal link for free-text search assertions. */
+function createLink(overrides: Partial<Link.Type> = {}): Link.Type {
+	return {
+		id: "notes-links-windows-link" as Link.Id,
+		type: "link",
+		owner_user_id: USER_ID,
+		description: "Routine relationship",
+		operation_id: OPERATION_ID,
+		tags: ["reviewed"],
+		color: "orange",
+		doc_id_from: "notes-links-windows-link-origin" as Doc.Id,
+		doc_ids: [],
+		glyph_id: GLYPH_ID,
+		name: "Related activity",
+		...overrides,
+	} as Link.Type;
+}
+
+describe("NotesLinksWIndows pagination helpers", () => {
+	it("matches link title, description, and exact tags case-insensitively", () => {
+		const link = createLink({
+			name: "Suspicious Login",
+			description: "Credential access investigation",
+			tags: ["Needs-Review"],
+		});
+
+		expect(linkMatchesNotesLinksWIndowsSearch(link, "LOGIN")).toBe(true);
+		expect(linkMatchesNotesLinksWIndowsSearch(link, "access invest")).toBe(true);
+		expect(linkMatchesNotesLinksWIndowsSearch(link, "needs-review")).toBe(true);
+		expect(linkMatchesNotesLinksWIndowsSearch(link, "needs")).toBe(false);
+		expect(linkMatchesNotesLinksWIndowsSearch(link, "   ")).toBe(true);
+	});
+
+	it("builds backend page and count filters for matching Links IDs", () => {
+		const links = [
+			createLink({ id: "link-1" as Link.Id, name: "Needle" }),
+			createLink({ id: "link-2" as Link.Id, name: "Other" }),
+		];
+		const matchingIds = getSearchMatchingLinkIds(links, "needle");
+		const { pageFilter, countFilter } = buildLinksListFilters({
+			searchMatchingIds: matchingIds,
+			pageSize: 20,
+			currentPage: 3,
+		});
+
+		expect(matchingIds).toEqual([links[0].id]);
+		expect(countFilter).toEqual({ ids: matchingIds });
+		expect(pageFilter).toEqual({
+			ids: matchingIds,
+			limit: 20,
+			offset: 40,
+		});
+	});
+
+	it("omits the IDs filter when the Links search is empty", () => {
+		const matchingIds = getSearchMatchingLinkIds([createLink()], "  ");
+		const { pageFilter, countFilter } = buildLinksListFilters({
+			searchMatchingIds: matchingIds,
+			pageSize: 50,
+			currentPage: 1,
+		});
+
+		expect(matchingIds).toBeUndefined();
+		expect(countFilter).toEqual({});
+		expect(pageFilter.ids).toBeUndefined();
+		expect(pageFilter.limit).toBe(50);
+	});
+
 	const freeTextCases: Array<
 		[string, Partial<Note.Type>, string]
 	> = [
@@ -122,7 +193,7 @@ describe("NotesWindow pagination helpers", () => {
 		it(`preserves free-text OR matching through ${field}`, () => {
 			const note = createNote(2, overrides);
 			expect(
-				noteMatchesNotesWindowFilter(note, {
+				noteMatchesNotesLinksWIndowsFilter(note, {
 					search,
 					selectedTags: [],
 					sourceIds: new Set([SOURCE_ALPHA_ID]),
@@ -136,7 +207,7 @@ describe("NotesWindow pagination helpers", () => {
 	it("keeps tag matching exact and combines selected tags with AND", () => {
 		const note = createNote(2, { tags: ["needle-long", "shared"] });
 		expect(
-			noteMatchesNotesWindowFilter(note, {
+			noteMatchesNotesLinksWIndowsFilter(note, {
 				search: "needle",
 				selectedTags: [],
 				sourceIds: new Set([SOURCE_ALPHA_ID]),
@@ -145,7 +216,7 @@ describe("NotesWindow pagination helpers", () => {
 			}),
 		).toBe(false);
 		expect(
-			noteMatchesNotesWindowFilter(note, {
+			noteMatchesNotesLinksWIndowsFilter(note, {
 				search: "",
 				selectedTags: ["needle-long", "shared"],
 				sourceIds: new Set([SOURCE_ALPHA_ID]),
@@ -185,7 +256,7 @@ describe("NotesWindow pagination helpers", () => {
 	it("matches notes only when their event is included in the document filter", () => {
 		const note = createNote(2);
 		expect(
-			noteMatchesNotesWindowFilter(note, {
+			noteMatchesNotesLinksWIndowsFilter(note, {
 				search: "",
 				selectedTags: [],
 				sourceIds: new Set([SOURCE_ALPHA_ID]),
@@ -195,7 +266,7 @@ describe("NotesWindow pagination helpers", () => {
 			}),
 		).toBe(true);
 		expect(
-			noteMatchesNotesWindowFilter(note, {
+			noteMatchesNotesLinksWIndowsFilter(note, {
 				search: "",
 				selectedTags: [],
 				sourceIds: new Set([SOURCE_ALPHA_ID]),
@@ -231,7 +302,7 @@ describe("NotesWindow pagination helpers", () => {
 		const notes = Array.from({ length: 3000 }, (_, index) => createNote(index));
 		const matchingIds = notes
 			.filter((note) =>
-				noteMatchesNotesWindowFilter(note, {
+				noteMatchesNotesLinksWIndowsFilter(note, {
 					search: "",
 					selectedTags: ["even"],
 					sourceIds: new Set([SOURCE_ALPHA_ID]),
@@ -298,7 +369,7 @@ describe("NotesWindow pagination helpers", () => {
 			name: "Updated title",
 			text: "Updated body",
 		};
-		const result = applyNotesWindowUpdateDelta({
+		const result = applyNotesLinksWIndowsUpdateDelta({
 			queryNotes: [note],
 			pageNotes: [note],
 			updatedNotes: [updatedNote],
@@ -327,7 +398,7 @@ describe("NotesWindow pagination helpers", () => {
 				"gulp.source_id": SOURCE_BETA_ID,
 			},
 		};
-		const membershipResult = applyNotesWindowUpdateDelta({
+		const membershipResult = applyNotesLinksWIndowsUpdateDelta({
 			queryNotes: [note],
 			pageNotes,
 			updatedNotes: [movedOutsideFilter],
@@ -339,7 +410,7 @@ describe("NotesWindow pagination helpers", () => {
 				contextById,
 			},
 		});
-		const sortResult = applyNotesWindowUpdateDelta({
+		const sortResult = applyNotesLinksWIndowsUpdateDelta({
 			queryNotes: [note],
 			pageNotes: [note],
 			updatedNotes: [{ ...note, time_pin: note.time_pin + 1 }],

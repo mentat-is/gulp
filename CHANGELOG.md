@@ -1,5 +1,18 @@
 # v2.0.0
 
+- added a Links tab to the detached Web UI Notes window, with colored glyph
+  titles, title/description/tag search, a Tags column, 20/50/100-row pagination,
+  cross-page selection, individual and bulk deletion, origin and related-event
+  navigation, a full-width title-style tab header, and capability-scoped link
+  snapshot synchronization from the main application; visible Links pages and
+  counts now load through cancellable collaboration requests instead of slicing
+  the complete canonical collection in the UI, while realtime create/delete
+  deltas retain the page being read and expose an explicit refresh warning;
+  successful main-thread Link mutations now apply their returned deltas without
+  a follow-up full `link_list` request; Notes and Links deletions initiated from
+  the detached window now reload their current page without resetting pagination;
+  overflowing title cells now preserve their glyph and provide ellipsis and a
+  full-value tooltip.
 - cached successful Web UI ingestion mapping discovery for the authenticated
   session, stopped persisting pending empty source-field catalogs, and preserved
   all structured query operators when field type metadata is unavailable.

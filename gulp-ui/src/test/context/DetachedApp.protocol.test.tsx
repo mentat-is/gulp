@@ -7,6 +7,7 @@ import { Doc } from "@/entities/Doc";
 import { DataStore } from "@/store/DataStore";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
+import type { Link } from "@/entities/Link";
 
 const mockSocketConstruct = jest.fn<
 	void,
@@ -195,6 +196,9 @@ jest.mock("@/store/DataStore", () => ({
 		openEventStoreNamespace: jest.fn(),
 		replaceNotes: jest.fn(),
 		replaceLinks: jest.fn(),
+		upsertLink: jest.fn(),
+		deleteLinks: jest.fn(() => []),
+		relayLinksRealtimeDelta: jest.fn(),
 		publishNotesSnapshotReady: jest.fn(),
 		deleteNotes: () => [],
 		relayNotesRealtimeDelta: jest.fn(),
@@ -246,6 +250,14 @@ const mockReplaceNotes =
 	DataStore.replaceNotes as unknown as MockCalls<[unknown[], string]>;
 const mockReplaceLinks =
 	DataStore.replaceLinks as unknown as MockCalls<[unknown[], string]>;
+const mockUpsertLink =
+	DataStore.upsertLink as unknown as MockCalls<[Link.Type, string]>;
+const mockDeleteLinks =
+	DataStore.deleteLinks as unknown as MockCalls<[Link.Id[], string]>;
+const mockRelayLinksRealtimeDelta =
+	DataStore.relayLinksRealtimeDelta as unknown as MockCalls<[
+		WindowBridge.LinksDeltaPayload,
+	]>;
 const mockResetRenderOperation =
 	DataStore.resetRenderOperation as unknown as MockCalls<[Operation.Id | null]>;
 const mockOpenEventStoreNamespace =
@@ -325,6 +337,9 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 		mockDocAdd.mock.calls.splice(0);
 		mockReplaceNotes.mock.calls.splice(0);
 		mockReplaceLinks.mock.calls.splice(0);
+		mockUpsertLink.mock.calls.splice(0);
+		mockDeleteLinks.mock.calls.splice(0);
+		mockRelayLinksRealtimeDelta.mock.calls.splice(0);
 		mockResetRenderOperation.mock.calls.splice(0);
 		mockOpenEventStoreNamespace.mock.calls.splice(0);
 		Object.defineProperty(globalThis, "BroadcastChannel", {
@@ -445,6 +460,144 @@ describe("DetachedAppProvider bridge lifecycle", () => {
 		expect(getReadyMessages()).toHaveLength(2);
 		expect(privateMessages).toHaveLength(1);
 		expect(container.textContent?.includes("detachedApp.idle")).toBe(true);
+	});
+
+	it("applies authoritative Links snapshots once in the independent Notes realm", () => {
+		mockOwnsIndependentDataStore = true;
+		const link = {
+			id: "notes-link" as Link.Id,
+			type: "link",
+			operation_id: "notes-operation" as Operation.Id,
+			doc_id_from: "origin-event" as Doc.Id,
+			doc_ids: [],
+			owner_user_id: "user",
+			description: "Description",
+			tags: [],
+			color: "#123456",
+			glyph_id: "glyph" as Link.Type["glyph_id"],
+		} as Link.Type;
+		const linksPayload: WindowBridge.LinksChangedPayload = {
+			operationId: null,
+			links: [link],
+		};
+
+		act(() => {
+			root.render(
+				<DetachedAppProvider
+					initialApp={App.Base}
+					bridgeId={clientId}
+					coordinatorId={coordinatorId}
+					kind="notes"
+				>
+					<div>notes links</div>
+				</DetachedAppProvider>,
+			);
+		});
+		act(() => {
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.DETACHED_BOOTSTRAP,
+				{
+					status: "active",
+					theme: {
+						theme: "classic-dark",
+						mode: "dark",
+						cssVariables: {},
+					},
+				},
+			);
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.LINKS_CHANGED,
+				linksPayload,
+			);
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.LINKS_CHANGED,
+				linksPayload,
+			);
+		});
+
+		expect(mockReplaceLinks.mock.calls).toEqual([[[link], "deferred"]]);
+	});
+
+	it("applies and relays realtime Links deltas in the independent Notes realm", () => {
+		mockOwnsIndependentDataStore = true;
+		const operationId = "notes-delta-operation" as Operation.Id;
+		const link = {
+			id: "notes-delta-link" as Link.Id,
+			type: "link",
+			operation_id: operationId,
+			doc_id_from: "origin-event" as Doc.Id,
+			doc_ids: [],
+			owner_user_id: "user",
+			description: "Description",
+			tags: [],
+			color: "#123456",
+			glyph_id: "glyph" as Link.Type["glyph_id"],
+		} as Link.Type;
+		const createDelta: WindowBridge.LinksDeltaPayload = {
+			type: "links-sync",
+			mutation: "create",
+			operationId,
+			sequence: 1,
+			links: [link],
+		};
+		const deleteDelta: WindowBridge.LinksDeltaPayload = {
+			type: "links-sync",
+			mutation: "delete",
+			operationId,
+			sequence: 2,
+			linkIds: [link.id],
+		};
+
+		act(() => {
+			root.render(
+				<DetachedAppProvider
+					initialApp={App.Base}
+					bridgeId={clientId}
+					coordinatorId={coordinatorId}
+					kind="notes"
+				>
+					<div>notes links delta</div>
+				</DetachedAppProvider>,
+			);
+		});
+		act(() => {
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.DETACHED_BOOTSTRAP,
+				{
+					status: "active",
+					theme: {
+						theme: "classic-dark",
+						mode: "dark",
+						cssVariables: {},
+					},
+					context: {
+						operation: {
+							id: operationId,
+							name: "Notes operation",
+							selected: true,
+						} as Operation.Type,
+						contexts: [],
+						sources: [],
+						cacheNamespaceId: null,
+					},
+				},
+			);
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.LINKS_DELTA,
+				createDelta,
+			);
+			mainPrivateBridge.send(
+				WindowBridge.MessageType.LINKS_DELTA,
+				deleteDelta,
+			);
+		});
+
+		expect(mockUpsertLink.mock.calls).toEqual([[link, "deferred"]]);
+		expect(mockDeleteLinks.mock.calls).toEqual([[[link.id], "deferred"]]);
+		expect(mockRelayLinksRealtimeDelta.mock.calls).toEqual([
+			[createDelta],
+			[deleteDelta],
+		]);
 	});
 
 	it("accepts the same rendered sources after visible-only sync is re-enabled", () => {

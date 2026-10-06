@@ -419,7 +419,7 @@ class GulpPluginCache:
             MutyLogger.get_instance().debug("adding plugin %s to cache" % (name))
             self._cache[name] = plugin
         else:
-            MutyLogger.get_instance().warning(
+            MutyLogger.get_instance().debug(
                 "plugin %s already in cache, not adding" % (name)
             )
 
@@ -860,7 +860,8 @@ class GulpPluginBase(ABC):
         Returns:
             tuple[int, int, int]: the number of skipped, ingested, and failed documents
         """
-        chunk = self._detach_ingestion_chunk(flt=flt, all_fields_on_ws=all_fields_on_ws)
+        chunk = self._detach_ingestion_chunk(
+            flt=flt, all_fields_on_ws=all_fields_on_ws)
         return await self._process_ingestion_chunk(
             chunk, wait_for_refresh=wait_for_refresh, update_stats=False
         )
@@ -1025,7 +1026,8 @@ class GulpPluginBase(ABC):
             int(chunk.prepared.max_content_length_bytes * 0.8),
         )
         proposed = round(
-            len(chunk.prepared.documents) * target_bytes / chunk.prepared.size_bytes
+            len(chunk.prepared.documents) *
+            target_bytes / chunk.prepared.size_bytes
         )
         current = self._adaptive_chunk_size
         lower = max(1, (current + 1) // 2)
@@ -1696,7 +1698,8 @@ class GulpPluginBase(ABC):
         }
         canceled: bool = False
         MutyLogger.get_instance().debug(
-            "enrich query:\n%s", orjson.dumps(qq, option=orjson.OPT_INDENT_2).decode()
+            "enrich query:\n%s", orjson.dumps(
+                qq, option=orjson.OPT_INDENT_2).decode()
         )
         # try:
         await GulpOpenSearch.get_instance().search_dsl(
@@ -2640,7 +2643,8 @@ class GulpPluginBase(ABC):
             # this will trigger the creation of an extra document
             # with the given event code in _finalize_process_record()
             # remove field/s corresponding to this key in the generated extra document
-            d, _ = self._try_map_ecs(field_mapping, d, source_key, source_value)
+            d, _ = self._try_map_ecs(
+                field_mapping, d, source_key, source_value)
             self._extra_docs.append(
                 build_extra_doc_fields(
                     field_mapping,
@@ -2935,7 +2939,8 @@ class GulpPluginBase(ABC):
                 """MutyLogger.get_instance().debug(
                     "---> updating plugin_params.mapping_parameters.mappings with provided mappings"
                 )"""
-                plugin_params.mapping_parameters.mappings.update(mappings or {})
+                plugin_params.mapping_parameters.mappings.update(
+                    mappings or {})
 
             if (
                 additional_mapping_files
@@ -3212,7 +3217,8 @@ class GulpPluginBase(ABC):
 
             mp, _ = await GulpMappingParametersEntry.create_if_not_exists(
                 self._sess,
-                self._plugin_params.mapping_parameters.model_dump(exclude_none=True),
+                self._plugin_params.mapping_parameters.model_dump(
+                    exclude_none=True),
                 self._user_id,
                 self._operation_id,
             )
@@ -3442,7 +3448,8 @@ class GulpPluginBase(ABC):
         if source_finished:
             try:
                 event_errors = list(
-                    dict.fromkeys([*getattr(self._stats, "errors", []), *errors])
+                    dict.fromkeys(
+                        [*getattr(self._stats, "errors", []), *errors])
                 )
                 await self._emit_source_finished_event(final_status, event_errors)
             except Exception:
@@ -3623,7 +3630,8 @@ class GulpPluginBase(ABC):
             app = GulpServer.get_instance()._app
             if app is not None:
                 route_count = len(app.router.routes)
-            broadcast_types = set(GulpRedisBroker.get_instance().broadcast_types)
+            broadcast_types = set(
+                GulpRedisBroker.get_instance().broadcast_types)
 
         try:
             if run_post_init:
@@ -3753,11 +3761,13 @@ class GulpPluginBase(ABC):
             if is_extension:
                 # add extension
                 extra_path = muty.file.safe_path_join(extra_path, "extension")
-                default_path = muty.file.safe_path_join(default_path, "extension")
+                default_path = muty.file.safe_path_join(
+                    default_path, "extension")
 
             # first we check in extra_path
             if extra_path and os.path.exists(extra_path):
-                p = _check_path(muty.file.safe_path_join(extra_path, plugin.lower()))
+                p = _check_path(muty.file.safe_path_join(
+                    extra_path, plugin.lower()))
                 if p:
                     # prefer path in extra path if exists
                     return p
@@ -3937,7 +3947,8 @@ class GulpPluginBase(ABC):
                 metadata: bytes = await muty.file.read_file(metadata_file)
                 js: dict = json5.loads(metadata)
                 try:
-                    mtd: GulpUiPluginMetadata = GulpUiPluginMetadata.model_validate(js)
+                    mtd: GulpUiPluginMetadata = GulpUiPluginMetadata.model_validate(
+                        js)
 
                     # add path and filename
                     mtd.path = os.path.abspath(os.path.expanduser(f))

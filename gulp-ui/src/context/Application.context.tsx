@@ -220,6 +220,35 @@ function _({ children }: { children: ReactNode }) {
 					);
 				}
 			}
+			const links = objects.filter(
+				(obj) =>
+					obj.type === "link" &&
+					isSelectedOperationObject(appRef.current, obj),
+			) as Link.Type[];
+			if (links.length > 0) {
+				const newLinks = links.filter((link) => {
+					const previousLink = DataStore.links.find(
+						(item) => item.id === link.id,
+					);
+					if (
+						previousLink?.time_updated !== undefined &&
+						previousLink.time_updated === link.time_updated
+					) {
+						return false;
+					}
+					DataStore.upsertLink(link, "deferred");
+					return true;
+				});
+				if (newLinks.length > 0) {
+					DataStore.publishLinksUpsertDelta(
+						newLinks[0].operation_id,
+						"create",
+						newLinks,
+					);
+					RenderEngine.clearAllCaches();
+					instanceRef.current.render();
+				}
+			}
 
 			objects.forEach((obj) => {
 				if (!isSelectedOperationObject(appRef.current, obj)) return;
@@ -282,7 +311,21 @@ function _({ children }: { children: ReactNode }) {
 				}
 				case "link": {
 					const link = message.payload.obj as Link.Type;
+					const previousLink = DataStore.links.find(
+						(item) => item.id === link.id,
+					);
+					if (
+						previousLink?.time_updated !== undefined &&
+						previousLink.time_updated === link.time_updated
+					) {
+						return;
+					}
 					DataStore.upsertLink(link, "immediate");
+					DataStore.publishLinksUpsertDelta(
+						link.operation_id,
+						"update",
+						[link],
+					);
 					RenderEngine.clearAllCaches();
 					instanceRef.current.render();
 					return;
@@ -343,10 +386,20 @@ function _({ children }: { children: ReactNode }) {
 			}
 
 			if (type === "link") {
+				if (operationId && operationId !== selectedOperationId) return;
 				const deletedLinks = DataStore.deleteLinks(
 					deletedIds as Link.Id[],
 					"immediate",
 				);
+				if (
+					deletedLinks.length > 0 &&
+					(operationId ?? selectedOperationId)
+				) {
+					DataStore.publishLinksDeleteDelta(
+						(operationId ?? selectedOperationId) as Operation.Id,
+						deletedIds as Link.Id[],
+					);
+				}
 				if (deletedLinks.length > 0) {
 					RenderEngine.clearAllCaches();
 					instanceRef.current.render();

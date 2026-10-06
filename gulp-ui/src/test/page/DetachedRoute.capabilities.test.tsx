@@ -37,8 +37,8 @@ jest.mock("@/context/DetachedApp.provider", () => ({
 	},
 }));
 
-jest.mock("@/components/NotesWindow", () => ({
-	NotesWindow: (): null => null,
+jest.mock("@/components/NotesLinksWIndows", () => ({
+	NotesLinksWIndows: (): null => null,
 }));
 
 jest.mock("@/components/TableViewWindow", () => ({

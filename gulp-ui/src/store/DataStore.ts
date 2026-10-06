@@ -86,6 +86,30 @@ export type NotesRealtimeSyncChange =
 	| NotesDeleteSyncChange;
 
 export type NotesSyncChangeListener = (change: NotesSyncChange) => void;
+
+export interface LinksUpsertSyncChange {
+	type: "links-sync";
+	mutation: "create" | "update";
+	operationId: Operation.Id;
+	sequence: number;
+	links: readonly Link.Type[];
+}
+
+export interface LinksDeleteSyncChange {
+	type: "links-sync";
+	mutation: "delete";
+	operationId: Operation.Id;
+	sequence: number;
+	linkIds: readonly Link.Id[];
+}
+
+export type LinksRealtimeSyncChange =
+	| LinksUpsertSyncChange
+	| LinksDeleteSyncChange;
+
+export type LinksSyncChangeListener = (
+	change: LinksRealtimeSyncChange,
+) => void;
 export type EventSourceSummaryListener = (
 	summary: EventSourceSummary,
 ) => void;
@@ -171,6 +195,8 @@ export class DataStore {
 		new Set<DataStoreRenderChangeListener>();
 	private static readonly notesSyncChangeListeners =
 		new Set<NotesSyncChangeListener>();
+	private static readonly linksSyncChangeListeners =
+		new Set<LinksSyncChangeListener>();
 	private static readonly eventSourceSummaryListeners =
 		new Set<EventSourceSummaryListener>();
 	private static readonly sourceRevisions = new Map<Source.Id, number>();
@@ -190,6 +216,7 @@ export class DataStore {
 	private static renderSequence = 0;
 	private static eventSourceVisibilitySequence = 0;
 	private static notesSyncSequence = 0;
+	private static linksSyncSequence = 0;
 	private static supplementalEventsRevision = 0;
 	private static operationEpoch = 1;
 	private static renderOperationId: Operation.Id | null = null;
@@ -262,6 +289,20 @@ export class DataStore {
 		DataStore.notesSyncChangeListeners.add(listener);
 		return () => {
 			DataStore.notesSyncChangeListeners.delete(listener);
+		};
+	}
+
+	/**
+	 * Subscribes to semantic realtime link changes separately from snapshots.
+	 * @param listener Callback invoked for create, update, and delete notifications.
+	 * @returns Function that removes the listener.
+	 */
+	public static subscribeLinksSyncChanges(
+		listener: LinksSyncChangeListener,
+	): () => void {
+		DataStore.linksSyncChangeListeners.add(listener);
+		return () => {
+			DataStore.linksSyncChangeListeners.delete(listener);
 		};
 	}
 
@@ -353,6 +394,50 @@ export class DataStore {
 			change.sequence,
 		);
 		DataStore.publishNotesSyncChange(change);
+	}
+
+	/** Publishes one sequenced realtime link create or update batch. */
+	public static publishLinksUpsertDelta(
+		operationId: Operation.Id,
+		mutation: "create" | "update",
+		links: readonly Link.Type[],
+	): LinksUpsertSyncChange {
+		const change: LinksUpsertSyncChange = {
+			type: "links-sync",
+			mutation,
+			operationId,
+			sequence: ++DataStore.linksSyncSequence,
+			links,
+		};
+		DataStore.publishLinksSyncChange(change);
+		return change;
+	}
+
+	/** Publishes one sequenced realtime link deletion batch. */
+	public static publishLinksDeleteDelta(
+		operationId: Operation.Id,
+		linkIds: readonly Link.Id[],
+	): LinksDeleteSyncChange {
+		const change: LinksDeleteSyncChange = {
+			type: "links-sync",
+			mutation: "delete",
+			operationId,
+			sequence: ++DataStore.linksSyncSequence,
+			linkIds,
+		};
+		DataStore.publishLinksSyncChange(change);
+		return change;
+	}
+
+	/** Relays a realtime link delta from another browser realm. */
+	public static relayLinksRealtimeDelta(
+		change: LinksRealtimeSyncChange,
+	): void {
+		DataStore.linksSyncSequence = Math.max(
+			DataStore.linksSyncSequence,
+			change.sequence,
+		);
+		DataStore.publishLinksSyncChange(change);
 	}
 
 	/**
@@ -1345,6 +1430,13 @@ export class DataStore {
 	 */
 	private static publishNotesSyncChange(change: NotesSyncChange): void {
 		DataStore.notesSyncChangeListeners.forEach((listener) => listener(change));
+	}
+
+	/** Publishes a semantic realtime link change without mutating render state. */
+	private static publishLinksSyncChange(
+		change: LinksRealtimeSyncChange,
+	): void {
+		DataStore.linksSyncChangeListeners.forEach((listener) => listener(change));
 	}
 
 	/**

@@ -21,6 +21,7 @@ import type { User } from '@/entities/User'
 import { createUserEventStoreCacheNamespaceId } from '@/event-store/EventStore.namespace'
 import {
   DataStore,
+  type LinksRealtimeSyncChange,
   type NotesRealtimeSyncChange,
 } from '@/store/DataStore'
 
@@ -70,6 +71,10 @@ export namespace WindowBridge {
     NOTES_CHANGED = 'NOTES_CHANGED',
     /** Main → Detached: Realtime note collaboration delta */
     NOTES_DELTA = 'NOTES_DELTA',
+    /** Main → Notes: Authoritative selected-operation links snapshot */
+    LINKS_CHANGED = 'LINKS_CHANGED',
+    /** Main → Notes: Realtime link collaboration delta */
+    LINKS_DELTA = 'LINKS_DELTA',
     /** Main → Detached: Select specific source in table view */
     TABLE_SELECT_SOURCE = 'TABLE_SELECT_SOURCE',
     /** Detached → Main: Resolve and focus an event in the main application */
@@ -117,6 +122,7 @@ export namespace WindowBridge {
     | 'context'
     | 'query'
     | 'rendered'
+    | 'links'
     | 'event'
     | 'assistant'
     | 'dialog'
@@ -163,6 +169,9 @@ export namespace WindowBridge {
           ) {
             return true
           }
+          break
+        case 'links':
+          if (client.kind === 'notes') return true
           break
         case 'event':
           if (
@@ -337,6 +346,7 @@ export namespace WindowBridge {
     queryContext?: QueryContextPayload
     renderedSourceIds?: Source.Id[]
     notes?: NotesChangedPayload
+    links?: LinksChangedPayload
     selectedEventId?: Doc.Id | null
     wsId?: string
     tableSourceId?: Source.Id
@@ -349,6 +359,13 @@ export namespace WindowBridge {
   }
 
   export type NotesDeltaPayload = NotesRealtimeSyncChange
+
+  export interface LinksChangedPayload {
+    operationId?: Operation.Id | null
+    links: Link.Type[]
+  }
+
+  export type LinksDeltaPayload = LinksRealtimeSyncChange
 
   export type SerializedNanoMinMax = {
     min: string
@@ -518,6 +535,8 @@ export namespace WindowBridge {
     [MessageType.THEME_CHANGE]: ThemeChangePayload
     [MessageType.NOTES_CHANGED]: NotesChangedPayload
     [MessageType.NOTES_DELTA]: NotesDeltaPayload
+    [MessageType.LINKS_CHANGED]: LinksChangedPayload
+    [MessageType.LINKS_DELTA]: LinksDeltaPayload
     [MessageType.TABLE_SELECT_SOURCE]: TableSelectSourcePayload
     [MessageType.NAVIGATE_TO_EVENT]: NavigateToEventPayload
     [MessageType.EVENT_TARGET_REQUEST]: EventTargetRequestPayload
@@ -1360,6 +1379,24 @@ export namespace WindowBridge {
       operationId,
       notes: DataStore.notes.filter((note) =>
         selectedSourceIds.has(getNoteSourceId(note)),
+      ),
+    }
+  }
+
+  /**
+   * Builds the canonical links payload for the selected operation.
+   * Source selection is already enforced by the main Info links reload.
+   *
+   * @param operationId Operation whose links should be sent.
+   * @returns Links snapshot payload for the detached Notes & Links window.
+   */
+  export function createLinksChangedPayload(
+    operationId?: Operation.Id | null,
+  ): LinksChangedPayload {
+    return {
+      operationId,
+      links: DataStore.links.filter(
+        (link) => !operationId || link.operation_id === operationId,
       ),
     }
   }

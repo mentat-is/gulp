@@ -2,6 +2,7 @@ import type { MinMax } from "@/class/Info";
 import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import { Doc } from "@/entities/Doc";
+import type { Link } from "@/entities/Link";
 import type { Note } from "@/entities/Note";
 import { Source } from "@/entities/Source";
 import type { NotesSyncChange } from "@/store/DataStore";
@@ -46,6 +47,94 @@ interface FilteredEventValue {
 }
 
 const UNKNOWN_EVENT_FIELD_RANK = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Resolves the unique origin and destination events related to a link.
+ * @param link Link whose related events should be displayed.
+ * @returns Related documents currently available in the event store.
+ */
+export async function getRelatedLinkEvents(
+	link: Link.Type,
+): Promise<Doc.Type[]> {
+	const relatedDocumentIds: Doc.Id[] = [];
+	const seenDocumentIds = new Set<Doc.Id>();
+
+	for (const documentId of [link.doc_id_from, ...link.doc_ids]) {
+		if (seenDocumentIds.has(documentId)) continue;
+		seenDocumentIds.add(documentId);
+		relatedDocumentIds.push(documentId);
+	}
+
+	return DataStore.Events.getByIds(relatedDocumentIds);
+}
+
+/**
+ * Determines whether a link matches the Notes & Links window free-text search.
+ * Title and description use case-insensitive substring matching, while tags
+ * remain exact to mirror GulpCollabFilter tag semantics.
+ * @param link Canonical link to evaluate.
+ * @param search Free-text search entered by the user.
+ * @returns True when the link title, description, or one tag matches.
+ */
+export function linkMatchesNotesLinksWIndowsSearch(
+	link: Link.Type,
+	search: string,
+): boolean {
+	const normalizedSearch = search.trim().toLowerCase();
+	if (!normalizedSearch) return true;
+
+	return (
+		String(link.name ?? "").toLowerCase().includes(normalizedSearch) ||
+		String(link.description ?? "").toLowerCase().includes(normalizedSearch) ||
+		link.tags.some((tag) => tag.toLowerCase() === normalizedSearch)
+	);
+}
+
+/** Inputs used to build one paginated link-list request and its count request. */
+export interface LinksListFilterOptions {
+	searchMatchingIds: Link.Id[] | undefined;
+	pageSize: number;
+	currentPage: number;
+}
+
+/**
+ * Collects canonical link IDs matching the Notes & Links window free-text OR search.
+ * @param links Links available to the selected operation.
+ * @param search Applied free-text search value.
+ * @returns Matching IDs, or undefined when no free-text filter is active.
+ */
+export function getSearchMatchingLinkIds(
+	links: readonly Link.Type[],
+	search: string,
+): Link.Id[] | undefined {
+	if (!search.trim()) return undefined;
+	return links
+		.filter((link) => linkMatchesNotesLinksWIndowsSearch(link, search))
+		.map((link) => link.id);
+}
+
+/**
+ * Builds list and count filters using existing GulpCollabFilter fields.
+ * @param options Current Links query and pagination state.
+ * @returns Page filter and matching count filter.
+ */
+export function buildLinksListFilters(
+	options: LinksListFilterOptions,
+): { pageFilter: Link.ListFilter; countFilter: Link.ListFilter } {
+	const countFilter: Link.ListFilter = {};
+	if (options.searchMatchingIds) {
+		countFilter.ids = options.searchMatchingIds;
+	}
+
+	return {
+		countFilter,
+		pageFilter: {
+			...countFilter,
+			limit: options.pageSize,
+			offset: options.pageSize * (options.currentPage - 1),
+		},
+	};
+}
 
 /**
  * Removes numeric array segments from a persisted event field identity.
@@ -433,7 +522,7 @@ export function getCanvasRenderedSourceIdSet(
 	);
 }
 
-export interface NotesWindowFilter {
+export interface NotesLinksWIndowsFilter {
 	search: string;
 	selectedTags: readonly string[];
 	sourceIds: ReadonlySet<Source.Id>;
@@ -443,15 +532,15 @@ export interface NotesWindowFilter {
 }
 
 /** Inputs required to apply realtime note updates without reloading a page. */
-export interface NotesWindowUpdateDeltaOptions {
+export interface NotesLinksWIndowsUpdateDeltaOptions {
 	queryNotes: Note.Type[];
 	pageNotes: Note.Type[];
 	updatedNotes: readonly Note.Type[];
-	filter: NotesWindowFilter;
+	filter: NotesLinksWIndowsFilter;
 }
 
-/** Result of applying a realtime note update to Notes window state. */
-export interface NotesWindowUpdateDeltaResult {
+/** Result of applying a realtime note update to Notes & Links window state. */
+export interface NotesLinksWIndowsUpdateDeltaResult {
 	queryNotes: Note.Type[];
 	pageNotes: Note.Type[];
 	requiresRefresh: boolean;
@@ -477,14 +566,14 @@ export function getNoteSourceId(note: Note.Type): Source.Id {
 }
 
 /**
- * Determines whether a note matches the complete Notes window filter.
+ * Determines whether a note matches the complete Notes & Links window filter.
  * @param note Canonical DataStore note to evaluate.
  * @param filter Active search, tag, source, and document restrictions.
  * @returns True when the note should participate in the filtered result set.
  */
-export function noteMatchesNotesWindowFilter(
+export function noteMatchesNotesLinksWIndowsFilter(
 	note: Note.Type,
-	filter: NotesWindowFilter,
+	filter: NotesLinksWIndowsFilter,
 ): boolean {
 	const sourceId = getNoteSourceId(note);
 	if (!filter.sourceIds.has(sourceId)) return false;
@@ -520,9 +609,9 @@ export function noteMatchesNotesWindowFilter(
  * @param options Current Notes state, update batch, and active semantic filter.
  * @returns Locally patched arrays and whether the backend page must be refreshed.
  */
-export function applyNotesWindowUpdateDelta(
-	options: NotesWindowUpdateDeltaOptions,
-): NotesWindowUpdateDeltaResult {
+export function applyNotesLinksWIndowsUpdateDelta(
+	options: NotesLinksWIndowsUpdateDeltaOptions,
+): NotesLinksWIndowsUpdateDeltaResult {
 	if (options.updatedNotes.length === 0) {
 		return {
 			queryNotes: options.queryNotes,
@@ -548,8 +637,8 @@ export function applyNotesWindowUpdateDelta(
 		}
 
 		const membershipChanged =
-			noteMatchesNotesWindowFilter(previousNote, options.filter) !==
-			noteMatchesNotesWindowFilter(updatedNote, options.filter);
+			noteMatchesNotesLinksWIndowsFilter(previousNote, options.filter) !==
+			noteMatchesNotesLinksWIndowsFilter(updatedNote, options.filter);
 		const sortPositionChanged =
 			previousNote.time_pin !== updatedNote.time_pin;
 		if (membershipChanged || sortPositionChanged) {
@@ -608,7 +697,7 @@ export function getSearchMatchingNoteIds(
 	const allSourceIds = new Set(notes.map((note) => getNoteSourceId(note)));
 	return notes
 		.filter((note) =>
-			noteMatchesNotesWindowFilter(note, {
+			noteMatchesNotesLinksWIndowsFilter(note, {
 				search: normalizedSearch,
 				selectedTags: [],
 				sourceIds: allSourceIds,
@@ -621,7 +710,7 @@ export function getSearchMatchingNoteIds(
 
 /**
  * Builds list and count filters using only existing GulpCollabFilter fields.
- * @param options Current Notes window query and pagination state.
+ * @param options Current Notes & Links window query and pagination state.
  * @returns Page filter and matching count filter.
  */
 export function buildNotesListFilters(

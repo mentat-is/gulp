@@ -19,6 +19,7 @@ import { App } from "@/entities/App";
 import { WindowBridge } from "@/lib/WindowBridge";
 import { DataStore } from "@/store/DataStore";
 import { Note } from "@/entities/Note";
+import type { Link } from "@/entities/Link";
 import { RenderEngine } from "@/class/RenderEngine";
 import { Color } from "@/entities/Color";
 import { Operation } from "@/entities/Operation";
@@ -52,6 +53,7 @@ type DetachedPayloadDomain =
 	| "context"
 	| "query"
 	| "rendered"
+	| "links"
 	| "event"
 	| "assistant"
 	| "dialog"
@@ -528,6 +530,48 @@ export function DetachedAppProvider({
 		[instance, kind, ownsIndependentDataStore],
 	);
 
+	/**
+	 * Applies the authoritative link snapshot owned by the main application.
+	 * @param payload Selected-operation links delivered over the private bridge.
+	 * @returns Nothing.
+	 */
+	const applyLinksChanged = useCallback(
+		(payload: WindowBridge.LinksChangedPayload): void => {
+			if (kind !== "notes" || !ownsIndependentDataStore) return;
+			if (
+				payload.operationId &&
+				payload.operationId !== selectedOperationIdRef.current
+			) {
+				return;
+			}
+			const signature = serializePayload(payload);
+			if (payloadSignaturesRef.current.links === signature) return;
+			payloadSignaturesRef.current.links = signature;
+			DataStore.replaceLinks(payload.links, "deferred");
+			RenderEngine.reset("links");
+		},
+		[kind, ownsIndependentDataStore],
+	);
+
+	/** Applies one realtime Links delta without replacing the visible table page. */
+	const applyLinksDelta = useCallback(
+		(payload: WindowBridge.LinksDeltaPayload): void => {
+			if (kind !== "notes" || !ownsIndependentDataStore) return;
+			if (payload.operationId !== selectedOperationIdRef.current) return;
+
+			if (payload.mutation === "delete") {
+				DataStore.deleteLinks(payload.linkIds, "deferred");
+			} else {
+				payload.links.forEach((link: Link.Type) =>
+					DataStore.upsertLink(link, "deferred"),
+				);
+			}
+			RenderEngine.reset("links");
+			DataStore.relayLinksRealtimeDelta(payload);
+		},
+		[kind, ownsIndependentDataStore],
+	);
+
 	const applyDialogChanged = useCallback(
 		(payload: WindowBridge.DialogChangedPayload): void => {
 			if (kind !== "dialog") return;
@@ -699,6 +743,7 @@ export function DetachedAppProvider({
 				}));
 			}
 			if (payload.notes) applyNotesChanged(payload.notes);
+			if (payload.links) applyLinksChanged(payload.links);
 			if (payload.dialog) applyDialogChanged(payload.dialog);
 			awaitingBootstrapRef.current = false;
 			detachedStatusRef.current = payload.status;
@@ -708,6 +753,7 @@ export function DetachedAppProvider({
 		[
 			applyCacheNamespace,
 			applyDialogChanged,
+			applyLinksChanged,
 			applyNotesChanged,
 			applyTheme,
 			getAssistantSocketId,
@@ -866,6 +912,16 @@ export function DetachedAppProvider({
 						message.payload as WindowBridge.NotesDeltaPayload,
 					);
 					break;
+				case WindowBridge.MessageType.LINKS_CHANGED:
+					applyLinksChanged(
+						message.payload as WindowBridge.LinksChangedPayload,
+					);
+					break;
+				case WindowBridge.MessageType.LINKS_DELTA:
+					applyLinksDelta(
+						message.payload as WindowBridge.LinksDeltaPayload,
+					);
+					break;
 				case WindowBridge.MessageType.MAIN_CONTEXT_STATUS: {
 					const payload =
 						message.payload as WindowBridge.MainContextStatusPayload;
@@ -901,6 +957,8 @@ export function DetachedAppProvider({
 		applyBootstrap,
 		applyContext,
 		applyDialogChanged,
+		applyLinksChanged,
+		applyLinksDelta,
 		applyNotesChanged,
 		applyNotesDelta,
 		applyQuery,

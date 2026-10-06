@@ -3,6 +3,7 @@ import type { TimelineQueryRequest } from "@/event-stream";
 import { Info } from "@/class/Info";
 import type { App } from "@/entities/App";
 import type { Doc } from "@/entities/Doc";
+import type { Link } from "@/entities/Link";
 import type { Note } from "@/entities/Note";
 import type { Operation } from "@/entities/Operation";
 import type { Query } from "@/entities/Query";
@@ -102,6 +103,13 @@ jest.mock("@/entities/Doc", () => ({
 		Entity: {
 			delete: jest.fn(),
 			clearHashRange: jest.fn(),
+			operationId: (_app: App.Type, document: Doc.Type) =>
+				(
+					document as unknown as Record<
+						"gulp.operation_id",
+						Operation.Id
+					>
+				)["gulp.operation_id"],
 			normalize: (documents: Array<Record<string, unknown>>) =>
 				documents.map((document) => ({
 					_id: document._id,
@@ -1367,6 +1375,69 @@ describe("Info timeline-frame refetch", () => {
 			expect(namedError.message).toBe("snapshot expired");
 		} finally {
 			globalThis.api = previousApi;
+		}
+	});
+
+	it("applies link create and delete mutations without reloading the full collection", async () => {
+		const source = createSource();
+		const { info, getApp } = createInfoHarness(source);
+		const operation = {
+			id: source.operation_id,
+			name: "Link mutation operation",
+			selected: true,
+		} as Operation.Type;
+		getApp().target.operations = [operation];
+		DataStore.replaceLinks([], "immediate");
+
+		const link = {
+			id: "link-without-reload" as Link.Id,
+			type: "link",
+			owner_user_id: "link-owner",
+			name: "No reload link",
+			description: "Applied from the mutation response",
+			operation_id: operation.id,
+			tags: [],
+			color: "#ff0000",
+			doc_id_from: "origin-document" as Doc.Id,
+			doc_ids: ["target-document" as Doc.Id],
+			glyph_id: "link-glyph" as Link.Type["glyph_id"],
+			time_updated: 123,
+		} as Link.Type;
+		const apiMock = jest.fn(
+			async (path: string): Promise<Link.Type | undefined> =>
+				path === "/link_create" ? link : undefined,
+		);
+		const previousApi = globalThis.api;
+		globalThis.api = apiMock as unknown as typeof globalThis.api;
+
+		try {
+			await info.link_create({
+				name: link.name,
+				event: {
+					_id: link.doc_id_from,
+					"gulp.operation_id": operation.id,
+					"gulp.source_id": source.id,
+					gulp_timestamp: sourceTimestamp.min,
+					"gulp.event_code": 1,
+					number_hash: 1,
+				} as Doc.Type & { "gulp.operation_id": Operation.Id },
+				doc_ids: link.doc_ids,
+				glyph_id: link.glyph_id,
+				color: link.color,
+				description: link.description,
+			});
+			expect(DataStore.links).toEqual([link]);
+
+			await info.link_delete(link);
+			expect(DataStore.links).toEqual([]);
+			expect(info.links_reload).not.toHaveBeenCalled();
+			expect(apiMock.mock.calls.map(([path]) => path)).toEqual([
+				"/link_create",
+				"/link_delete",
+			]);
+		} finally {
+			globalThis.api = previousApi;
+			DataStore.replaceLinks([], "immediate");
 		}
 	});
 });

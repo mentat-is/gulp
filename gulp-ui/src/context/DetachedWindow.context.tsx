@@ -15,6 +15,7 @@ import { WindowBridge } from "@/lib/WindowBridge";
 import {
 	DataStore,
 	type DataStoreRenderChange,
+	type LinksRealtimeSyncChange,
 	type NotesSyncChange,
 } from "@/store/DataStore";
 import { App } from "@/entities/App";
@@ -51,6 +52,7 @@ type SyncDomain =
 	| "query"
 	| "rendered"
 	| "notes"
+	| "links"
 	| "event"
 	| "assistant"
 	| "dialog"
@@ -85,7 +87,7 @@ interface DetachedClient {
 
 interface DetachedWindowContextValue {
 	coordinatorId: string;
-	openNotesWindow: () => void;
+	openNotesLinksWIndows: () => void;
 	openTableWindow: (sourceId?: Source.Id) => void;
 	openDashboardWindow: () => void;
 	openAssistantWindow: (target: AssistantWindowTarget) => void;
@@ -891,6 +893,7 @@ function _({ children }: { children: ReactNode }) {
 					currentApp,
 					operationId,
 				);
+				payload.links = WindowBridge.createLinksChangedPayload(operationId);
 				if (client.notesRenderedSyncEnabled) {
 					payload.renderedSourceIds =
 						WindowBridge.createRenderedSourceIds(
@@ -940,6 +943,9 @@ function _({ children }: { children: ReactNode }) {
 			}
 			if (payload.notes) {
 				client.signatures.notes = getPayloadSignature(payload.notes);
+			}
+			if (payload.links) {
+				client.signatures.links = getPayloadSignature(payload.links);
 			}
 			if (payload.wsId !== undefined) {
 				client.signatures.assistant = getPayloadSignature(payload.wsId);
@@ -1121,6 +1127,25 @@ function _({ children }: { children: ReactNode }) {
 						"rendered",
 						WindowBridge.MessageType.RENDERED_SOURCES_CHANGED,
 						renderedPayload,
+						signature,
+					),
+				);
+			}
+		}
+
+		if (domains.has("links")) {
+			const notesClients = incrementalClients.filter(
+				(client) => client.kind === "notes",
+			);
+			if (notesClients.length > 0) {
+				const payload = WindowBridge.createLinksChangedPayload(operationId);
+				const signature = getPayloadSignature(payload);
+				notesClients.forEach((client) =>
+					sendDomain(
+						client,
+						"links",
+						WindowBridge.MessageType.LINKS_CHANGED,
+						payload,
 						signature,
 					),
 				);
@@ -1409,7 +1434,7 @@ function _({ children }: { children: ReactNode }) {
 		[verifyWindowClosed],
 	);
 
-	const openNotesWindow = useCallback(() => {
+	const openNotesLinksWIndows = useCallback(() => {
 		const record = getPersistedDetachedWindowRecord(
 			"notes",
 			coordinatorIdRef.current,
@@ -1931,7 +1956,7 @@ function _({ children }: { children: ReactNode }) {
 	}, [scheduleDetachedState, status]);
 
 	useEffect(() => {
-		scheduleDetachedState(["context", "query", "rendered"]);
+		scheduleDetachedState(["context", "query", "rendered", "links"]);
 	}, [
 		app.target.files,
 		app.target.operations,
@@ -2011,6 +2036,13 @@ function _({ children }: { children: ReactNode }) {
 
 	useEffect(() => {
 		return DataStore.subscribeRenderChanges((change) => {
+			if (
+				statusRef.current === "active" &&
+				change.type === "links" &&
+				change.mutation === "replace"
+			) {
+				scheduleDetachedState(["links"]);
+			}
 			if (
 				statusRef.current !== "active" ||
 				![...clientsRef.current.values()].some(
@@ -2161,6 +2193,31 @@ function _({ children }: { children: ReactNode }) {
 	}, [getCurrentOperationId, pruneClients, sendDomain]);
 
 	useEffect(() => {
+		/** Relays operation-scoped realtime Links changes to established Notes clients. */
+		const handleLinksSyncChange = (
+			change: LinksRealtimeSyncChange,
+		): void => {
+			if (statusRef.current !== "active") return;
+			pruneClients();
+			if (change.operationId !== getCurrentOperationId()) return;
+			const activeStatusSignature = getPayloadSignature("active");
+			[...clientsRef.current.values()]
+				.filter(
+					(client) =>
+						client.kind === "notes" &&
+						client.signatures.status === activeStatusSignature,
+				)
+				.forEach((client) =>
+					client.bridge.send(
+						WindowBridge.MessageType.LINKS_DELTA,
+						change,
+					),
+				);
+		};
+		return DataStore.subscribeLinksSyncChanges(handleLinksSyncChange);
+	}, [getCurrentOperationId, pruneClients]);
+
+	useEffect(() => {
 		themeSnapshotRef.current = null;
 		if (clientsRef.current.size === 0) return;
 
@@ -2260,7 +2317,7 @@ function _({ children }: { children: ReactNode }) {
 	const value = useMemo<DetachedWindowContextValue>(
 		() => ({
 			coordinatorId: coordinatorIdRef.current,
-			openNotesWindow,
+			openNotesLinksWIndows,
 			openTableWindow,
 			openDashboardWindow,
 			openAssistantWindow,
@@ -2272,7 +2329,7 @@ function _({ children }: { children: ReactNode }) {
 			openAssistantWindow,
 			openDashboardWindow,
 			openDialogWindow,
-			openNotesWindow,
+			openNotesLinksWIndows,
 			openTableWindow,
 		],
 	);

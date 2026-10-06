@@ -14,7 +14,7 @@ what it consumes.
 
 | Route | Application | Lifetime |
 | --- | --- | --- |
-| `/detached/notes` | Operation Notes table | Restored with the main operation |
+| `/detached/notes` | Operation Notes and Links tables | Restored with the main operation |
 | `/detached/table` | Paginated source-event table | Restored with the main operation |
 | `/detached/dashboard` | Data Explorer and dashboards | Restored with the main operation |
 | `/detached/assistant` | Built-in or plugin Assistant | Open-window lifetime |
@@ -238,6 +238,7 @@ operation namespace.
 | `QUERY_CONTEXT` | Selected-source filters and timeline frame for subscribed Table or Assistant clients. |
 | `RENDERED_SOURCES_CHANGED` | Ordered Canvas-rendered source IDs for a subscribed Notes client. |
 | `NOTES_CHANGED` / `NOTES_DELTA` | Canonical Notes state and operation-scoped realtime changes for Notes. |
+| `LINKS_CHANGED` / `LINKS_DELTA` | Canonical selected-operation Links snapshot and operation-scoped realtime changes for Notes. |
 | `EVENT_TARGET_CHANGED` | Selected event ID for Notes and Table highlighting. |
 | `ASSISTANT_CONNECTION_CHANGED` | Main connection identity from which the detached Assistant derives its socket ID. |
 | `DIALOG_CHANGED` | Compact events, collaboration state, colors, and nearby navigation indicators for the Dialog client. |
@@ -292,6 +293,11 @@ Backend requests are keyed by query meaning rather than React object identity:
 
 - Notes keys a load by operation, effective source IDs, search-result IDs,
   tags, pagination, and explicit refresh revision.
+- Links defers its first load until the tab opens, then keys list/count requests
+  by operation, search-result IDs, pagination, and the canonical Links revision.
+  Query changes abort the prior request and late responses are ignored. Realtime
+  create/delete deltas retain the visible page until the analyst acknowledges
+  them with a successful explicit refresh.
 - Table View serializes operation, source IDs, filters, text, range, flags,
   sort, and page size into one semantic signature and debounces synchronized
   frame changes by 150 ms. Independently loaded field metadata is excluded from
@@ -390,7 +396,7 @@ Focused regression coverage:
 - `gulp-ui/src/test/dialogs/EventDialog.rendering.test.tsx`;
 - `gulp-ui/src/test/context/detachedTheme.test.ts`;
 - `gulp-ui/src/test/page/DetachedRoute.capabilities.test.tsx`;
-- `gulp-ui/src/test/components/NotesWindow.behavior.test.tsx`;
+- `gulp-ui/src/test/components/NotesLinksWIndows.behavior.test.tsx`;
 - `gulp-ui/src/test/components/DetachedViewQuery.test.ts`;
 - `gulp-ui/src/test/components/TableViewWindow.query.test.tsx`;
 - `gulp-ui/src/test/components/DashboardViewWindow.query.test.tsx`.

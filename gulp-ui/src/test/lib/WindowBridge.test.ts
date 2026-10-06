@@ -2,6 +2,7 @@ import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import type { Doc } from "@/entities/Doc";
 import type { Glyph } from "@/entities/Glyph";
+import type { Link } from "@/entities/Link";
 import type { Note } from "@/entities/Note";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
@@ -89,6 +90,22 @@ function createNote(id: string, sourceId: Source.Id): Note.Type {
 		glyph_id: "glyph" as Glyph.Id,
 		edits: [],
 	} as Note.Type;
+}
+
+/** Creates one link fixture for detached snapshot tests. */
+function createLink(id: string, operationId = OPERATION_ID): Link.Type {
+	return {
+		id: id as Link.Id,
+		type: "link",
+		owner_user_id: "user",
+		description: id,
+		operation_id: operationId,
+		tags: [],
+		color: "#123456",
+		doc_id_from: `${id}-origin` as Doc.Id,
+		doc_ids: [],
+		glyph_id: "glyph" as Glyph.Id,
+	} as Link.Type;
 }
 
 /**
@@ -186,6 +203,9 @@ describe("WindowBridge capability-scoped projections", () => {
 		expect(
 			WindowBridge.hasStateDomainSubscriber([notesClient], "rendered"),
 		).toBe(false);
+		expect(
+			WindowBridge.hasStateDomainSubscriber([notesClient], "links"),
+		).toBe(true);
 		expect(
 			WindowBridge.hasStateDomainSubscriber(
 				[{ ...notesClient, notesRenderedSyncEnabled: true }],
@@ -490,6 +510,20 @@ describe("WindowBridge capability-scoped projections", () => {
 		expect(
 			WindowBridge.createRenderedSourceIds(app, OPERATION_ID),
 		).toEqual([renderedSource.id, hiddenEmptySource.id]);
+	});
+
+	it("projects only links from the selected operation", () => {
+		const selectedLink = createLink("selected-link");
+		const otherLink = createLink(
+			"other-link",
+			"other-operation" as Operation.Id,
+		);
+		DataStore.replaceLinks([selectedLink, otherLink], "immediate");
+
+		const payload = WindowBridge.createLinksChangedPayload(OPERATION_ID);
+
+		expect(payload.operationId).toBe(OPERATION_ID);
+		expect(payload.links).toEqual([selectedLink]);
 	});
 
 	it("matches source and context filter terms as case-insensitive alternatives", () => {

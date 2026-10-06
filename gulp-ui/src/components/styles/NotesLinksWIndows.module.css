@@ -27,11 +27,32 @@
   gap: 16px;
 }
 
-.header h3 {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 18px;
+.tabsList {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 2px;
+  justify-content: flex-start;
+  border: 1px solid var(--gray-400);
+  background: transparent;
+  box-shadow: none;
+}
+
+.tabsList button {
+  gap: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  font-size: 14px;
   font-weight: 600;
+}
+
+.tabsList button[data-state="active"] {
+  flex: 1 1 auto;
+  border-color: var(--gray-400);
+  background: var(--background-100);
+  box-shadow: none;
 }
 
 .content {
@@ -120,12 +141,23 @@
 }
 
 .titleValue {
-  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  display: flex;
   align-items: center;
 }
 
 .titleIcon {
+  flex: 0 0 auto;
   margin-right: 4px;
+}
+
+.titleText {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .colorValue {
@@ -134,6 +166,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.originEventLink {
+	height: auto;
+	min-height: 0;
+	max-width: 100%;
+	padding: 0;
+	justify-content: flex-start;
+	overflow: hidden;
+	color: var(--accent);
+	font-size: inherit;
+	text-decoration: underline;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .portalContainer {

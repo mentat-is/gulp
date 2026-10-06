@@ -58,16 +58,23 @@ Download JSON serialize the configured Raw representation; filters, notes,
 links, enrichment, Send IOC, and other event actions continue to use the full
 event document.
 
-## Notes Window
+## Notes & Links Window
 
-The detached Notes window gives a table-level view of operation notes.
+The detached Notes & Links window gives tabbed table-level views of operation notes and
+links. Notes is the default tab. Its full-width header follows the event-detail
+tab behavior: the active tab expands across the row, while larger labels and
+spaced icons also provide the window's visual title.
 
-![Notes window](images/notes-window.png)
+![Notes window](images/notes-windows.png)
+
+![Links window](images/links-windows.png)
 
 It supports search, tag selection, rendered-source filtering, flagged-event
 filtering, row targeting, row deletion, multi-select, and bulk deletion. The
 rendered-source option follows the exact source rows currently displayed by the
 timeline, after its source-name/context filter and hidden-empty-source setting.
+Long note titles are truncated in their cell while the shared table tooltip
+shows the complete value on hover.
 The flagged-event option restricts notes by the active operation's browser-local
 flagged event IDs. Notes are fetched from the collaboration API in pages, with
 controls for page size, result range, and page navigation. The event timestamp
@@ -86,6 +93,10 @@ then clears only the changes covered by that successful request; a later change
 or failed request leaves the warning visible. Websocket updates synchronize the
 canonical note data without showing the create/delete warning.
 
+Successful row or bulk deletion initiated from the Notes & Links window reloads the
+current Notes page without resetting pagination. Deletions received from
+outside this window retain the warning behavior above.
+
 The detached Notes route has its own JavaScript realm and data store. Its
 client-private bridge receives an authoritative note snapshot when it
 initializes or reconnects, when the operation or selected-source context
@@ -94,6 +105,46 @@ changes use compact create/update/delete deltas addressed only to Notes.
 
 If a note targets an event that is not currently loaded in the main timeline, the
 main tab can fetch that event before opening its detail dialog.
+
+The Links tab lists the canonical links for the selected operation and sources.
+Each row shows the resolved glyph and link-colored title, description, tags, and
+the origin event ID. Its search field matches link titles and descriptions by
+text, or tags exactly, without case sensitivity. Selecting the origin ID or an
+event from the related-events popup targets that event in the main window. The
+other row action opens the existing confirmation workflow for deleting the
+complete link. Long titles preserve their glyph, use an ellipsis, and expose the
+complete value through the shared table tooltip.
+
+Opening Links requests only the active result page and matching count from the
+collaboration API. Page navigation, the 20/50/100 rows-per-page selector, and a
+debounced search issue new cancellable requests; late responses from superseded
+queries are ignored. The canonical snapshot remains separate for timeline
+rendering, cross-page selection, and deriving IDs for the title/description/tag
+OR search. Row checkboxes select links by stable ID, the table checkbox selects
+the current page, and the header control selects all filtered links across
+pages. The bulk action deletes the selected links after confirmation. Links do
+not inherit the Notes-specific filters.
+
+Realtime Link creation and deletion update the canonical renderer state without
+replacing or automatically querying the page being read. The Links tab shows a
+localized changes-available warning; Refresh loads the first matching page and
+clears only the realtime changes covered by that successful request. Link
+updates and authoritative context snapshots continue to synchronize normally.
+
+Successful row or bulk deletion initiated from this Links tab reloads its
+current page without resetting pagination. External deletions remain behind the
+explicit refresh warning.
+
+The private bridge also sends an authoritative Links snapshot during bootstrap,
+operation/source changes, and canonical link mutations. Snapshot signatures
+suppress identical replays, and the main application remains the only owner of
+the collaboration websocket. Realtime create/update/delete notifications use
+compact `LINKS_DELTA` messages addressed only to the Notes client.
+
+Successful Link mutations in the main application update canonical state from
+the mutation response and websocket delta. They do not follow the write with a
+full `/link_list` reload; full snapshots remain reserved for operation/source
+context hydration.
 
 ## Source Events Table
 

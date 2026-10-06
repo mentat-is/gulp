@@ -139,7 +139,7 @@
 	opacity: 0.6;
 }
 
-/* Table-like header row (mirrors NotesWindow.tableHeaderRow) */
+/* Table-like header row (mirrors NotesLinksWIndows.tableHeaderRow) */
 .tableHeader {
 	display: grid;
 	grid-template-columns: 56px 56px 1fr 110px;

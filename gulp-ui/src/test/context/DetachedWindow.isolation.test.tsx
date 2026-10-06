@@ -552,7 +552,7 @@ describe("DetachedWindow coordinator client isolation", () => {
 		if (!coordinator) throw new Error("Coordinator was not captured");
 
 		const notesWindow = newlyOpenedWindow(() =>
-			coordinator!.openNotesWindow(),
+			coordinator!.openNotesLinksWIndows(),
 		);
 		const notesMessages = registerOpenedClient(notesWindow, "notes");
 		notesMessages.length = 0;
@@ -871,6 +871,81 @@ describe("DetachedWindow coordinator client isolation", () => {
 		expect(notesMessages).toEqual([]);
 		DataStore.Events.getByIds = originalGetByIds;
 		DataStore.Events.getNeighbors = originalGetNeighbors;
+	});
+
+	it("routes deduplicated Links snapshots only to the Notes client", () => {
+		if (!coordinator) throw new Error("Coordinator was not captured");
+
+		const notesWindow = newlyOpenedWindow(() =>
+			coordinator!.openNotesLinksWIndows(),
+		);
+		const notesMessages = registerOpenedClient(notesWindow, "notes");
+		const tableWindow = newlyOpenedWindow(() =>
+			coordinator!.openTableWindow(SOURCE_ID),
+		);
+		const tableMessages = registerOpenedClient(tableWindow, "table");
+		notesMessages.length = 0;
+		tableMessages.length = 0;
+
+		const link = {
+			id: "notes-links-windows-link" as Link.Id,
+			type: "link",
+			operation_id: OPERATION_ID,
+			owner_user_id: "user",
+			description: "Description",
+			tags: [],
+			color: "#123456",
+			doc_id_from: "origin-event" as Doc.Id,
+			doc_ids: [],
+			glyph_id: "glyph" as never,
+		} as Link.Type;
+
+		act(() => {
+			DataStore.replaceLinks([link], "immediate");
+		});
+		flushIdleCallbacks();
+
+		const linkMessages = notesMessages.filter(
+			(message) => message.type === WindowBridge.MessageType.LINKS_CHANGED,
+		);
+		expect(linkMessages).toHaveLength(1);
+		expect(linkMessages[0].payload).toEqual({
+			operationId: OPERATION_ID,
+			links: [link],
+		});
+		expect(tableMessages).toEqual([]);
+
+		notesMessages.length = 0;
+		act(() => {
+			DataStore.replaceLinks([link], "immediate");
+		});
+		flushIdleCallbacks();
+		expect(notesMessages).toEqual([]);
+
+		const createdLink = {
+			...link,
+			id: "notes-links-windows-created-link" as Link.Id,
+		};
+		act(() => {
+			DataStore.upsertLink(createdLink, "immediate");
+			DataStore.publishLinksUpsertDelta(
+				OPERATION_ID,
+				"create",
+				[createdLink],
+			);
+		});
+		expect(notesMessages).toHaveLength(1);
+		expect(notesMessages[0].type).toBe(
+			WindowBridge.MessageType.LINKS_DELTA,
+		);
+		const deltaPayload =
+			notesMessages[0].payload as WindowBridge.LinksDeltaPayload;
+		expect(deltaPayload.mutation).toBe("create");
+		expect(deltaPayload.operationId).toBe(OPERATION_ID);
+		if (deltaPayload.mutation !== "delete") {
+			expect(deltaPayload.links).toEqual([createdLink]);
+		}
+		expect(tableMessages).toEqual([]);
 	});
 
 	it("executes registered detached Event actions in the main application", async () => {

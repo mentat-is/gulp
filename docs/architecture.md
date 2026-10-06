@@ -227,7 +227,7 @@ The bulk packet contains only IDs actually returned by the database deletion.
 Consumers should apply the ID array as one state mutation rather than rendering
 once per ID. For notes, the UI invalidates each affected source cache once,
 publishes one detached-window delta, requests one timeline render, and shows one
-count-based toast for the complete batch. A Notes window that initiated the
+count-based toast for the complete batch. A Notes & Links window that initiated the
 deletion clears its selection and reloads its first result page and total count
 after the request succeeds. Websocket envelopes serialize the operation scope as
 `operation_id`; UI consumers also accept the Pydantic alias

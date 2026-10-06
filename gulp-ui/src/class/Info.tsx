@@ -6584,6 +6584,65 @@ export class Info implements InfoProps {
 	};
 
 	/**
+	 * Fetches one filtered link page without changing the canonical DataStore.
+	 * @param flt Existing GulpCollabFilter fields for filtering and pagination.
+	 * @param signal Optional cancellation signal for stale detached-window requests.
+	 * @returns Links for the requested page.
+	 */
+	links_list = async (
+		flt: Link.ListFilter,
+		signal?: AbortSignal,
+	): Promise<Link.Type[]> => {
+		const operation = Operation.Entity.selected(this.app);
+		if (!operation) return [];
+
+		const links = await api<Link.Type[]>("/link_list", {
+			method: "POST",
+			query: {
+				operation_id: operation.id,
+			},
+			body: flt,
+			signal,
+			showErrorToast: false,
+		});
+		if (signal?.aborted) return [];
+		if (!links) {
+			throw new Error("Failed to fetch links");
+		}
+		return links;
+	};
+
+	/**
+	 * Counts links matching an existing GulpCollabFilter without loading them.
+	 * @param flt Filter fields shared with the corresponding link-list request.
+	 * @param signal Optional cancellation signal for stale detached-window requests.
+	 * @returns Number of links matching the filter.
+	 */
+	links_count = async (
+		flt: Link.ListFilter,
+		signal?: AbortSignal,
+	): Promise<number> => {
+		const operation = Operation.Entity.selected(this.app);
+		if (!operation) return 0;
+
+		const result = await api<{ count: number }>("/object_count", {
+			method: "POST",
+			query: {
+				obj_type: "link",
+				operation_id: operation.id,
+			},
+			body: flt,
+			signal,
+			showErrorToast: false,
+		});
+		if (signal?.aborted) return 0;
+		if (!result) {
+			throw new Error("Failed to count links");
+		}
+		return result.count;
+	};
+
+	/**
 	 * Reloads the selected operation links and replaces the canonical collection.
 	 * @returns Link request result, or undefined when no operation is selected.
 	 */
@@ -6620,18 +6679,83 @@ export class Info implements InfoProps {
 		);
 	};
 
+	/**
+	 * Applies one successful Link mutation without reloading the full collection.
+	 * @param link Link returned by the mutation endpoint.
+	 * @param mutation Semantic change propagated to detached Notes clients.
+	 * @returns The returned Link after canonical state is synchronized.
+	 */
+	private applyLinkUpsert = (
+		link: Link.Type,
+		mutation: "create" | "update",
+	): Link.Type => {
+		if (Operation.Entity.selected(this.app)?.id !== link.operation_id) {
+			return link;
+		}
+
+		const previousLink = DataStore.links.find((item) => item.id === link.id);
+		if (
+			previousLink &&
+			previousLink.time_updated !== undefined &&
+			previousLink.time_updated === link.time_updated
+		) {
+			return link;
+		}
+
+		DataStore.upsertLink(link, "immediate");
+		DataStore.publishLinksUpsertDelta(link.operation_id, mutation, [link]);
+		RenderEngine.clearAllCaches();
+		this.render();
+		return link;
+	};
+
+	/**
+	 * Applies successful Link deletions without reloading the full collection.
+	 * @param operationId Operation affected by the deletion.
+	 * @param linkIds Link identifiers returned to the mutation caller.
+	 * @returns Nothing.
+	 */
+	private applyLinkDeletion = (
+		operationId: Operation.Id,
+		linkIds: readonly Link.Id[],
+	): void => {
+		if (Operation.Entity.selected(this.app)?.id !== operationId) return;
+		const deletedLinks = DataStore.deleteLinks(linkIds, "immediate");
+		if (deletedLinks.length === 0) return;
+
+		DataStore.publishLinksDeleteDelta(operationId, linkIds);
+		RenderEngine.clearAllCaches();
+		this.render();
+	};
+
 	link_delete = (link: Link.Type) =>
-		api(
-			"/link_delete",
-			{
-				method: "DELETE",
-				query: {
-					obj_id: link.id,
-					ws_id: this.app.general.ws_id,
-				},
+		api("/link_delete", {
+			method: "DELETE",
+			query: {
+				obj_id: link.id,
+				ws_id: this.app.general.ws_id,
 			},
-			this.links_reload,
-		);
+		}).then(() => this.applyLinkDeletion(link.operation_id, [link.id]));
+
+	/**
+	 * Deletes multiple links in one collaboration request and applies the delta.
+	 * @param ids Link identifiers selected by the user.
+	 * @returns Request promise resolved after canonical links are synchronized.
+	 */
+	links_delete_bulk = async (ids: Link.Id[]): Promise<void> => {
+		const operation = Operation.Entity.selected(this.app);
+		if (!operation) return;
+		await api("/object_delete_bulk", {
+			method: "DELETE",
+			query: {
+				obj_type: "link",
+				operation_id: operation.id,
+				ws_id: this.app.general.ws_id,
+			},
+			body: { ids },
+		});
+		this.applyLinkDeletion(operation.id, ids);
+	};
 
 	link_create = ({
 		name,
@@ -6673,7 +6797,7 @@ export class Info implements InfoProps {
 				doc_ids: doc_ids,
 				description: description,
 			},
-		}).then(this.links_reload);
+		}).then((link) => this.applyLinkUpsert(link, "create"));
 	};
 
 	link_edit = ({
@@ -6691,7 +6815,7 @@ export class Info implements InfoProps {
 		events: Doc.Type["_id"][];
 		description: string;
 	}) =>
-		api("/link_update", {
+		api<Link.Type>("/link_update", {
 			method: "PATCH",
 			query: {
 				obj_id,
@@ -6711,7 +6835,7 @@ export class Info implements InfoProps {
 				doc_ids: events,
 				description: description,
 			},
-		}).then(this.links_reload);
+		}).then((link) => this.applyLinkUpsert(link, "update"));
 
 	links_connect = (link: Link.Type, event: Doc.Type) =>
 		api<Link.Type>("/link_update", {
@@ -6736,7 +6860,9 @@ export class Info implements InfoProps {
 			body: {
 				doc_ids: Refractor.array(...link.doc_ids, event._id),
 			},
-		}).then(this.links_reload);
+		}).then((updatedLink) =>
+			this.applyLinkUpsert(updatedLink, "update"),
+		);
 
 	links_disconnect = (link: Link.Type, event: Doc.Type) =>
 		api<Link.Type>("/link_update", {
@@ -6763,7 +6889,9 @@ export class Info implements InfoProps {
 					...link.doc_ids.filter((id) => id !== event._id),
 				),
 			},
-		}).then(this.links_reload);
+		}).then((updatedLink) =>
+			this.applyLinkUpsert(updatedLink, "update"),
+		);
 
 	/**
 	 * Reloads highlights for the selected operation after the debounce interval.
