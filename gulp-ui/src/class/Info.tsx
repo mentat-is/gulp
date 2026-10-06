@@ -1918,6 +1918,38 @@ export class Info implements InfoProps {
 	};
 
 	/**
+	 * Stops queued and active work associated with the supplied sources.
+	 * Pending refetches are removed before active stream cleanup can release a
+	 * concurrency slot, and only requests already dispatched receive backend
+	 * cancellation.
+	 * @param sourceIds Source ids whose work should be stopped.
+	 * @returns Promise that resolves after active query stream cleanup completes.
+	 */
+	stopSourceRequests = async (sourceIds: Source.Id[]): Promise<void> => {
+		const uniqueSourceIds = Array.from(new Set(sourceIds));
+		this.removeQueuedRefetchesForSources(uniqueSourceIds);
+
+		const otherRequestIds = new Set<Request.Id>();
+		uniqueSourceIds.forEach((sourceId) => {
+			const requestId = requestStore.getRequestIdByFile(sourceId);
+			if (
+				requestId &&
+				!requestStore.isManagedQueryRequest(requestId) &&
+				!String(requestId).startsWith(Request.Prefix.QUERY)
+			) {
+				otherRequestIds.add(requestId);
+			}
+		});
+
+		await this.cancelQueryStreamsForSources(uniqueSourceIds, true);
+		await Promise.all(
+			Array.from(otherRequestIds).map((requestId) =>
+				this.request_cancel(requestId),
+			),
+		);
+	};
+
+	/**
 	 * Cancels one managed timeline query request locally and on the backend.
 	 * @param requestId Backend request identifier.
 	 * @param options Cancellation options.

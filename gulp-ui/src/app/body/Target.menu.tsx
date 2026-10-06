@@ -28,8 +28,7 @@ import { Stack } from "@/ui/Stack";
 import { Source } from "@/entities/Source";
 import { Filter } from "@/entities/Filter";
 import { Locale } from "@/locales";
-import { Request } from "@/entities/Request";
-import { requestStore, useRequestLoadings } from "@/store/request.store";
+import { useRequestLoadings } from "@/store/request.store";
 import { getRenderSourceName } from "@/render-worker/RenderSourceLabel";
 
 interface TargetMenuProps {
@@ -85,27 +84,6 @@ export function TargetMenu({ source }: TargetMenuProps) {
 		void Info.filters_remove(source);
 	};
 
-	/**
-	 * Cancels the request currently associated with a source.
-	 * @param source Source whose active request should be canceled.
-	 * @returns Nothing.
-	 */
-	const cancelRequest = (source: Source.Type): void => {
-		const request = loadings.byFileId.get(source.id);
-
-		if (request) {
-			if (
-				requestStore.isManagedQueryRequest(request) ||
-				String(request).startsWith(Request.Prefix.QUERY)
-			) {
-				void Info.cancelManagedRequest(request);
-				return;
-			}
-
-			Info.request_cancel(request);
-		}
-	};
-
 	const showEvent = async (last = false): Promise<void> => {
 		const event = await Info.getTimelineSourceEdge(source.id, last);
 		if (!event) {
@@ -139,7 +117,7 @@ export function TargetMenu({ source }: TargetMenuProps) {
 				{t("targetMenu.refetch")}
 			</ContextMenuItem>
 			<ContextMenuItem
-				onClick={() => cancelRequest(source)}
+				onClick={() => void Info.stopSourceRequests([source.id])}
 				icon="StopCircle"
 			>
 				{t("targetMenu.stop")}

@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { App } from "@/entities/App";
 import type { Query } from "@/entities/Query";
 import type { Source } from "@/entities/Source";
+import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import { TimelineMenu } from "@/app/body/Timeline.menu";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -17,6 +18,9 @@ const RESET_QUERY = {
 	filters: [],
 } as Query.Type;
 const mockRefetch = jest.fn(async () => undefined);
+const mockStopSourceRequests = jest.fn(async () => undefined);
+const mockNavigateSourceQueryCache = jest.fn(async () => true);
+const mockLoadings = { byFileId: new Map<Source.Id, string>() };
 const defaultQueryCalls: Array<[App.Type, Source.Type]> = [];
 
 /** Records default-query creation while returning the shared reset fixture. */
@@ -32,10 +36,18 @@ const mockApp = {
 jest.mock("@/context/Application.context", () => ({
 	Application: {
 		use: (): unknown => ({
-			Info: { refetch: mockRefetch },
+			Info: {
+				refetch: mockRefetch,
+				stopSourceRequests: mockStopSourceRequests,
+				navigateSourceQueryCache: mockNavigateSourceQueryCache,
+			},
 			app: mockApp,
 		}),
 	},
+}));
+
+jest.mock("@/store/request.store", () => ({
+	useRequestLoadings: (): typeof mockLoadings => mockLoadings,
 }));
 
 jest.mock("@/locales", () => ({
@@ -94,6 +106,11 @@ function createSource(
 		id,
 		name,
 		selected,
+		queryCache: {
+			...createEmptyQueryCacheState(),
+			canUndo: true,
+			canRedo: true,
+		},
 	} as Source.Type;
 }
 
@@ -112,6 +129,9 @@ describe("TimelineMenu", () => {
 
 	beforeEach(() => {
 		mockRefetch.mock.calls.splice(0);
+		mockStopSourceRequests.mock.calls.splice(0);
+		mockNavigateSourceQueryCache.mock.calls.splice(0);
+		mockLoadings.byFileId.clear();
 		defaultQueryCalls.splice(0);
 		mockApp.target.files = [
 			createSource(FIRST_SOURCE_ID, "only-visible-source.log"),
@@ -121,6 +141,44 @@ describe("TimelineMenu", () => {
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
+	});
+
+	it("stops pending and active work for every selected source", () => {
+		act(() => root.render(<TimelineMenu />));
+		act(() => getMenuButton(container, "StopCircle").click());
+
+		expect(mockStopSourceRequests).toHaveBeenCalledWith([
+			FIRST_SOURCE_ID,
+			FILTERED_SOURCE_ID,
+		]);
+	});
+
+	it("navigates Undo and Redo for every selected source", () => {
+		act(() => root.render(<TimelineMenu />));
+		act(() => getMenuButton(container, "Undo").click());
+		act(() => getMenuButton(container, "Redo").click());
+
+		expect(mockNavigateSourceQueryCache.mock.calls).toEqual([
+			[mockApp.target.files[0], "undo"],
+			[mockApp.target.files[1], "undo"],
+			[mockApp.target.files[0], "redo"],
+			[mockApp.target.files[1], "redo"],
+		]);
+	});
+
+	it("disables bulk cache navigation when no selected source is eligible", () => {
+		mockApp.target.files = mockApp.target.files.map((source) => ({
+			...source,
+			queryCache: {
+				...source.queryCache,
+				canUndo: false,
+				canRedo: false,
+			},
+		}));
+		act(() => root.render(<TimelineMenu />));
+
+		expect(getMenuButton(container, "Undo").disabled).toBe(true);
+		expect(getMenuButton(container, "Redo").disabled).toBe(true);
 	});
 
 	afterEach(() => {

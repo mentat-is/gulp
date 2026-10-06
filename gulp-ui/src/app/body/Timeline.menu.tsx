@@ -10,6 +10,7 @@ import {
 	ContextMenuLabel,
 	ContextMenuSeparator,
 } from "@/ui/ContextMenu";
+import { useRequestLoadings } from "@/store/request.store";
 
 /**
  * Renders timeline-wide actions for every source selected by the user.
@@ -19,8 +20,21 @@ import {
 export function TimelineMenu(): ReactElement | null {
 	const { app, Info } = Application.use();
 	const { t } = Locale.use();
+	const loadings = useRequestLoadings();
 	const selectedSources = Source.Entity.selected(app);
 	const selectedSourceIds = selectedSources.map((source) => source.id);
+	const canUndoQueryCache = selectedSources.some(
+		(source) =>
+			!source.queryCache.isActivating &&
+			!loadings.byFileId.has(source.id) &&
+			source.queryCache.canUndo,
+	);
+	const canRedoQueryCache = selectedSources.some(
+		(source) =>
+			!source.queryCache.isActivating &&
+			!loadings.byFileId.has(source.id) &&
+			source.queryCache.canRedo,
+	);
 
 	if (selectedSources.length === 0) return null;
 
@@ -49,6 +63,27 @@ export function TimelineMenu(): ReactElement | null {
 		});
 	};
 
+	/**
+	 * Stops pending and active work for every selected source.
+	 * @returns Nothing after dispatching the shared cancellation flow.
+	 */
+	const stopAll = (): void => {
+		void Info.stopSourceRequests(selectedSourceIds);
+	};
+
+	/**
+	 * Moves every eligible selected source through its local query-cache history.
+	 * @param direction Cache-history direction to apply.
+	 * @returns Nothing after dispatching each source-local activation.
+	 */
+	const navigateAllQueryCaches = (direction: "undo" | "redo"): void => {
+		void Promise.all(
+			selectedSources.map((source) =>
+				Info.navigateSourceQueryCache(source, direction),
+			),
+		);
+	};
+
 	return (
 		<ContextMenuContent data-state="open">
 			<ContextMenuLabel className={s.cm_title}>
@@ -58,8 +93,25 @@ export function TimelineMenu(): ReactElement | null {
 			<ContextMenuItem onClick={refetchAll} icon="RefreshClockwise">
 				{t("timelineMenu.refetchAll")}
 			</ContextMenuItem>
+			<ContextMenuItem onClick={stopAll} icon="StopCircle">
+				{t("timelineMenu.stopAll")}
+			</ContextMenuItem>
 			<ContextMenuItem onClick={resetAllFilters} icon="X">
 				{t("timelineMenu.resetAllFilters")}
+			</ContextMenuItem>
+			<ContextMenuItem
+				disabled={!canUndoQueryCache}
+				onClick={() => navigateAllQueryCaches("undo")}
+				icon="Undo"
+			>
+				{t("timelineMenu.undoAllQueryCache")}
+			</ContextMenuItem>
+			<ContextMenuItem
+				disabled={!canRedoQueryCache}
+				onClick={() => navigateAllQueryCaches("redo")}
+				icon="Redo"
+			>
+				{t("timelineMenu.redoAllQueryCache")}
 			</ContextMenuItem>
 		</ContextMenuContent>
 	);

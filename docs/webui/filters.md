@@ -145,7 +145,13 @@ currently excluded by the timeline text filter or hidden-empty-source setting:
   Undo/Redo history; only each source's first initialization resets old history;
 - **Reset all filters** clears each selected source query and performs one bulk
   authoritative refetch. The reset does not activate a latest-cache fallback,
-  because that cache may still contain the filters being removed.
+  because that cache may still contain the filters being removed;
+- **Stop all** first removes pending refetches for the selected sources, then
+  cancels only their requests that have already started;
+- **Undo all query caches** activates the preceding browser-local cache for each
+  selected source where Undo is available;
+- **Redo all query caches** activates the following browser-local cache for each
+  selected source where Redo is available.
 
 ## Table View Filters
 

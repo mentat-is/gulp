@@ -619,6 +619,81 @@ describe("Info timeline-frame refetch", () => {
 		expect(queryFile.mock.calls[0][0].text_filter).toBe("*replacement*");
 	});
 
+	it("stops pending refetches before canceling active source requests", async () => {
+		localStorage.setItem("gulp:event-store-lod-enabled", "false");
+		const source = createSource();
+		const { info, queryFile } = createInfoHarness(source);
+		const requestCancel = jest.fn(async () => undefined);
+		info.request_cancel = requestCancel as typeof info.request_cancel;
+
+		const internals = info as unknown as {
+			registerQueryStream: (
+				requestId: Request.Id,
+				sourceIds: Source.Id[],
+				operationId: Operation.Id,
+				operationEpoch: number,
+				abortController: AbortController | undefined,
+				queuePriority: "visible" | "background",
+			) => unknown;
+			refetchQueue: Array<{
+				sourceId: Source.Id;
+				operationId: Operation.Id;
+				query: Query.Type;
+				options: {
+					id: Source.Id;
+					operationId: Operation.Id;
+					preview: false;
+				};
+				sequence: number;
+			}>;
+			activeQueuedQueryCount: number;
+		};
+		const activeRequestId = "active-query-to-stop" as Request.Id;
+		internals.registerQueryStream(
+			activeRequestId,
+			[source.id],
+			source.operation_id as Operation.Id,
+			DataStore.getRenderOperationEpoch(),
+			undefined,
+			"visible",
+		);
+		internals.activeQueuedQueryCount = 1;
+		internals.refetchQueue = [
+			{
+				sourceId: source.id,
+				operationId: source.operation_id as Operation.Id,
+				query: createCacheQuery(source, "pending query"),
+				options: {
+					id: source.id,
+					operationId: source.operation_id as Operation.Id,
+					preview: false,
+				},
+				sequence: 0,
+			},
+		];
+
+		await info.stopSourceRequests([source.id]);
+
+		expect(internals.refetchQueue).toEqual([]);
+		expect(queryFile).not.toHaveBeenCalled();
+		expect(requestCancel).toHaveBeenCalledTimes(1);
+		expect(requestCancel).toHaveBeenCalledWith(activeRequestId);
+	});
+
+	it("preserves cancellation for active non-query source requests", async () => {
+		const source = createSource();
+		const { info } = createInfoHarness(source);
+		const requestCancel = jest.fn(async () => undefined);
+		const enrichmentRequestId =
+			`${Request.Prefix.ENRICHMENT}-active` as Request.Id;
+		info.request_cancel = requestCancel as typeof info.request_cancel;
+		info.setLoading(enrichmentRequestId, source.id);
+
+		await info.stopSourceRequests([source.id]);
+
+		expect(requestCancel).toHaveBeenCalledWith(enrichmentRequestId);
+	});
+
 	it("updates loading state without invalidating canonical document data", () => {
 		const source = createSource();
 		const { info } = createInfoHarness(source);

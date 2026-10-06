@@ -25,6 +25,7 @@ const mockInfo = {
 	files_reorder_upper: jest.fn(),
 	files_reorder_lower: jest.fn(),
 	getTimelineSourceEdge: jest.fn(),
+	stopSourceRequests: jest.fn(),
 	cancelManagedRequest: jest.fn(),
 	request_cancel: jest.fn(),
 };
@@ -384,6 +385,14 @@ describe("TargetMenu query-cache controls", () => {
 		act(() => getMenuButton(container, "X").click());
 
 		expect(mockInfo.filters_remove).toHaveBeenCalledWith(mockSource);
+	});
+
+	it("routes source stop through the shared source cancellation command", () => {
+		act(() => root.render(<TargetMenu source={mockSource} />));
+
+		act(() => getMenuButton(container, "StopCircle").click());
+
+		expect(mockInfo.stopSourceRequests).toHaveBeenCalledWith([mockSource.id]);
 	});
 
 	it("disables both history actions while cache activation is in progress", () => {
