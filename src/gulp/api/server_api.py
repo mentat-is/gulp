@@ -37,6 +37,7 @@ from opensearchpy import RequestError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
@@ -64,6 +65,97 @@ from gulp.structs import (
 from gulp.api.prometheus_api import GulpMetrics, cleanup_prometheus
 from gulp import __version__, commit_id
 
+# an ASGI middleware as registered by an extension plugin: called with the next
+# ASGI application, returns the ASGI application wrapping it
+ExtensionMiddleware = Callable[[ASGIApp], ASGIApp]
+
+
+class _ExtensionMiddlewares:
+    """
+    the ASGI middlewares registered by extension plugins, in registration order.
+
+    extension plugins are loaded once the application has started, when FastAPI no
+    longer accepts app.add_middleware(): they register here instead, and
+    _ExtensionMiddlewareDispatcher (installed before the application starts) runs
+    whatever is registered.
+    """
+
+    def __init__(self) -> None:
+        self._middlewares: list[ExtensionMiddleware] = []
+        # bumped on every change, so the dispatcher knows when to rebuild its chain
+        self.version: int = 0
+
+    def add(self, middleware: ExtensionMiddleware) -> bool:
+        """
+        Args:
+            middleware (ExtensionMiddleware): the middleware to register
+
+        Returns:
+            bool: False if it was already registered (nothing changes), True otherwise
+        """
+        if middleware in self._middlewares:
+            return False
+        self._middlewares.append(middleware)
+        self.version += 1
+        return True
+
+    def remove(self, middleware: ExtensionMiddleware) -> bool:
+        """
+        Args:
+            middleware (ExtensionMiddleware): the middleware to remove
+
+        Returns:
+            bool: False if it was not registered (nothing changes), True otherwise
+        """
+        if middleware not in self._middlewares:
+            return False
+        self._middlewares.remove(middleware)
+        self.version += 1
+        return True
+
+    def clear(self) -> None:
+        """removes every registered middleware"""
+        if self._middlewares:
+            self._middlewares = []
+            self.version += 1
+
+    def build(self, app: ASGIApp) -> ASGIApp:
+        """
+        Args:
+            app (ASGIApp): the application the registered middlewares wrap
+
+        Returns:
+            ASGIApp: app wrapped by the registered middlewares, the first registered
+                being the outermost (app itself when none is registered)
+        """
+        chain: ASGIApp = app
+        for middleware in reversed(self._middlewares):
+            chain = middleware(chain)
+        return chain
+
+
+class _ExtensionMiddlewareDispatcher:
+    """runs the ASGI middlewares registered by extension plugins around the application."""
+
+    def __init__(self, app: ASGIApp, registry: _ExtensionMiddlewares):
+        self.app = app
+        self._registry = registry
+        self._chain: ASGIApp = app
+        self._version: int = -1
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            # lifespan is the core's own business
+            await self.app(scope, receive, send)
+            return
+
+        if self._version != self._registry.version:
+            # a middleware was registered or removed: requests already being served
+            # keep the chain they started with
+            self._version = self._registry.version
+            self._chain = self._registry.build(self.app)
+        await self._chain(scope, receive, send)
+
 
 class GulpServer:
     """
@@ -84,6 +176,7 @@ class GulpServer:
         self._lifespan_task: asyncio.Task = None
         self._poll_tasks_task: asyncio.Task = None
         self._extension_plugins: list[GulpPluginBase] = []
+        self._extension_middlewares: _ExtensionMiddlewares = _ExtensionMiddlewares()
         self._last_opensearch_search_rejected: int | None = None
         self._opensearch_search_capacity: int | None = None
 
@@ -151,6 +244,8 @@ class GulpServer:
                         f"failed to unload extension plugin {p.name}"
                     )
             self._extension_plugins = []
+        # whatever a plugin left registered must not outlive the plugin
+        self._extension_middlewares.clear()
 
     async def _load_extension_plugins(self) -> None:
         """
@@ -384,6 +479,43 @@ class GulpServer:
         if self._app:
             self._app.add_api_route(path, handler, **kwargs)
 
+    def add_extension_middleware(self, middleware: ExtensionMiddleware) -> None:
+        """
+        registers an ASGI middleware on behalf of an extension plugin, which is loaded too
+        late to use FastAPI.add_middleware (to be called in post_init, main process only).
+
+        the middleware sees every http and websocket request, from the outside of the
+        core's own middlewares; registered middlewares wrap each other in registration
+        order, the first registered being the outermost. it is not isolated: if it raises,
+        the request fails.
+
+        Args:
+            middleware (ExtensionMiddleware): called with the next ASGI application, returns
+                the ASGI application wrapping it (e.g. a class taking `app` in its constructor)
+
+        Throws:
+            RuntimeError: if not called in the main process
+        """
+        if not GulpProcess.get_instance().is_main_process():
+            raise RuntimeError("extension middlewares are main-process-only")
+        if not self._extension_middlewares.add(middleware):
+            Glug.get_instance().warning(
+                f"extension middleware {middleware!r} already registered, not adding"
+            )
+            return
+        Glug.get_instance().debug(f"registered extension middleware {middleware!r}")
+
+    def remove_extension_middleware(self, middleware: ExtensionMiddleware) -> None:
+        """
+        removes a middleware registered with add_extension_middleware (to be called in the
+        plugin's unload); does nothing if it is not registered.
+
+        Args:
+            middleware (ExtensionMiddleware): the same object passed to add_extension_middleware
+        """
+        if self._extension_middlewares.remove(middleware):
+            Glug.get_instance().debug(f"removed extension middleware {middleware!r}")
+
     def start(
         self,
         level: int = None,
@@ -489,6 +621,12 @@ class GulpServer:
         from gulp.api.prometheus_api import setup_prometheus
 
         setup_prometheus(self._app)
+
+        # added last, so it is the outermost: the middlewares registered later by
+        # extension plugins (see add_extension_middleware) see every request
+        self._app.add_middleware(
+            _ExtensionMiddlewareDispatcher, registry=self._extension_middlewares
+        )
 
         # add routers in other modules
         self._add_routers()

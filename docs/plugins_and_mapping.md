@@ -19,6 +19,7 @@
       - [call external plugins](#call-external-plugins)
     - [extension plugins](#extension-plugins)
       - [ADVANCED: registering and emitting events from extension plugins](#advanced-registering-and-emitting-events-from-extension-plugins)
+      - [ADVANCED: registering an ASGI middleware from extension plugins](#advanced-registering-an-asgi-middleware-from-extension-plugins)
   - [stacked plugins](#stacked-plugins)
     - [flow in stacked plugins](#flow-in-stacked-plugins)
 - [mapping 101](#mapping-101)
@@ -541,6 +542,53 @@ Custom event names must be lowercase, namespaced strings. Notification emission 
 Subscriptions are main-process-only. Emission works in main and worker processes, but listeners always run in the main process. Events use non-durable, at-most-once Redis Pub/Sub delivery with no retry or redelivery. Plugin unload automatically unsubscribes its listener.
 
 A complete example is provided by [example_custom_internal_event](../src/gulp/plugins/example/example_custom_internal_event.py), which emits custom events from both main and worker processes.
+
+#### ADVANCED: registering an ASGI middleware from extension plugins
+
+An extension plugin that needs to see the requests served by routes it does not own (to measure, tag or record them) can register an [ASGI middleware](https://www.starlette.io/middleware/#pure-asgi-middleware). Extension plugins are loaded once the application has started, when FastAPI no longer accepts `app.add_middleware()`, so the registration goes through `GulpServer`:
+
+```python
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from gulp.api.server_api import GulpServer
+
+
+class MyMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                ...  # message["status"] is the status code of the response
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+class Plugin(GulpPluginBase):
+    async def post_init(self, **kwargs) -> None:
+        if self.is_running_in_main_process():
+            GulpServer.get_instance().add_extension_middleware(MyMiddleware)
+
+    async def unload(self) -> None:
+        if self.is_running_in_main_process():
+            GulpServer.get_instance().remove_extension_middleware(MyMiddleware)
+        await super().unload()
+```
+
+- The middleware is any callable taking the next ASGI application and returning the one wrapping it, a class with `app` as its constructor argument included.
+- It sees every `http` and `websocket` request, from the outside of the core's own middlewares: error responses and requests no route matches included. `lifespan` never goes through it.
+- Registered middlewares wrap each other in registration order: the first registered is the outermost. Registering the same middleware twice is ignored, removing one that is not registered does nothing.
+- It can be registered and removed while the server is running. A request already being served keeps the middlewares it started with.
+- Registration is main-process-only (the API is served there): from a worker it raises `RuntimeError`.
+- The core does not isolate it: a middleware that raises fails the request, and a slow one slows every request down. Protecting the request from its own failures is the plugin's job.
+
+Security: a registered middleware reads, and can change or block, every request and response, **before authentication**: session tokens, passwords sent at login and the data returned to users all go through it. This is no more than what an extension plugin can already do, since it runs inside the main process with the privileges of gULP itself, and there is no API to register one: it takes code loaded from the plugin directories on the server. It still deserves care when writing one: never log or store credentials, and bound whatever is read from a request, since it comes from unauthenticated clients.
   
 ## stacked plugins
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from gulp.api.server_api import GulpServer
+from gulp.api.server_api import GulpServer, _ExtensionMiddlewares
 from gulp.events import events
 
 
@@ -150,9 +150,14 @@ async def test_extension_unload_failure_does_not_skip_later_plugins():
     second = MagicMock(name="second", unload=AsyncMock())
     server = object.__new__(GulpServer)
     server._extension_plugins = [first, second]
+    # a middleware the failing plugin never got to remove
+    app = object()
+    server._extension_middlewares = _ExtensionMiddlewares()
+    server._extension_middlewares.add(lambda _app: "wrapped")
 
     await server._unload_extension_plugins()
 
     first.unload.assert_awaited_once()
     second.unload.assert_awaited_once()
     assert server._extension_plugins == []
+    assert server._extension_middlewares.build(app) is app
