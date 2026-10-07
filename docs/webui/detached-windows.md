@@ -67,8 +67,8 @@ instance, projected application state, document event handlers, and React
 scheduler.
 
 Event and Group dialogs use those independent routed roots because their state
-has an explicit serializable projection. Arbitrary plugin dialogs, such as the
-paid Knowledge Base explorer, cannot be reconstructed from a React element.
+has an explicit serializable projection. Arbitrary plugin dialogs cannot be
+reconstructed from a React element.
 They use an opener-owned portal in a popup document instead. The portal retains
 the authoritative main `Application` context and overrides only
 `currentDocument`, so plugin dialogs render in the popup while their API, dialog,
