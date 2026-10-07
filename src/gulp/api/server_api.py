@@ -120,7 +120,7 @@ class GulpServer:
     def cli_log_level(self) -> int | None:
         """
         the log level explicitly forced on the command line, for extension plugins that keep
-        their own saved level (system_logs): an explicit --log-level wins over the saved one.
+        their own saved level: an explicit --log-level wins over the saved one.
 
         Returns:
             int | None: the --log-level value, or None when it was not given (INFO applies then)
@@ -131,7 +131,7 @@ class GulpServer:
         """
         Returns:
             list[GulpPluginBase]: the extension plugins loaded in this (main) process, e.g. for
-                plugin_manager to notify the plugin owning a configuration family it changed
+                one extension to find and notify another
         """
         return list(self._extension_plugins)
 
@@ -1495,7 +1495,7 @@ class GulpServer:
         # Redis is ready — glug itself was already bootstrapped at the top of
         # _lifespan_handler, before any of this method's own logging ran. The
         # persisted state is cleared first, before any worker is spawned: the
-        # command line alone applies until an extension plugin (system_logs)
+        # command line alone applies until an extension plugin
         # publishes again, so nothing a previous run published survives a
         # plugin being removed. Note that every gulp instance sharing this
         # Redis shares this state too.

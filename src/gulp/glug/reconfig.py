@@ -43,8 +43,8 @@ async def publish_reconfig(
     missing the "bare" pub/sub message entirely. Fields left unchanged here
     keep their previously persisted value.
 
-    the core never calls this: it is the paid system_logs extension plugin's
-    entry point (see plans/system-logs-plugin.md).
+    the core never calls this: it is the entry point for an extension plugin
+    that manages logging (see docs/logging.md, "Runtime reconfiguration").
 
     Args:
         level (str, optional): new logging level name (e.g. "DEBUG"), or None to leave unchanged.

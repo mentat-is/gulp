@@ -25,8 +25,8 @@ plans/log-revolution.md). Sinks:
   a focused stream for postmortem analysis without grepping the whole log.
 
 `log_dir` is not a core CLI option: the JSON files (like `dev_mode`) are
-turned on and off at runtime through `apply_reconfig()`, by the paid
-`system_logs` extension plugin — see plans/system-logs-plugin.md.
+turned on and off at runtime through `apply_reconfig()`, by an extension
+plugin (see docs/logging.md, "Runtime reconfiguration").
 
 See plans/log-revolution.md, "Output su stdout vs file", for the full
 rationale.

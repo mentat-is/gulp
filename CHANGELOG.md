@@ -18,16 +18,16 @@
   `docs/logging.md`, "Credentials are masked".
 - fixed `GulpPluginBase.load()` re-adding a module it had just taken from the
   plugin cache, which logged "plugin ... already in cache, not adding" as a
-  warning on every cached load (dozens per minute from plugins loading
-  `plugin_manager` per request). Only a module loaded from disk is added now.
+  warning on every cached load (dozens per minute when a plugin loads another
+  plugin at every request). Only a module loaded from disk is added now.
 - the startup banner is printed in a random color on every start, and the
   version string below it in bold, in a different color; both stay plain when
   stdout is not a terminal. See `docs/logging.md`, "Configuration (CLI flags)".
 - the core logs to stdout only, with hints and every level, and `--log-level`
   now defaults to `info` (was `debug`). `--dev-mode` and `--log-dir` are
   removed: `dev_mode` (`detail=` payloads) and `Glug`'s per-process JSON
-  files become features of the paid `system_logs` extension plugin, which
-  turns them on at runtime. The new, optional `--log-file <path>` appends
+  files are no longer command-line options but capabilities an extension
+  plugin turns on at runtime. The new, optional `--log-file <path>` appends
   the very same lines as stdout, without colors, to one file shared by the
   main process and every worker; gulp never rotates it (use logrotate). See
   `docs/logging.md`, "Log file (`--log-file`)".
@@ -57,15 +57,12 @@
   of tracebacks. OpenSearch is also probed over HTTP, since it accepts TCP
   connections before it can serve requests (e.g. right after `docker compose up`).
   See `docs/troubleshooting.md`.
-- shipping `Glug`'s JSON files to OpenSearch is not part of the core: the
-  reference Fluent Bit setup (`fluent-bit.conf`, `parsers.conf`,
+- removed the reference Fluent Bit setup (`fluent-bit.conf`, `parsers.conf`,
   `fluent-bit-filters/`, the `docker-compose.yml` `logging` profile) and the
-  `bootstrap_internal_logs_indices.sh` script are removed from this
-  repository, and now live in the paid `system_logs` extension plugin, which
-  also creates the hidden `.gulp-internal-logs-info` (`INFO`+, 90 days) and
-  `.gulp-internal-logs-debug` (`DEBUG`, 14 days) indices itself. gULP never
-  writes its logs to OpenSearch from inside `Glug`. See `docs/logging.md`,
-  "Shipping logs to OpenSearch".
+  `bootstrap_internal_logs_indices.sh` script: this repository ships no log
+  shipper. gULP never writes its logs to OpenSearch from inside `Glug`; once
+  the JSON files are on, any external shipper can tail them. See
+  `docs/logging.md`, "Shipping logs to OpenSearch".
 - `GulpServer` exposes `cli_log_level()` (the explicit `--log-level`, or
   `None`) and `extension_plugins()`, and `Glug` exposes `effective_level()`,
   for extension plugins. JSON records from third-party loggers (uvicorn,
@@ -447,13 +444,13 @@
   - Validated: `pytest tests/unit/` (564/564, including the fix for 3 `test_collab_api.py`
     tests broken by the bootstrap-ordering change), a full clean backend restart with
     `--log-level warning` (confirmed live: all `Glug` `INFO` noise from Postgres/OpenSearch/
-    Redis/websocket startup is now correctly suppressed, and the external `webhook.py` plugin
+    Redis/websocket startup is now correctly suppressed, and an external plugin
     loads again without an `ImportError`), and a broad integration batch (11 files): 91 passed,
     1 skipped, 2 failures — the same two already-tracked pre-existing environmental issues
     (parallel EVTX parser flakiness, OpenSearch disk-watermark pressure), no new regressions.
 - turned the kept-for-compatibility `MutyLogger` (`src/muty/log.py`) into an active `Glug`
-  forwarding wrapper: live validation showed its external-plugin output (e.g. `webhook.py`,
-  `oauth.py`) still rendered in `MutyLogger`'s old pipe-delimited stdout format, visually
+  forwarding wrapper: live validation showed its external-plugin output
+  still rendered in `MutyLogger`'s old pipe-delimited stdout format, visually
   inconsistent with the rest of the now-`Glug`-formatted console. Added
   `_GlugForwardingHandler(logging.Handler)`, whose `emit()` does a deferred, `try/except
   ImportError`-guarded `from gulp.glug import Glug` (never a module-level import, preserving
@@ -477,35 +474,10 @@
   remain anywhere in the log; re-ran `pytest tests/unit/` (564/564) and an integration smoke
   batch (`test_db.py`, `test_collab.py`, `test_users.py`, `test_plugins.py` — 34 passed), no
   regressions.
-- reverted the `_GlugForwardingHandler` wrapper above: the plugins actually producing the
-  pipe-delimited `MutyLogger` output (`webhook.py`, `oauth.py`, and everything else under
-  `gulp-paid-plugins/`) turned out to belong to `gulp-paid-plugins`, a separate git repo
-  that `CLAUDE.md` explicitly says is "maintained like `src/gulp/plugins/`" — i.e. in scope
-  for this migration, unlike `gulp-ui`/`gulp-collector`/`gulp-licensing`. Forwarding
-  `MutyLogger` to `Glug` was the wrong fix for that: it papered over paid plugins never
-  having been migrated. `src/muty/log.py` is back to the plain, unmodified `MutyLogger`
-  kept only for any genuinely third-party/unmaintained plugin outside both repos; the real
-  fix is migrating `gulp-paid-plugins` itself to call `Glug` directly (289 call sites across
-  43 files, tracked separately).
-- migrated `gulp-paid-plugins` (separate repo, branch `log-revolution` off `develop`) from
-  `MutyLogger` to `Glug`: 43 files, 289 call sites, same pattern as `src/gulp/plugins/`.
-  Unlike gulp's own already-f-string-style plugins, these used stdlib `logging`'s `%s`/`%d`
-  positional style extensively, which `Glug` doesn't support (a second positional argument
-  silently binds to `exc_info` instead of interpolating); re-ran the AST-based checker from
-  the `src/gulp/plugins/` migration across the whole repo and found 53 call sites with this
-  latent bug, all converted to f-strings, plus a manual sweep caught ~15 more call sites using
-  a pre-interpolated `"..." % (...)` string (syntactically valid, still wrong style) and ~13
-  bare `.exception(ex)` sites (the exception object as the whole message, no context) — all
-  fixed. Found and fixed two real credential leaks in `extension/oauth.py` while at it: a debug
-  line logged the Google/Microsoft OAuth `client_secret` in cleartext, and another dumped the
-  full OAuth token payload (access/id/refresh tokens) at DEBUG unconditionally; the secret was
-  removed from the message, the token dump moved into `detail=` (dev_mode-gated). Validated:
-  AST checker and `py_compile` clean on every touched file, two full backend restarts with
-  `--log-level debug` (paid plugins sync automatically into `~/.config/gulp/plugins/` in this
-  devcontainer) showing zero pipe-delimited `MutyLogger` lines and no new plugin-load failures
-  (the 3 that do fail — `ai_report.py`, `oauth.py`, `send_data_opencti.py` — are pre-existing,
-  caused by missing paid-plugin configuration in this devcontainer, not by this change).
-  Committed locally in the `gulp-paid-plugins` repo, not pushed.
+- reverted the `_GlugForwardingHandler` wrapper above: forwarding `MutyLogger` to `Glug`
+  only papered over plugins that had not been migrated. `src/muty/log.py` is back to the
+  plain, unmodified `MutyLogger`, kept only for third-party plugins outside this repository;
+  plugins are expected to call `Glug` directly.
 - converted the last plain `print()` startup diagnostics (`src/gulp/config.py`'s
   `_read_config()`/`path_working_dir()`, `src/gulp/process.py`'s `_worker_initializer`) to
   `Glug`, and removed their decorative `******` markers, after the user noticed lines like

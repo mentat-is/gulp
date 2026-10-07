@@ -4,7 +4,7 @@
   - [One record, several outputs](#one-record-several-outputs)
     - [Console line](#console-line)
     - [Log file (`--log-file`)](#log-file---log-file)
-    - [JSON file (`system_logs` plugin)](#json-file-system_logs-plugin)
+    - [JSON file (turned on by an extension)](#json-file-turned-on-by-an-extension)
   - [Using Glug in application code](#using-glug-in-application-code)
     - [Levels and the `exception()` shorthand](#levels-and-the-exception-shorthand)
     - [`detail=`: structured payloads, dev\_mode-gated](#detail-structured-payloads-dev_mode-gated)
@@ -82,7 +82,7 @@ flowchart LR
     logfile["GlugConsoleFormatter, no colors
     → shared text file (--log-file)"]
     json["GlugJsonFormatter
-    → per-process JSON file (system_logs plugin)"]
+    → per-process JSON file (turned on by an extension)"]
 
     call --> emit --> stdlib
     stdlib --> console
@@ -95,8 +95,8 @@ flowchart LR
 Every log call builds exactly one `LogRecord`, carrying the message plus
 whatever context/detail/hint were attached. Two formatters turn that same
 record into up to three outputs: the console line on stdout (always), the
-same line in a plain-text file (`--log-file`, optional, core), and a JSON
-document (only with the paid `system_logs` extension plugin).
+same line in a plain-text file (`--log-file`, optional), and a JSON
+document (off by default: an extension plugin can turn it on at runtime).
 
 ### Console line
 
@@ -128,7 +128,8 @@ competing with the message. They are always present: empty (`[]`) for
 sync code running outside any task (before the event loop starts, e.g.
 `start()`'s own initial lines), so whether a line came from a task is
 obvious at a glance. A `hint=`, a `detail=` (only when `dev_mode` is on,
-which only the `system_logs` plugin can do; pretty-printed, indented), and an exception traceback (when `exc_info` is
+which only an extension plugin can do; pretty-printed, indented), and an
+exception traceback (when `exc_info` is
 set) each add their own indented lines below the header when present.
 
 Deliberately **not** on the console line: the process identity (which
@@ -162,13 +163,11 @@ with `WatchedFileHandler`, which reopens it once logrotate moves it away, so
 }
 ```
 
-### JSON file (`system_logs` plugin)
+### JSON file (turned on by an extension)
 
-Off in the core: there is no CLI flag for it. The paid `system_logs`
-extension plugin turns it on at runtime, through
-[runtime reconfiguration](#runtime-reconfiguration), always under the
-fixed `<working_dir>/logs` (`~/.config/gulp/logs` or
-`$GULP_WORKING_DIR/logs`). One rotating file **per process**,
+Off by default, with no CLI flag for it: an extension plugin turns it on at
+runtime, through [runtime reconfiguration](#runtime-reconfiguration),
+giving the base directory (`log_dir`). One rotating file **per process**,
 `<log_dir>/<hostname>/gulp-main.jsonl` or `gulp-worker-<pid>.jsonl`, written
 *in addition to* stdout, never instead of it (one file per process, never
 shared across processes, specifically to avoid the corruption risk
@@ -310,12 +309,14 @@ plugin="x")`) always overrides the contextvar-derived value for that field.
 
 | Flag | Effect |
 |---|---|
-| `--log-level {critical,error,warning,info,debug}` | Sets the effective level (default: `info`). Given explicitly, it also wins over the level saved by the `system_logs` plugin, and overwrites it. |
+| `--log-level {critical,error,warning,info,debug}` | Sets the effective level (default: `info`). `GulpServer.cli_log_level()` tells an extension plugin whether it was given explicitly, so an explicit level can win over one the plugin saved. |
 | `--log-file <path>` | Also appends every stdout line, without colors, to `<path>`, shared by all processes. Never rotated by gulp. See [Log file](#log-file---log-file). |
 
-The core has no `--dev-mode` or `--log-dir`: `dev_mode` and the JSON files
-are subscription features, enabled only by the paid `system_logs`
-extension plugin. Without it, `detail=` payloads never render anywhere.
+There is no `--dev-mode` or `--log-dir`: `dev_mode` and the JSON files are
+not command-line options but capabilities of `Glug` that an extension
+plugin turns on at runtime (see
+[Runtime reconfiguration](#runtime-reconfiguration)). Without one,
+`detail=` payloads never render anywhere.
 `--log-to-file`/`--log-to-syslog` (the old `MutyLogger`-only flags) no
 longer exist either.
 
@@ -348,8 +349,8 @@ argument left out keeps its current value; `log_dir=None` closes the JSON
 files. A directory that cannot be opened is logged as an error, with a
 hint, and the JSON files stay off; the level/`dev_mode` change still
 applies. The core never calls it, and exposes no REST endpoint for it: it
-is the paid `system_logs` extension plugin's entry point, which also keeps
-the level and `dev_mode` in its own saved configuration.
+is the entry point for an extension plugin that manages logging (its own
+saved level, `dev_mode`, the JSON files).
 
 At startup the main process clears `gulp:glug:state` before spawning its
 workers, so only the command line applies until a plugin publishes again:
@@ -465,16 +466,13 @@ gULP itself never writes its logs to OpenSearch (or anywhere else over the
 network) from inside `Glug`: a log call depending on a network write to
 OpenSearch would lose exactly the logs explaining *why* OpenSearch is
 unreachable, and would turn every synchronous, local log call into network
-I/O. An external shipper tails the JSON files instead.
+I/O.
 
-Shipping is part of the paid `system_logs` extension plugin
-(`gulp-paid-plugins`): it turns the JSON files on, creates the hidden
-`.gulp-internal-logs-info` / `.gulp-internal-logs-debug` indices with their
-retention policies, and ships a reference [Fluent Bit](https://fluentbit.io/)
-setup and a `docker-compose` override. See its
-`README_system_logs.md`, and `plans/log-shipping.md` /
-`plans/system-logs-plugin.md` for the design discussion (why not write to
-OpenSearch from `Glug`, why Fluent Bit, why the retention split by level).
+The JSON files exist so that an external shipper can tail them instead.
+Once they are on, any tool that follows JSON-lines files across rotation
+works (for example [Fluent Bit](https://fluentbit.io/) or Filebeat): one
+JSON object per line, with the event time in `timestamp_msec` (epoch
+milliseconds). This repository ships no shipper setup.
 
 ## What about `muty`?
 
@@ -483,16 +481,15 @@ OpenSearch from `Glug`, why Fluent Bit, why the retention split by level).
 `logging.getLogger(__name__)`.
 
 `MutyLogger` itself (`src/muty/log.py`) is not removed — it's kept,
-unmodified, purely for backward compatibility with plugins genuinely
-outside both this repo and `gulp-paid-plugins` that might still import it
-directly. No call site in `src/gulp/`, `src/muty/`, or `gulp-paid-plugins/`
+unmodified, purely for backward compatibility with plugins outside this repo that
+might still import it directly. No call site in `src/gulp/` or `src/muty/`
 uses it anymore.
 
 ## Known limitations
 
 - **Startup logs never reach the JSON files or `dev_mode`**: extension
   plugins load at the end of startup, after the workers are spawned, so
-  everything before the `system_logs` plugin publishes its state goes to
+  everything logged before an extension plugin publishes its state goes to
   stdout and `--log-file` only, at the command-line level.
 
 - **Console `module:funcName:line` reflects the frame `Glug` computed its

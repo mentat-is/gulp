@@ -124,8 +124,8 @@ def main():
         "--log-level",
         nargs=1,
         metavar=("level"),
-        help='select log level, default="info". Given explicitly, it also overrides the level '
-        "saved by the system_logs extension plugin, when installed.",
+        help='select log level, default="info". Given explicitly, it also takes precedence over '
+        "a level saved by an extension plugin.",
         choices=["critical", "error", "warning", "info", "debug"],
         default=None,
     )
@@ -168,7 +168,7 @@ def main():
     args = parser.parse_args()
 
     # None when --log-level is not given: the server applies INFO, and an extension
-    # plugin keeping its own saved level (system_logs) can tell the two cases apart
+    # plugin keeping its own saved level can tell the two cases apart
     lv: int | None = (
         logging.getLevelNamesMapping()[args.log_level[0].upper()]
         if args.log_level
