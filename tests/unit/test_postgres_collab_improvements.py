@@ -94,7 +94,7 @@ async def test_check_token_missing_session_raises_session_expired(monkeypatch):
     )
     monkeypatch.setattr(GulpUserSession, "get_by_id", _raise_not_found)
 
-    with pytest.raises(SessionExpired, match='token "missing-token" not logged in'):
+    with pytest.raises(SessionExpired, match="^token not logged in$"):
         await GulpUserSession.check_token(SimpleNamespace(), "missing-token")
 
 
@@ -116,7 +116,7 @@ async def test_check_token_expired_session_raises_session_expired(monkeypatch):
     monkeypatch.setattr("gulp.api.collab.user_session.muty.time.now_msec", lambda: 1001)
     monkeypatch.setattr(GulpUserSession, "get_by_id", _get_expired_session)
 
-    with pytest.raises(SessionExpired, match='token "expired-token" expired'):
+    with pytest.raises(SessionExpired, match="^token expired$"):
         await GulpUserSession.check_token(SimpleNamespace(), "expired-token")
 
     user_session.check_permissions.assert_not_awaited()

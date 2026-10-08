@@ -233,6 +233,11 @@ class GulpServer:
         """
         turns an exception raised while serving a request into the JSend error
         response and its HTTP status code, and logs it (see _log_api_error).
+
+        the response says as little as the caller needs: the error name and message
+        for a client error (4xx), a generic message with the req_id for a server
+        error (5xx). the traceback and the request (headers, body) never go back to
+        the client: they are logged.
         """
         from gulp.api.collab.structs import (
             MissingPermission,
@@ -256,13 +261,9 @@ class GulpServer:
 
         if isinstance(ex, RequestValidationError):
             status_code = 400
-            try:
-                # convert to dict
-                # ex = literal_eval(str(ex))
-                ex = str(ex)
-            except:
-                # fallback to string
-                ex = str(ex)
+            # which parameters are wrong and why, without their values (str(ex) would
+            # echo them, a rejected password included, and the handler's source file)
+            ex = self._validation_error_message(ex)
         elif isinstance(ex, PaginationSnapshotExpired):
             status_code = 410
         elif isinstance(ex, ObjectNotFound) or isinstance(ex, FileNotFoundError):
@@ -300,11 +301,22 @@ class GulpServer:
             "headers": dict(r.headers),
             "body": body,
         }
+        if status_code >= 500:
+            # not the caller's mistake, and nothing the caller can act upon: the
+            # details stay in the log, found again by req_id
+            error = {
+                "name": "InternalError",
+                "msg": "internal error, see the server logs"
+                + (f" (req_id={req_id})" if req_id else ""),
+            }
+        else:
+            error = {
+                "name": name,
+                "msg": muty.string.make_shorter(str(ex), max_len=1024),
+            }
         js = JSendResponse.error(
             req_id=req_id,
-            ex=ex,
-            data={"request": request_info},
-            name=name,
+            ex=error,
             # the response is not logged as a whole (it used to be, at ERROR, for
             # every failed request): _log_api_error writes one readable line
             print_response=False,
@@ -312,6 +324,27 @@ class GulpServer:
         if print_error:
             self._log_api_error(status_code, name, ex, request_info, req_id)
         return JSONResponse(js, status_code=status_code)
+
+    @staticmethod
+    def _validation_error_message(ex: RequestValidationError) -> str:
+        """
+        Args:
+            ex (RequestValidationError): the validation error raised by FastAPI or by a
+                parameter dependency
+
+        Returns:
+            str: one "location: reason" per rejected parameter, e.g.
+                "query.user_id: String should match pattern '...'"
+        """
+        problems: list[str] = []
+        for error in ex.errors():
+            if isinstance(error, dict):
+                location = ".".join(str(part) for part in error.get("loc") or ())
+                reason = str(error.get("msg") or error.get("type") or "invalid")
+                problems.append(f"{location}: {reason}" if location else reason)
+            else:
+                problems.append("invalid parameter")
+        return "; ".join(problems) or "invalid request"
 
     @staticmethod
     def _log_api_error(

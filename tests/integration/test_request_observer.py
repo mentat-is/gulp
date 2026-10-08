@@ -49,7 +49,7 @@ async def test_registered_observer_is_told_of_every_request(gulp_base_url):
                 401,
                 404,
             )
-            assert login.status_code == 404
+            assert login.status_code == 401
 
             status = (await http.get(STATUS)).json()
             assert _seen(status, "/docs") == []
@@ -80,7 +80,7 @@ async def test_registered_observer_is_told_of_every_request(gulp_base_url):
                     "method": "POST",
                     "path": "/login",
                     "route": "/login",
-                    "status": 404,
+                    "status": 401,
                     "has_token": False,
                     "client_known": True,
                     # no more of the response than the observer asked for

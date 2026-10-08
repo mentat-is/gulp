@@ -183,7 +183,6 @@ export namespace Permissions {
 							method: "POST",
 							query: {
 								user_id: id,
-								password,
 								glyph_id:
 									icon ||
 									(Array.from(Glyph.List.entries()).find(
@@ -191,8 +190,10 @@ export namespace Permissions {
 									)?.[0] as string),
 							},
 							setLoading,
+							// the password travels in the body, never in the URL
 							body: {
 								permission: permissions,
+								password,
 							},
 							raw: true,
 							errorToastTitle: t("permissions.userAddFailed"),
@@ -807,8 +808,12 @@ export namespace Permissions {
 							)?.[0] as string),
 					};
 
+					// the password travels in the body, never in the URL
+					const body: { permission: Permissions.Role[]; password?: string } = {
+						permission: permissions,
+					};
 					if (password.length > 0) {
-						query.password = password;
+						body.password = password;
 					}
 
 					const response: MutationResponse = await api<undefined>(
@@ -817,9 +822,7 @@ export namespace Permissions {
 							method: "PATCH",
 							query,
 							setLoading,
-							body: {
-								permission: permissions,
-							},
+							body,
 							raw: true,
 							errorToastTitle: t("permissions.requestDeclined"),
 							suppressMissingPermissionRedirect: true,

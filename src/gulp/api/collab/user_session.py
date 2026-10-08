@@ -319,13 +319,14 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             )
             # Glug.get_instance().debug(f"got user session for token {token}: {user_session.to_dict()}")
         except ObjectNotFound as ex:
-            raise SessionExpired('token "%s" not logged in' % (token)) from ex
+            # the token is a credential: it is not put in a message that reaches logs and clients
+            raise SessionExpired("token not logged in") from ex
 
         if user_session is None:
             return None
 
         if user_session.time_expire and user_session.time_expire <= muty.time.now_msec():
-            raise SessionExpired('token "%s" expired' % (token))
+            raise SessionExpired("token expired")
 
         return await user_session.check_permissions(
             sess,

@@ -242,20 +242,22 @@ an authentication token obtained through `login`.
     ) -> str:
         return user_id.lower().strip() if user_id else None
 
-    _PASSWORD_QUERY_PARAM = Query(
+    # in the body, never in the query string: a URL ends up in the access logs of
+    # proxies and web servers, in browser history and in monitoring tools
+    _PASSWORD_BODY_PARAM = Body(
         description="""
 the user password.
 
 - 8-64 characters, at least one uppercase, one lowercase, one number, one special character.
 """,
-        examples={"default": {"value": "Password1!"}},
+        examples=["Password1!"],
     )
 
     @staticmethod
     def param_password(
         password: Annotated[
             str,
-            _PASSWORD_QUERY_PARAM,
+            _PASSWORD_BODY_PARAM,
             AfterValidator(_pwd_regex_validator),
         ],
     ) -> str:
@@ -263,7 +265,7 @@ the user password.
             raise RequestValidationError(
                 [
                     {
-                        "loc": ["query", "password"],
+                        "loc": ["body", "password"],
                         "msg": "field required",
                         "type": "value_error.missing",
                         "input": password,
@@ -276,7 +278,7 @@ the user password.
     def param_password_optional(
         password: Annotated[
             str,
-            _PASSWORD_QUERY_PARAM,
+            _PASSWORD_BODY_PARAM,
             AfterValidator(_pwd_regex_validator),
         ] = None,
     ) -> str:

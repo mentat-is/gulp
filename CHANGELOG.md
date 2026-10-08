@@ -1,5 +1,24 @@
 # v2.0.0
 
+- **breaking**: `POST /user_create` and `PATCH /user_update` take `password`
+  in the request body (next to `permission`), no longer in the query string,
+  where it ended up in the access logs of proxies and web servers. `gulp-sdk`
+  (`users.create`, `users.update`) and the web UI are updated; any other
+  caller, `gulp-cli` included, must send it in the body.
+- error responses no longer carry the Python traceback nor a copy of the
+  request (headers with the session token, body). A client error (4xx)
+  answers with `__error.name` and `__error.msg`; a server error (5xx) with
+  `InternalError` and a generic message naming the `req_id`, the details
+  being in the log; a validation error lists the rejected parameters and
+  why, without their values or the handler's source file. See
+  `docs/logging.md`, "Failed API requests".
+- a refused login no longer tells whether the user exists: an unknown user
+  and a wrong password both answer `401 WrongUsernameOrPassword: wrong
+  username or password` (an unknown user used to answer `404`), after the
+  same work on the server. With `force=false`, "already logged in" (`409`)
+  is answered only once the password is verified; it used to be answered
+  to anyone. The real reason is logged at `INFO`.
+- the messages of `SessionExpired` no longer quote the session token.
 - an extension plugin can now observe the http requests served by routes it
   does not own, read-only: `GulpServer.add_request_observer()` and
   `remove_request_observer()` register a `GulpRequestObserver`, which is
