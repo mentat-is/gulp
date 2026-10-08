@@ -1,14 +1,14 @@
 # v2.0.0
 
-- an extension plugin can now register an ASGI middleware, to see the
-  requests served by routes it does not own:
-  `GulpServer.add_extension_middleware()` and
-  `remove_extension_middleware()`. Extension plugins are loaded once the
-  application has started, when FastAPI no longer accepts
-  `add_middleware()`: the core installs a dispatcher that runs whatever is
-  registered, and only forwards the request when nothing is. See
-  `docs/plugins_and_mapping.md`, "ADVANCED: registering an ASGI middleware
-  from extension plugins".
+- an extension plugin can now observe the http requests served by routes it
+  does not own, read-only: `GulpServer.add_request_observer()` and
+  `remove_request_observer()` register a `GulpRequestObserver`, which is
+  handed a frozen copy of each request when it arrives and of its outcome
+  (matched route, status code, duration and, when asked for, the first
+  bytes of the bodies) when it is answered. An observer cannot change or
+  block a request, and an exception it raises does not affect it. With no
+  observer registered nothing changes. See `docs/plugins_and_mapping.md`,
+  "ADVANCED: observing API requests from extension plugins".
 - a failed API request is now logged as one readable line, e.g.
   `POST /login -> 401 WrongUsernameOrPassword: wrong password for
   user_id=admin`: at `WARNING` without traceback for a client error (4xx),

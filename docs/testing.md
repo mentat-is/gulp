@@ -35,17 +35,17 @@ after the remaining tests have run. Add `-x` when fail-fast behavior is desired.
 Tests requiring the dedicated internal-event probe skip during a normal
 single-instance run; use the multi-instance launcher below to exercise them.
 
-`tests/integration/test_extension_middleware.py` skips too, unless its probe
+`tests/integration/test_request_observer.py` skips too, unless its probe
 is installed as an extension before the backend starts. The probe exposes
 unauthenticated test routes: install it for the test only, and remove it
 afterwards.
 
 ~~~bash
-ln -s "$PWD/tests/fixtures/plugins/extension_middleware_probe.py" \
+ln -s "$PWD/tests/fixtures/plugins/request_observer_probe.py" \
   "${GULP_WORKING_DIR:-$HOME/.config/gulp}/plugins/extension/"
 # (re)start the backend, then
-.venv/bin/python -m pytest -v -s -x tests/integration/test_extension_middleware.py
-rm "${GULP_WORKING_DIR:-$HOME/.config/gulp}/plugins/extension/extension_middleware_probe.py"
+.venv/bin/python -m pytest -v -s -x tests/integration/test_request_observer.py
+rm "${GULP_WORKING_DIR:-$HOME/.config/gulp}/plugins/extension/request_observer_probe.py"
 ~~~
 
 Use [run_tests.sh](../test_scripts/run_tests.sh) when a wrapper is more
