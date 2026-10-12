@@ -76,7 +76,8 @@ router: APIRouter = APIRouter()
 async def request_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -128,7 +129,8 @@ async def request_cancel_handler(
             examples={"default": {"value": "test_req"}},
         ),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
     expire_now: Annotated[
         bool,
         Query(
@@ -161,7 +163,8 @@ async def request_cancel_handler(
                 operation_id=op.id, req_id=req_id_to_cancel
             )
             MutyLogger.get_instance().debug(
-                "also deleted %d pending tasks for request %s" % (d, req_id_to_cancel)
+                "also deleted %d pending tasks for request %s" % (
+                    d, req_id_to_cancel)
             )
 
             return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
@@ -205,7 +208,8 @@ async def request_set_completed_handler(
             examples={"default": {"value": "test_req"}},
         ),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
     failed: Annotated[
         bool,
         Query(
@@ -272,7 +276,8 @@ async def request_delete_handler(
             examples={"default": {"value": "obj_id"}},
         ),
     ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
@@ -340,9 +345,11 @@ get a list of all requests (identified by their `req_id`) issued by the calling 
 async def request_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
     running_only: Annotated[
-        bool, Query(description="if set, only return requests that are still running.")
+        bool, Query(
+            description="if set, only return requests that are still running.")
     ] = False,
 ) -> JSONResponse:
     params = locals()
@@ -402,7 +409,8 @@ async def object_delete_bulk_handler(
     ],
     flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id_optional)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
@@ -417,7 +425,8 @@ async def object_delete_bulk_handler(
             # The operation whose permissions were checked is always the delete scope.
             flt.operation_ids = [op.id]
 
-            obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
+            obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(
+                obj_type)
             deleted = await obj_class.delete_by_filter(
                 sess,
                 flt,
@@ -472,13 +481,15 @@ async def object_count_handler(
     flt: Annotated[
         GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
     ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
     try:
-        obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
+        obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(
+            obj_type)
         count = await obj_class.count_by_filter_wrapper(
             token,
             flt,
@@ -541,18 +552,23 @@ async def enhance_document_map_create_handler(
             },
         ),
     ],
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    glyph_id: Annotated[str, Depends(
+        APIDependencies.param_glyph_id_optional)] = None,
+    color: Annotated[str, Depends(
+        APIDependencies.param_color_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         if not glyph_id and not color:
-            raise ValueError("At least one of glyph_id or color must be provided.")
+            raise ValueError(
+                "At least one of glyph_id or color must be provided.")
         if not match_criteria:
             raise ValueError("match_criteria must not be empty.")
 
-        canonical = json.dumps(match_criteria, sort_keys=True, separators=(",", ":"))
+        canonical = json.dumps(
+            match_criteria, sort_keys=True, separators=(",", ":"))
         obj_id: str = muty.crypto.hash_sha1(plugin + canonical)
         d = await GulpEnhanceDocumentMap.create(
             token,
@@ -596,9 +612,12 @@ async def enhance_document_map_create_handler(
 async def enhance_document_map_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    glyph_id: Annotated[str, Depends(
+        APIDependencies.param_glyph_id_optional)] = None,
+    color: Annotated[str, Depends(
+        APIDependencies.param_color_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -608,7 +627,8 @@ async def enhance_document_map_update_handler(
                 color is not None,
             ]
         ):
-            raise ValueError("At least one of glyph_id or color must be provided.")
+            raise ValueError(
+                "At least one of glyph_id or color must be provided.")
 
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpEnhanceDocumentMap
@@ -657,7 +677,8 @@ async def enhance_document_map_update_handler(
 async def enhance_document_map_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -695,7 +716,8 @@ async def enhance_document_map_delete_handler(
 async def enhance_document_map_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -747,7 +769,8 @@ async def enhance_document_map_list_handler(
     flt: Annotated[
         GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
     ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     flt.operation_ids = None
     params = locals()
@@ -778,10 +801,36 @@ async def enhance_document_map_list_handler(
                         "req_id": "8494de7b-e722-437a-a1c7-80341a0f3b27",
                         "data": [
                             {
+                                "display_name": "Threat hunting AI-Assistant",
+                                "type": ["extension"],
+                                "desc": "ai assistant, help user to understand events and correlation from different logs",
+                                "path": "/opt/gulp/src/gulp/plugins/extension/ai_assistant.py",
+                                "data": {},
+                                "filename": "ai_assistant.py",
+                                "sigma_support": False,
+                                "custom_parameters": [],
+                                "depends_on": ["__shared_object"],
+                                "tags": [],
+                                "version": "",
+                            },
+                            {
+                                "display_name": "Bridge Manager",
+                                "type": ["extension"],
+                                "desc": "manages external bridges and their realtime ingestion tasks.",
+                                "path": "/opt/gulp/src/gulp/plugins/extension/bridge_manager.py",
+                                "data": {},
+                                "filename": "bridge_manager.py",
+                                "sigma_support": False,
+                                "custom_parameters": [],
+                                "depends_on": [],
+                                "tags": [],
+                                "version": "",
+                            },
+                            {
                                 "display_name": "enrich_abuse",
                                 "type": ["enrichment"],
                                 "desc": "abuse.ch url enrichment plugin",
-                                "path": "/Users/valerino/repos/gulp/src/gulp/plugins/enrich_abuse.py",
+                                "path": "/opt/gulp/src/gulp/plugins/enrich_abuse.py",
                                 "data": {},
                                 "filename": "enrich_abuse.py",
                                 "sigma_support": False,
@@ -814,7 +863,7 @@ async def enhance_document_map_list_handler(
                                 "display_name": "chrome_history_sqlite_stacked",
                                 "type": ["ingestion"],
                                 "desc": "chrome based browsers history sqlite stacked plugin",
-                                "path": "/Users/valerino/repos/gulp/src/gulp/plugins/chrome_history_sqlite_stacked.py",
+                                "path": "/opt/gulp/src/gulp/plugins/chrome_history_sqlite_stacked.py",
                                 "data": {},
                                 "filename": "chrome_history_sqlite_stacked.py",
                                 "sigma_support": False,
@@ -833,7 +882,8 @@ async def enhance_document_map_list_handler(
 )
 async def plugin_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -886,7 +936,8 @@ async def plugin_list_handler(
     summary="list available UI plugins.",
 )
 async def ui_plugin_list_handler(
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -926,7 +977,8 @@ async def ui_plugin_list_handler(
 )
 async def get_version_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
 
@@ -986,7 +1038,8 @@ async def get_version_handler(
 )
 async def mapping_file_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
 
@@ -1093,7 +1146,8 @@ async def mapping_file_upload_handler(
             description="if set to true, the upload will fail if a file with the same name already exists. otherwise, it will be overwritten."
         ),
     ] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     params = locals()
     params.pop("file", None)
@@ -1152,7 +1206,8 @@ async def mapping_file_download_handler(
             description='filename of the mapping file to download, i.e. "custom_mapping.json"'
         ),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> FileResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -1213,7 +1268,8 @@ async def mapping_file_delete_handler(
             description='filename of the mapping file to delete, i.e. "custom_mapping.json"'
         ),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+    req_id: Annotated[str, Depends(
+        APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
