@@ -33,8 +33,10 @@ def _biggest_win_evtx_sample() -> Path:
     return max(files, key=lambda path: path.stat().st_size)
 
 
-async def _wait_for_ingest_stats(client, req_ids: set[str], timeout: float = 120.0) -> None:
-    """Wait for all ingestion requests to reach a terminal stats state."""
+async def _wait_for_ingest_stats(
+    client, req_ids: set[str], timeout: float = 120.0
+) -> dict[str, str]:
+    """Wait for terminal ingestion stats and return failed request details."""
     ws = await client.ensure_websocket()
     pending = set(req_ids)
     terminal_errors: dict[str, str] = {}
@@ -69,13 +71,7 @@ async def _wait_for_ingest_stats(client, req_ids: set[str], timeout: float = 120
         if status == "done":
             pending.remove(req_id)
 
-    # this may be expected ...
-    if terminal_errors:        
-        details = ", ".join(
-            f"{req_id}: {error}" for req_id, error in sorted(terminal_errors.items())
-        )
-        print(f"WARNING (may be expected, some source may intentionally fail): One or more ingestion requests did not complete successfully: {details}")
-        # raise AssertionError(f"One or more ingestion requests did not complete successfully: {details}")
+    return terminal_errors
 
 
 async def _preview_total_hits(client, operation_id: str) -> int:
@@ -361,8 +357,26 @@ async def test_ingest_win_evtx_multiple_parallel(gulp_base_url, gulp_test_user, 
             req_ids = {result.req_id for result in results if result.req_id}
             assert len(req_ids) == len(files)
 
-            await _wait_for_ingest_stats(client, req_ids, timeout=300.0)
-            assert await _preview_total_hits(client, op.id) == 98633
+            terminal_errors = await _wait_for_ingest_stats(
+                client, req_ids, timeout=300.0
+            )
+            request_files = {
+                result.req_id: file_path.name
+                for file_path, result in zip(files, results, strict=True)
+            }
+            expected_failed_files = {
+                "sample_with_a_bad_chunk_magic.evtx",
+                "sysmon.evtx",
+            }
+
+            assert {
+                request_files[req_id] for req_id in terminal_errors
+            } == expected_failed_files
+            assert all(
+                "Failed to parse chunk header" in error
+                for error in terminal_errors.values()
+            )
+            assert await _preview_total_hits(client, op.id) == 98261
         finally:
             await client.operations.delete(op.id)
 
