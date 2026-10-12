@@ -30,6 +30,20 @@ Run the normal suite as needed:
 BIG_SIGMAS=1 .venv/bin/python -m pytest -v -s -x tests/integration/test_stress.py
 ~~~
 
+Run the complete UI unit and integration suite independently from `gulp-ui`:
+
+~~~bash
+cd gulp-ui
+pnpm install --frozen-lockfile
+pnpm test --runInBand
+pnpm run check:locales
+pnpm run build
+~~~
+
+The Jest suite uses mocked application services and does not require a running
+gULP backend. `--runInBand` keeps failures ordered and avoids worker contention
+when running the complete suite on a development workstation or in CI.
+
 The full-suite commands omit pytest's `-x` option so that failures are reported
 after the remaining tests have run. Add `-x` when fail-fast behavior is desired.
 Tests requiring the dedicated internal-event probe skip during a normal

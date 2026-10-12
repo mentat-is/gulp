@@ -47,6 +47,16 @@ jest.mock("@/ui/Select", () => {
 	};
 });
 
+jest.mock("@/ui/Popover", () => ({
+	Popover: {
+		Root: ({ children }: { children?: ReactNode }): ReactNode =>
+			<div>{children}</div>,
+		Trigger: ({ children }: { children?: ReactNode }): ReactNode => children,
+		Content: ({ children }: { children?: ReactNode }): ReactNode =>
+			<div>{children}</div>,
+	},
+}));
+
 jest.mock("@/ui/utils", () => ({
 	/** Joins the class tokens used by the shared primitive components. */
 	cn: (...classNames: unknown[]): string => classNames.filter(Boolean).join(" "),
