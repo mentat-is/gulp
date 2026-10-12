@@ -19,6 +19,7 @@
       - [call external plugins](#call-external-plugins)
     - [extension plugins](#extension-plugins)
       - [ADVANCED: registering and emitting events from extension plugins](#advanced-registering-and-emitting-events-from-extension-plugins)
+      - [ADVANCED: observing API requests from extension plugins](#advanced-observing-api-requests-from-extension-plugins)
   - [stacked plugins](#stacked-plugins)
     - [flow in stacked plugins](#flow-in-stacked-plugins)
 - [mapping 101](#mapping-101)
@@ -541,6 +542,56 @@ Custom event names must be lowercase, namespaced strings. Notification emission 
 Subscriptions are main-process-only. Emission works in main and worker processes, but listeners always run in the main process. Events use non-durable, at-most-once Redis Pub/Sub delivery with no retry or redelivery. Plugin unload automatically unsubscribes its listener.
 
 A complete example is provided by [example_custom_internal_event](../src/gulp/plugins/example/example_custom_internal_event.py), which emits custom events from both main and worker processes.
+
+#### ADVANCED: observing API requests from extension plugins
+
+An extension plugin that needs to know about the requests served by routes it does not own (to measure, tag or record them) can register a **request observer**. An observer only looks: it is handed a frozen copy of each http request when it arrives and of its outcome when it is answered, and never the channels the request and the response travel on, so it cannot change or block anything.
+
+```python
+from gulp.api.server.request_observer import (
+    GulpObservation,
+    GulpObservedRequest,
+    GulpObservedResponse,
+    GulpRequestObserver,
+)
+from gulp.api.server_api import GulpServer
+
+
+class MyObserver(GulpRequestObserver):
+    def on_request_start(self, request: GulpObservedRequest) -> GulpObservation | None:
+        if not request.path.startswith("/note_"):
+            return None  # not interested: nothing else is done for this request
+        return GulpObservation(response_body_bytes=256)
+
+    def on_request_end(
+        self, request: GulpObservedRequest, response: GulpObservedResponse
+    ) -> None:
+        ...  # response.status_code, response.route, response.duration_msec, ...
+
+
+class Plugin(GulpPluginBase):
+    async def post_init(self, **kwargs) -> None:
+        if self.is_running_in_main_process():
+            self._observer = MyObserver()
+            GulpServer.get_instance().add_request_observer(self._observer)
+
+    async def unload(self) -> None:
+        if self.is_running_in_main_process():
+            GulpServer.get_instance().remove_request_observer(self._observer)
+        await super().unload()
+```
+
+- `on_request_start()` gets the method, path, query string, headers (lowercase names) and client address. It is called for every http request, before any core middleware and before authentication: error responses and requests no route matches are observed too. Websocket connections are not.
+- Returning `None` means "not interested": the core does nothing else for that request and does not call `on_request_end()`. Returning a `GulpObservation` asks for the outcome and, optionally, for the first bytes of the request and response bodies (`request_body_bytes`, `response_body_bytes`; at most 64 KiB each, `0` by default). The bodies are copied as they go by: nothing is buffered or delayed.
+- `on_request_end()` gets the declared path of the matched route (`None` when no route matched), the status code (`None` when the handler raised or the client left before an answer), the duration and the body copies asked for.
+- Both methods are plain functions called on the path of the request: they must return quickly and do no I/O. An observer with work to do hands it to a task of its own. `on_request_start()` runs in the context of the request, so a `contextvars.ContextVar` set there is seen by the handler and by everything it calls.
+- An exception raised by an observer is logged and does not affect the request or the other observers.
+- Observers are called in registration order. Registering the same observer twice is ignored, removing one that is not registered does nothing. They can be registered and removed while the server is running; a request already being served keeps the observers it started with.
+- Registration is main-process-only (the API is served there): from a worker it raises `RuntimeError`.
+
+Cost: with no observer registered a request pays one extra function call; an observer that is not interested in a request costs the copy of its headers (in the order of ten microseconds).
+
+Security: the copy an observer receives includes the session token header and, when asked for, the head of the bodies, the password sent at login included. An observer must never log or store credentials. Being read-only is a guarantee against mistakes and against misuse of this hook, not a sandbox: an extension plugin runs inside the main process with the privileges of gULP itself. There is no API to register an observer: it takes code loaded from the plugin directories on the server.
   
 ## stacked plugins
 

@@ -20,6 +20,14 @@
 - gULP logs through the new `gulp.glug` package instead of `MutyLogger`.
   `muty.log.MutyLogger` is kept unchanged only for external plugins, which
   should move to `Glug`; `muty` itself now uses the standard `logging` module.
+- `POST /user_create` and `PATCH /user_update` take `password` in the request
+  body, next to `permission`, instead of the query string, which ends up in
+  proxy and web server logs. The web UI sends it in the body; SDK, CLI and
+  other callers must be updated.
+- A refused login no longer tells whether the user exists: an unknown user and
+  a wrong password both answer `401 WrongUsernameOrPassword` (an unknown user
+  used to answer `404`). With `force=false`, `409` (already logged in) is
+  answered only after the password is verified.
 
 ## Added
 
@@ -78,6 +86,12 @@
 - Added the effective value of each server option to the startup log at
   `DEBUG`, replacing the raw command-line dump, and a colored startup banner on
   terminals.
+- Added read-only request observers for extension plugins:
+  `GulpServer.add_request_observer()` and `remove_request_observer()` hand a
+  `GulpRequestObserver` a frozen copy of each request and of its outcome
+  (route, status code, duration and, on request, the first bytes of the
+  bodies). An observer cannot change or block a request. See
+  `docs/plugins_and_mapping.md`.
 
 ## Fixed
 
@@ -118,6 +132,12 @@
   load.
 - Fixed the Docker entrypoint leaving a working directory created by Docker
   owned by root, which prevented the runtime user from writing to it.
+- Fixed error responses exposing the Python traceback and a copy of the
+  request, session token included: a client error answers with
+  `__error.name` and `__error.msg`, a server error with a generic
+  `InternalError` naming the `req_id`, and a validation error lists the
+  rejected parameters without their values. `SessionExpired` messages no
+  longer quote the session token.
 
 ## Removed
 

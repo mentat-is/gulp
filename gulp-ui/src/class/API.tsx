@@ -15,7 +15,8 @@ export interface ResponseBase<T = any> {
 }
 
 export interface ResponseErrorBody {
-	request: {
+	// only on errors built by the UI itself: the server does not echo the request
+	request?: {
 		path: string;
 		method: string;
 		query: string;
@@ -27,7 +28,8 @@ export interface ResponseErrorBody {
 	__error: {
 		name: string;
 		msg: string;
-		trace: string;
+		// the server does not send it: the traceback stays in its logs
+		trace?: string;
 	};
 }
 

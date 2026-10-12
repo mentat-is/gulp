@@ -394,7 +394,7 @@ Every exception raised while serving a request goes through one handler
 response and logs the failure as **one line**:
 
 ```text
-... WARN gulp.api.server_api:_log_api_error:339[Task-49]  POST /login -> 401 WrongUsernameOrPassword: wrong password for user_id=admin  {req_id=f9ce6fa0-...}
+... WARN gulp.api.server_api:_log_api_error:339[Task-49]  POST /login -> 401 WrongUsernameOrPassword: wrong username or password  {req_id=f9ce6fa0-...}
 ```
 
 - **4xx** (wrong credentials, expired session, missing permission, bad
@@ -405,15 +405,33 @@ response and logs the failure as **one line**:
 
 The request details (query, headers, body) are attached as `detail=`, so
 they appear only in dev mode. The `404` of the polled `/request_get_by_id`
-is not logged at all. The response sent to the client is not affected by
-any of this.
+is not logged at all.
+
+What goes back to the client is deliberately less than what is logged:
+
+```json
+{"status": "error", "req_id": "f9ce6fa0-...", "timestamp_msec": 1791447065030,
+ "data": {"__error": {"name": "MissingPermission", "msg": "admin required"}}}
+```
+
+- **4xx**: the error name and message, which is what a caller needs to act.
+- **5xx**: `InternalError` and `internal error, see the server logs
+  (req_id=...)`. The real error is in the log line above, found by `req_id`.
+- A validation error (`400`) lists the rejected parameters and why
+  (`body.password: String should match pattern ...`), never their values.
+- The traceback and the request (headers, body) are never sent back.
+
+A refused login is always `401 WrongUsernameOrPassword: wrong username or
+password`, whether the user does not exist or the password is wrong, so that
+a login cannot be used to find out which users exist. The actual reason is
+logged at `INFO` (`login refused for user_id=bob: no such user`).
 
 ## Credentials are masked
 
 Call sites must not log credentials (see [Writing style](#writing-style)),
 but a session token is a bearer credential and reaches the log from places
-that cannot be guarded one by one: exception messages
-(`token "<id>" not logged in`), third-party loggers routed through `Glug`
+that cannot be guarded one by one: exception messages quoting what a client
+sent, third-party loggers routed through `Glug`
 (the `websockets` library dumps every received frame at `DEBUG`, the login
 frame included), and call sites added later.
 

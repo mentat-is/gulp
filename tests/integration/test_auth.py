@@ -6,12 +6,67 @@ import pytest
 @pytest.mark.integration
 async def test_login_with_invalid_credentials(gulp_base_url):
     """Test login fails with invalid credentials."""
-    from gulp_sdk import GulpClient, AuthenticationError, NotFoundError
+    from gulp_sdk import GulpClient, AuthenticationError
 
     async with GulpClient(gulp_base_url) as client:
-        # Backend may return 401 or 404 depending on whether user_id exists.
-        with pytest.raises((AuthenticationError, NotFoundError)):
+        with pytest.raises(AuthenticationError):
             await client.auth.login("invalid_user", "invalid_pass")
+
+
+@pytest.mark.integration
+async def test_login_does_not_tell_whether_a_user_exists(gulp_base_url, gulp_test_user):
+    """An unknown user and a wrong password get the same answer, with or without force."""
+    import httpx
+
+    def essence(response: httpx.Response) -> tuple:
+        return response.status_code, response.json()["data"]
+
+    async with httpx.AsyncClient(base_url=gulp_base_url, timeout=30.0) as http:
+        answers = []
+        for user_id in (gulp_test_user, "no_such_user_xyz"):
+            for force in (True, False):
+                response = await http.post(
+                    "/login",
+                    params={"force": force},
+                    json={"user_id": user_id, "password": "Wrong-Passw0rd!"},
+                )
+                answers.append(essence(response))
+
+    expected = (
+        401,
+        {
+            "__error": {
+                "name": "WrongUsernameOrPassword",
+                "msg": "wrong username or password",
+            }
+        },
+    )
+    assert answers == [expected] * 4
+
+
+@pytest.mark.integration
+async def test_error_responses_carry_no_traceback_and_no_request(gulp_base_url):
+    """A failed request answers with the error name and message only."""
+    import httpx
+
+    async with httpx.AsyncClient(base_url=gulp_base_url, timeout=30.0) as http:
+        denied = await http.get("/user_list", headers={"token": "not-a-real-token"})
+        invalid = await http.post(
+            "/user_create",
+            params={"user_id": "x"},
+            headers={"token": "not-a-real-token"},
+            json={"permission": ["read"], "password": "Sup3r-Secret-Value"},
+        )
+
+    assert denied.status_code == 401
+    assert set(denied.json()["data"]) == {"__error"}
+    assert set(denied.json()["data"]["__error"]) == {"name", "msg"}
+    assert "Traceback" not in denied.text and "not-a-real-token" not in denied.text
+
+    assert invalid.status_code == 400
+    assert invalid.json()["data"]["__error"]["name"] == "RequestValidationError"
+    assert "query.user_id" in invalid.json()["data"]["__error"]["msg"]
+    assert "Sup3r-Secret-Value" not in invalid.text and ".py" not in invalid.text
 
 
 @pytest.mark.integration

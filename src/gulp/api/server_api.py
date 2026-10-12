@@ -44,6 +44,11 @@ from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
 from gulp.api.s3_api import GulpS3
+from gulp.api.server.request_observer import (
+    GulpRequestObserver,
+    RequestObserverDispatcher,
+    RequestObservers,
+)
 from gulp.api.server.structs import (
     TASK_TYPE_ENRICH,
     TASK_TYPE_EXTERNAL_QUERY,
@@ -84,6 +89,7 @@ class GulpServer:
         self._lifespan_task: asyncio.Task = None
         self._poll_tasks_task: asyncio.Task = None
         self._extension_plugins: list[GulpPluginBase] = []
+        self._request_observers: RequestObservers = RequestObservers()
         self._last_opensearch_search_rejected: int | None = None
         self._opensearch_search_capacity: int | None = None
 
@@ -150,6 +156,8 @@ class GulpServer:
                         f"failed to unload extension plugin {p.name}"
                     )
             self._extension_plugins = []
+        # whatever a plugin left registered must not outlive the plugin
+        self._request_observers.clear()
 
     async def _load_extension_plugins(self) -> None:
         """
@@ -224,6 +232,11 @@ class GulpServer:
         """
         turns an exception raised while serving a request into the JSend error
         response and its HTTP status code, and logs it (see _log_api_error).
+
+        the response says as little as the caller needs: the error name and message
+        for a client error (4xx), a generic message with the req_id for a server
+        error (5xx). the traceback and the request (headers, body) never go back to
+        the client: they are logged.
         """
         from gulp.api.collab.structs import (
             MissingPermission,
@@ -247,13 +260,9 @@ class GulpServer:
 
         if isinstance(ex, RequestValidationError):
             status_code = 400
-            try:
-                # convert to dict
-                # ex = literal_eval(str(ex))
-                ex = str(ex)
-            except:
-                # fallback to string
-                ex = str(ex)
+            # which parameters are wrong and why, without their values (str(ex) would
+            # echo them, a rejected password included, and the handler's source file)
+            ex = self._validation_error_message(ex)
         elif isinstance(ex, PaginationSnapshotExpired):
             status_code = 410
         elif isinstance(ex, ObjectNotFound) or isinstance(ex, FileNotFoundError):
@@ -291,11 +300,22 @@ class GulpServer:
             "headers": dict(r.headers),
             "body": body,
         }
+        if status_code >= 500:
+            # not the caller's mistake, and nothing the caller can act upon: the
+            # details stay in the log, found again by req_id
+            error = {
+                "name": "InternalError",
+                "msg": "internal error, see the server logs"
+                + (f" (req_id={req_id})" if req_id else ""),
+            }
+        else:
+            error = {
+                "name": name,
+                "msg": muty.string.make_shorter(str(ex), max_len=1024),
+            }
         js = JSendResponse.error(
             req_id=req_id,
-            ex=ex,
-            data={"request": request_info},
-            name=name,
+            ex=error,
             # the response is not logged as a whole (it used to be, at ERROR, for
             # every failed request): _log_api_error writes one readable line
             print_response=False,
@@ -303,6 +323,27 @@ class GulpServer:
         if print_error:
             self._log_api_error(status_code, name, ex, request_info, req_id)
         return JSONResponse(js, status_code=status_code)
+
+    @staticmethod
+    def _validation_error_message(ex: RequestValidationError) -> str:
+        """
+        Args:
+            ex (RequestValidationError): the validation error raised by FastAPI or by a
+                parameter dependency
+
+        Returns:
+            str: one "location: reason" per rejected parameter, e.g.
+                "query.user_id: String should match pattern '...'"
+        """
+        problems: list[str] = []
+        for error in ex.errors():
+            if isinstance(error, dict):
+                location = ".".join(str(part) for part in error.get("loc") or ())
+                reason = str(error.get("msg") or error.get("type") or "invalid")
+                problems.append(f"{location}: {reason}" if location else reason)
+            else:
+                problems.append("invalid parameter")
+        return "; ".join(problems) or "invalid request"
 
     @staticmethod
     def _log_api_error(
@@ -382,6 +423,42 @@ class GulpServer:
         # add route
         if self._app:
             self._app.add_api_route(path, handler, **kwargs)
+
+    def add_request_observer(self, observer: GulpRequestObserver) -> None:
+        """
+        registers a read-only observer of the http requests on behalf of an extension
+        plugin (to be called in post_init, main process only).
+
+        the observer is told about every http request, when it arrives and when it is
+        answered, error responses and requests no route matches included. it gets copies:
+        it cannot change or block a request, and an exception it raises is logged and does
+        not affect the request. see gulp.api.server.request_observer.
+
+        Args:
+            observer (GulpRequestObserver): the observer
+
+        Throws:
+            RuntimeError: if not called in the main process
+        """
+        if not GulpProcess.get_instance().is_main_process():
+            raise RuntimeError("request observers are main-process-only")
+        if not self._request_observers.add(observer):
+            Glug.get_instance().warning(
+                f"request observer {observer!r} already registered, not adding"
+            )
+            return
+        Glug.get_instance().debug(f"registered request observer {observer!r}")
+
+    def remove_request_observer(self, observer: GulpRequestObserver) -> None:
+        """
+        removes an observer registered with add_request_observer (to be called in the
+        plugin's unload); does nothing if it is not registered.
+
+        Args:
+            observer (GulpRequestObserver): the same object passed to add_request_observer
+        """
+        if self._request_observers.remove(observer):
+            Glug.get_instance().debug(f"removed request observer {observer!r}")
 
     def start(
         self,
@@ -488,6 +565,12 @@ class GulpServer:
         from gulp.api.prometheus_api import setup_prometheus
 
         setup_prometheus(self._app)
+
+        # added last, so it is the outermost: the observers registered later by
+        # extension plugins (see add_request_observer) are told about every request
+        self._app.add_middleware(
+            RequestObserverDispatcher, registry=self._request_observers
+        )
 
         # add routers in other modules
         self._add_routers()

@@ -4,7 +4,7 @@ last-line redaction of credentials in Glug's output.
 Call sites are expected not to log credentials at all (see docs/logging.md,
 "Writing style"), but a session token is a bearer credential and reaches the
 log from places gULP does not control or cannot reasonably guard one by one:
-exception messages (`token "<id>" not logged in`), third-party loggers routed
+exception messages quoting what a client sent, third-party loggers routed
 through Glug (the `websockets` library dumps every received frame at DEBUG,
 login frame included), and call sites added later. Both formatters therefore
 pass their final output through `redact()`, so the rule holds for every sink

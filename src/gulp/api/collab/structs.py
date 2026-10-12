@@ -2028,7 +2028,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 token,
             )
         except ObjectNotFound as ex:
-            raise SessionExpired('token "%s" not logged in' % (token)) from ex
+            raise SessionExpired("token not logged in") from ex
         # get object
         from gulp.api.collab.operation import GulpOperation
 

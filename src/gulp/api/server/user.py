@@ -264,6 +264,9 @@ async def login_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             if not force:
+                # the password first: "already logged in" must not be an answer for
+                # someone who does not know it (it tells that the user exists)
+                await GulpUser.check_credentials(sess, user_id, password)
                 # check if the user is already logged in: if so, return the existing token
                 s = await GulpUserSession.get_by_user_id(
                     sess, user_id, throw_if_not_found=False

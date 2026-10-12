@@ -13,6 +13,7 @@ and ownership relationships.
 
 """
 
+import hmac
 from typing import TYPE_CHECKING, Annotated, Any, Optional, override
 
 import muty.crypto
@@ -352,6 +353,40 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         return self.session is not None
 
     @classmethod
+    async def check_credentials(
+        cls, sess: AsyncSession, user_id: str, password: str
+    ) -> "GulpUser":
+        """
+        verifies a user id and its password.
+
+        an unknown user and a wrong password fail in the same way (same exception,
+        same message, same work done): from outside they cannot be told apart, so a
+        login cannot be used to find out which users exist. the real reason is logged.
+
+        Args:
+            sess (AsyncSession): The session to use.
+            user_id (str): The user id.
+            password (str): The password.
+        Returns:
+            GulpUser: the user.
+        Raises:
+            WrongUsernameOrPassword: if the user does not exist or the password is wrong.
+        """
+        u: GulpUser = await GulpUser.get_by_id(sess, user_id, throw_if_not_found=False)
+        # hashed and compared also when there is no such user
+        pwd_hash: str = muty.crypto.hash_sha256(password or "")
+        matches: bool = hmac.compare_digest(
+            pwd_hash.encode(), (u.pwd_hash if u else "").encode()
+        )
+        if u is None or not matches:
+            Glug.get_instance().info(
+                "login refused for user_id=%s: %s"
+                % (user_id, "no such user" if u is None else "wrong password")
+            )
+            raise WrongUsernameOrPassword("wrong username or password")
+        return u
+
+    @classmethod
     async def login(
         cls,
         sess: AsyncSession,
@@ -378,14 +413,10 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
         # ensure atomicity of login
         async with GulpUser.advisory_lock(sess, user_id):
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-
-            if not skip_password_check:
-                # check password
-                if u.pwd_hash != muty.crypto.hash_sha256(password):
-                    raise WrongUsernameOrPassword(
-                        "wrong password for user_id=%s" % (user_id)
-                    )
+            if skip_password_check:
+                u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+            else:
+                u = await GulpUser.check_credentials(sess, user_id, password)
 
             if u.session:
                 # session already exist, update expiration time
