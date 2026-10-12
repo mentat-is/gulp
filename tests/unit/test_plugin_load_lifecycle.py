@@ -252,3 +252,54 @@ async def test_final_stats_failure_still_unloads_plugin():
 
     print("plugin unloaded after final stats failure")
     plugin.unload.assert_awaited_once_with()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_cached_load_does_not_re_add_the_module(monkeypatch):
+    """Only a module loaded from disk is added to the cache: a cached load must not
+    re-add it (which logged "already in cache" as a warning on every cached load)."""
+    plugin = SimpleNamespace(name="cached_extension", depends_on=lambda: [])
+    loads_from_disk: list[str] = []
+
+    def _load_module(module_name: str, _path: str):
+        loads_from_disk.append(module_name)
+        module = ModuleType(module_name)
+        module.Plugin = lambda *_args, **_kwargs: plugin
+        return module
+
+    monkeypatch.setattr(
+        GulpPluginBase,
+        "path_from_plugin",
+        staticmethod(lambda *_args, **_kwargs: "/tmp/cached_extension.py"),
+    )
+    monkeypatch.setattr(
+        plugin_module.muty.dynload, "load_dynamic_module_from_file", _load_module
+    )
+    monkeypatch.setattr(
+        plugin_module.GulpConfig,
+        "get_instance",
+        staticmethod(
+            lambda: SimpleNamespace(
+                plugin_disabled=lambda: [],
+                plugin_cache_enabled=lambda: True,
+            )
+        ),
+    )
+    cache = plugin_module.GulpPluginCache.get_instance()
+    monkeypatch.setattr(cache, "_cache", {})
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        plugin_module.Glug.get_instance(),
+        "warning",
+        lambda msg, *_args, **_kwargs: warnings.append(msg),
+    )
+
+    try:
+        for _ in range(3):
+            await GulpPluginBase.load("cached_extension", run_post_init=False)
+    finally:
+        sys.modules.pop(loads_from_disk[0], None)
+
+    assert len(loads_from_disk) == 1
+    assert not any("already in cache" in w for w in warnings)

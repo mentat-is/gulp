@@ -13,7 +13,6 @@ The module provides:
 
 from typing import Optional
 import muty
-from muty.log import MutyLogger
 
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, Insert
 from sqlalchemy.dialects.postgresql import insert
@@ -27,6 +26,7 @@ from gulp.api.ws_api import (
     GulpCollabCreatePacket,
     GulpRedisBroker,
 )
+from gulp.glug import Glug
 
 
 class GulpHighlight(GulpCollabBase, type=COLLABTYPE_HIGHLIGHT):
@@ -74,15 +74,13 @@ class GulpHighlight(GulpCollabBase, type=COLLABTYPE_HIGHLIGHT):
         """
 
         if not docs:
-            MutyLogger.get_instance().warning(
+            Glug.get_instance().warning(
                 "no documents provided, no highligths created"
             )
             return 0
 
         highligths: list[dict] = []
-        MutyLogger.get_instance().info(
-            "creating a bulk of %d highligths ..." % len(docs)
-        )
+        Glug.get_instance().info(f"creating a bulk of {len(docs)} highligths")
 
         for doc in docs:
             object_data: dict = GulpHighlight.build_object_dict(
@@ -107,9 +105,7 @@ class GulpHighlight(GulpCollabBase, type=COLLABTYPE_HIGHLIGHT):
         res = await sess.execute(stmt)
         await sess.commit()
         inserted_ids = [row[0] for row in res]
-        MutyLogger.get_instance().info(
-            "written %d highligths on collab db", len(inserted_ids)
-        )
+        Glug.get_instance().info(f"written {len(inserted_ids)} highligths on collab db")
 
         # send on ws, only keep the ones inserted (to avoid sending duplicates, but we always send something if "last" is set)
         inserted_highligths: list[dict] = [
@@ -132,8 +128,9 @@ class GulpHighlight(GulpCollabBase, type=COLLABTYPE_HIGHLIGHT):
                 req_id=req_id,
                 d=p.model_dump(exclude_none=True),
             )
-            MutyLogger.get_instance().debug(
-                "sent (inserted) highligths on the websocket %s: highligths=%d,inserted=%d,last=%r (if 'highligths' > 'inserted', duplicate highligths were skipped!)"
-                % (ws_id, len(highligths), len(inserted_highligths), last)
+            Glug.get_instance().debug(
+                f"sent (inserted) highligths on the websocket {ws_id}: "
+                f"highligths={len(highligths)},inserted={len(inserted_highligths)},last={last!r} "
+                "(if 'highligths' > 'inserted', duplicate highligths were skipped!)"
             )
         return len(inserted_highligths)

@@ -29,7 +29,6 @@ from typing import Annotated, List, Optional, TypeVar, override
 import muty.crypto
 import muty.string
 import muty.time
-from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     ARRAY,
@@ -67,6 +66,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy_mixins.serialize import SerializeMixin
 
+from gulp.glug import Glug
 from gulp.structs import GulpSortOrder, ObjectNotFound
 
 
@@ -624,8 +624,8 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                     else:
                         order_clauses.append(getattr(obj_type, field).desc())
                 else:
-                    MutyLogger.get_instance().warning(
-                        "invalid sort field: %s. skipping this field.", field
+                    Glug.get_instance().warning(
+                        f"invalid sort field: {field}. skipping this field."
                     )
         if isinstance(q, Select):
             q = q.order_by(*order_clauses)
@@ -635,7 +635,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         if self.offset:
             q = q.offset(self.offset)
 
-        # MutyLogger.get_instance().debug(f"to_select_query: {q}")
+        # Glug.get_instance().debug(f"to_select_query: {q}")
         return q
 
     def to_select_query(self, obj_type: T) -> Select[Tuple]:
@@ -782,7 +782,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         Initialize the object with the specified attributes.
         """
-        # MutyLogger.get_instance().debug("**** GulpCollabBase __init__")
+        # Glug.get_instance().debug("GulpCollabBase.__init__ called")
         if self.__class__ == GulpCollabBase:
             # cannot instantiate this class directly
             raise TypeError(
@@ -790,7 +790,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             )
 
         # call the base class constructor
-        # MutyLogger.get_instance().debug("---> GulpCollabBase self in __init__=%s" % self)
+        # Glug.get_instance().debug(f"GulpCollabBase self in __init__={self}")
         super().__init__()
 
     @classmethod
@@ -974,9 +974,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if granted_user_ids or granted_user_group_ids:
             # if grants are specified, private is overridden
             if private:
-                MutyLogger.get_instance().warning(
-                    "granted_user_ids or granted_user_group_ids set for object type=%s, private set but overridden!",
-                    cls.__gulp_collab_type__,
+                Glug.get_instance().warning(
+                    f"granted_user_ids or granted_user_group_ids set for object "
+                    f"type={cls.__gulp_collab_type__}, private set but overridden"
                 )
 
             if granted_user_ids:
@@ -1076,10 +1076,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # add extra data to the object dictionary, overriding existing keys
             d.update(extra_object_data)
 
-        MutyLogger.get_instance().debug(
-            "creating object in table=%s, dict=%s",
-            cls.__tablename__,
-            muty.string.make_shorter(str(d), max_len=260),
+        Glug.get_instance().debug(
+            f"creating {cls.__gulp_collab_type__} '{d.get('id')}' in table {cls.__tablename__}",
+            detail=d,
         )
 
         async with cls.advisory_lock(sess, obj_id):
@@ -1294,7 +1293,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             for k, v in kwargs.items():
                 # only update if the value is not None and different from the current value
                 if v is not None and getattr(self, k, None) != v:
-                    # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
+                    # Glug.get_instance().debug(f"setattr: {k}={v}")
                     setattr(self, k, v)
 
             # ensure time_updated is set
@@ -1305,11 +1304,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
             # commit
             await sess.commit()
-            MutyLogger.get_instance().debug(
-                "---> updated (type=%s, ws_id=%s): %s",
-                self.type,
-                ws_id,
-                muty.string.make_shorter(str(updated_dict), max_len=260),
+            Glug.get_instance().debug(
+                f"updated {self.type} '{self.id}' (ws_id={ws_id})", detail=updated_dict
             )
 
         # send update to websocket
@@ -1373,17 +1369,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         )
         try:
             async with self.__class__.advisory_lock(sess, obj_id):
-                MutyLogger.get_instance().debug(
-                    "deleting object %s.%s, operation=%s, ws_id=%s",
-                    self.__class__,
-                    obj_id,
-                    operation_id,
-                    ws_id,
+                Glug.get_instance().debug(
+                    f"deleting object {self.__class__}.{obj_id}, "
+                    f"operation={operation_id}, ws_id={ws_id}"
                 )
                 await sess.delete(self)
                 await sess.commit()
         except Exception as e:
-            MutyLogger.get_instance().error(e)
+            Glug.get_instance().exception(str(e))
             if raise_on_error:
                 raise e
             else:
@@ -1407,11 +1400,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             )
             data = p.model_dump()
 
-        MutyLogger.get_instance().debug(
-            "notifying websocket of deletion: type=%s, ws_id=%s, data=%s",
-            ws_data_type,
-            ws_id,
-            muty.string.make_shorter(str(data), max_len=260),
+        Glug.get_instance().debug(
+            f"notifying websocket of deletion: type={ws_data_type}, ws_id={ws_id}",
+            detail=data,
         )
         redis_broker = GulpRedisBroker.get_instance()
         await redis_broker.put(
@@ -1459,8 +1450,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess, user_id, flt
         )
         q = flt.to_delete_query(cls)
-        MutyLogger.get_instance().debug(
-            "delete_by_filter, flt=%s, user_id=%s, query:\n%s", flt, user_id, q
+        Glug.get_instance().debug(
+            f"delete_by_filter for user_id={user_id}", detail={"flt": flt, "query": q}
         )
 
         deleted_rows: list[tuple[str, str, str | None]] = []
@@ -1506,9 +1497,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 notification_operation_id = next(iter(deleted_operation_ids))
         # commit the transaction before notifying websocket consumers
         await sess.commit()
-        MutyLogger.get_instance().debug(
-            "user_id=%s, deleted %d objects", user_id, deleted_count
-        )
+        Glug.get_instance().debug(f"user_id={user_id}, deleted {deleted_count} objects")
 
         if ws_id:
             from gulp.api.ws_api import (
@@ -1665,14 +1654,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await sess.refresh(self, attribute_names=["granted_user_group_ids"])
             await GulpUserGroup.get_by_id(sess, group_id)
             if group_id in self.granted_user_group_ids:
-                MutyLogger.get_instance().warning(
-                    "user group %s already granted on object %s", group_id, self.id
+                Glug.get_instance().warning(
+                    f"user group {group_id} already granted on object {self.id}"
                 )
                 await sess.rollback()
                 return
 
-            MutyLogger.get_instance().debug(
-                "adding granted user group %s to object %s", group_id, self.id
+            Glug.get_instance().debug(
+                f"adding granted user group {group_id} to object {self.id}"
             )
             self.granted_user_group_ids.append(group_id)
             await sess.commit()
@@ -1696,14 +1685,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await sess.refresh(self, attribute_names=["granted_user_group_ids"])
             await GulpUserGroup.get_by_id(sess, group_id)
             if group_id not in self.granted_user_group_ids:
-                MutyLogger.get_instance().warning(
-                    "user group %s not in granted list on object %s", group_id, self.id
+                Glug.get_instance().warning(
+                    f"user group {group_id} not in granted list on object {self.id}"
                 )
                 await sess.rollback()
                 return
 
-            MutyLogger.get_instance().info(
-                "removing granted user group %s from object %s", group_id, self.id
+            Glug.get_instance().info(
+                f"removing granted user group {group_id} from object {self.id}"
             )
 
             self.granted_user_group_ids.remove(group_id)
@@ -1728,14 +1717,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await sess.refresh(self, attribute_names=["granted_user_ids"])
             await GulpUser.get_by_id(sess, user_id)
             if user_id in self.granted_user_ids:
-                MutyLogger.get_instance().warning(
-                    "user %s already granted on object %s", user_id, self.id
+                Glug.get_instance().warning(
+                    f"user {user_id} already granted on object {self.id}"
                 )
                 await sess.rollback()
                 return
 
-            MutyLogger.get_instance().debug(
-                "adding granted user %s to object %s", user_id, self.id
+            Glug.get_instance().debug(
+                f"adding granted user {user_id} to object {self.id}"
             )
 
             self.granted_user_ids.append(user_id)
@@ -1762,14 +1751,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await GulpUser.get_by_id(sess, user_id)
 
             if user_id not in self.granted_user_ids:
-                MutyLogger.get_instance().warning(
-                    "user %s not in granted list on object %s", user_id, self.id
+                Glug.get_instance().warning(
+                    f"user {user_id} not in granted list on object {self.id}"
                 )
                 await sess.rollback()
                 return
 
-            MutyLogger.get_instance().info(
-                "removing granted user %s from object %s", user_id, self.id
+            Glug.get_instance().info(
+                f"removing granted user {user_id} from object {self.id}"
             )
             self.granted_user_ids.remove(user_id)
             await sess.commit()
@@ -1840,8 +1829,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             self.granted_user_ids = [self.user_id]
             self.granted_user_group_ids = []
             await sess.commit()
-            MutyLogger.get_instance().info(
-                "object %s is now PRIVATE to user %s", self.id, self.user_id
+            Glug.get_instance().info(
+                f"object {self.id} is now PRIVATE to user {self.user_id}"
             )
 
     async def make_public(self, sess: AsyncSession) -> None:
@@ -1859,7 +1848,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             self.granted_user_group_ids = []
             self.granted_user_ids = []
             await sess.commit()
-            MutyLogger.get_instance().info("object %s is now PUBLIC", self.id)
+            Glug.get_instance().info(f"object {self.id} is now PUBLIC")
 
     @staticmethod
     def object_type_to_class(collab_type: str) -> T:
@@ -2088,16 +2077,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             is_admin = u.is_admin()
             group_ids = [g.id for g in u.groups] if u.groups else []
-            MutyLogger.get_instance().debug(
-                "building ACL filter for user_id=%s, permissions=%s, is_admin=%r, group_ids=%s",
-                user_id,
-                u.permission,
-                is_admin,
-                group_ids,
+            Glug.get_instance().debug(
+                f"building ACL filter for user_id={user_id}, permissions={u.permission}, "
+                f"is_admin={is_admin!r}, group_ids={group_ids}"
             )
         else:
             # no user_id provided, assume admin
-            MutyLogger.get_instance().debug(
+            Glug.get_instance().debug(
                 "building filter for admin user (no user_id provided)"
             )
             is_admin = True
@@ -2109,11 +2095,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         else:
             # user can see only objects he has access to
             flt._set_acl_grants([user_id], group_ids)
-        MutyLogger.get_instance().debug(
-            "ACL filter applied for user_id=%s: granted_user_ids=%s, granted_user_group_ids=%s",
-            user_id,
-            flt._get_acl_grants()[0],
-            flt._get_acl_grants()[1],
+        Glug.get_instance().debug(
+            f"ACL filter applied for user_id={user_id}: "
+            f"granted_user_ids={flt._get_acl_grants()[0]}, "
+            f"granted_user_group_ids={flt._get_acl_grants()[1]}"
         )
         return flt
 
@@ -2149,17 +2134,16 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         flt = flt or GulpCollabFilter()
 
         if not bypass_usr_flt:
-            MutyLogger.get_instance().debug(f"bypass_usr_flt: {bypass_usr_flt}")
+            Glug.get_instance().debug(f"bypass_usr_flt: {bypass_usr_flt}")
             flt: GulpCollabFilter = await GulpCollabBase._restrict_flt_to_user(
                 sess, user_id, flt
             )
 
-        # MutyLogger.get_instance().debug("pre to_select_query: user=%s, admin=%r, groups=%s, flt=%s", u.to_dict(), is_admin, group_ids, flt)
+        # Glug.get_instance().debug(f"pre to_select_query: user={u.to_dict()}, admin={is_admin!r}, groups={group_ids}, flt={flt}")
         q = flt.to_select_query(cls)
         q = q.options(*cls._build_eager_loading_options(recursive=recursive))
-        # MutyLogger.get_instance().debug(
-        #     "get_by_filter, user_id=%s, is_admin=%r, flt=%s, query:\n%s"
-        #     % (user_id, is_admin, flt, q)
+        # Glug.get_instance().debug(
+        #     f"get_by_filter, user_id={user_id}, is_admin={is_admin!r}, flt={flt}, query:\n{q}"
         # )
         objects: list[T] = []
         try:
@@ -2175,14 +2159,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                         f"No {cls.__name__} found with filter {str(flt)}"
                     )
 
-            # MutyLogger.get_instance().debug("user_id=%s, POST-filtered objects: %s", user_id, objects)
+            # Glug.get_instance().debug(f"user_id={user_id}, POST-filtered objects: {objects}")
             return objects
         except Exception as e:
-            MutyLogger.get_instance().error(
-                "error in get_by_filter, user_id=%s, flt=%s: %s",
-                user_id,
-                str(flt),
-                e,
+            Glug.get_instance().exception(
+                f"error in get_by_filter, user_id={user_id}, flt={str(flt)}"
             )
             if throw_if_not_found:
                 raise e
@@ -2296,7 +2277,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     sess, token, permission=permission
                 )
 
-            # MutyLogger.get_instance().debug("get_by_filter_wrapper, user_id=%s" % (s.user.id))
+            # Glug.get_instance().debug(f"get_by_filter_wrapper, user_id={s.user.id}")
 
             objs: list[GulpCollabBase] = await cls.get_by_filter(
                 sess,
@@ -2313,10 +2294,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             for o in objs:
                 data.append(o.to_dict(nested=recursive))
 
-            MutyLogger.get_instance().debug(
-                "get_by_filter_wrapper, user_id: %s, result: %s",
-                s.user.id,
-                muty.string.make_shorter(str(data), max_len=260),
+            Glug.get_instance().debug(
+                f"get_by_filter_wrapper returned {len(data)} object(s) for user_id={s.user.id}",
+                detail=data,
             )
 
             return data

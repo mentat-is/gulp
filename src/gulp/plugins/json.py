@@ -25,7 +25,6 @@ import orjson
 import muty.dict
 import muty.file
 import muty.os
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -37,6 +36,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
@@ -201,7 +201,7 @@ class Plugin(GulpPluginBase):
                 mapped = self.build_or_update_unmapped_obj(final, k, v)
             final.update(mapped)
 
-        # MutyLogger.get_instance().debug("final mapped record:\n%s" % (orjson.dumps(final, option=orjson.OPT_INDENT_2).decode()))
+        # Glug.get_instance().debug("final mapped record", detail=final)
         return GulpDocument(
             self,
             operation_id=self._operation_id,
@@ -295,17 +295,15 @@ class Plugin(GulpPluginBase):
                         if not _put(json_stream.to_standard_types(v)):
                             return
 
-        except Exception as ex:
+        except Exception:
             # close file
-            MutyLogger.get_instance().exception(ex)
+            Glug.get_instance().exception("error reading json stream")
         finally:
             if f:
                 f.close()
             _put(None)
 
-            MutyLogger.get_instance().debug(
-                "file %s finished stream reading!" % (file_path)
-            )
+            Glug.get_instance().debug(f"file {file_path} finished stream reading")
 
     async def _ingest_jsonlist_and_jsondict(
         self,
@@ -328,7 +326,7 @@ class Plugin(GulpPluginBase):
         )
         stop_event = threading.Event()
         loop = asyncio.get_running_loop()
-        MutyLogger.get_instance().debug("starting thread to read file %s" % file_path)
+        Glug.get_instance().debug(f"starting thread to read file {file_path}")
         fut: asyncio.Future = loop.run_in_executor(
             GulpProcess.get_instance().thread_pool,
             self._read_file,
@@ -338,7 +336,7 @@ class Plugin(GulpPluginBase):
             encoding,
             keys,
         )
-        MutyLogger.get_instance().debug("starting processing file %s" % file_path)
+        Glug.get_instance().debug(f"starting processing file {file_path}")
 
         # and process it asynchronously until the queue is empty
 
@@ -349,8 +347,8 @@ class Plugin(GulpPluginBase):
                 except queue.Empty:
                     continue
                 if record is None:
-                    MutyLogger.get_instance().debug(
-                        "end of file %s reached, breaking loop!" % (file_path)
+                    Glug.get_instance().debug(
+                        f"end of file {file_path} reached, breaking loop"
                     )
                     break
                 if not await self.process_record(
@@ -411,10 +409,7 @@ class Plugin(GulpPluginBase):
             # Track fields the index may map dynamically after the initial lookup.
             self._json_inferred_numeric_types: dict[str, bool] = {}
         encoding = mapping.default_encoding or "utf-8"
-        # MutyLogger.get_instance().debug(
-        #     "selected mapping '%s' with default encoding '%s'"
-        #     % (mapping, encoding)
-        # )
+        # Glug.get_instance().debug(f"selected mapping '{mapping}' with default encoding '{encoding}'")
         mode: str = self._plugin_params.custom_parameters.get("mode")
         if mode == "line":
             if not await self._ingest_jsonline(
@@ -429,9 +424,8 @@ class Plugin(GulpPluginBase):
                 # stop processing (preview mode)
                 return stats.status
         else:
-            MutyLogger.get_instance().error(
-                "invalid mode '%s' for json plugin, should be 'line', 'list' or 'dict'"
-                % (mode)
+            Glug.get_instance().error(
+                f"invalid mode '{mode}' for json plugin, should be 'line', 'list' or 'dict'"
             )
             raise ValueError(
                 "invalid mode '%s' for json plugin, should be 'line', 'list' or 'dict'"

@@ -25,7 +25,6 @@ import muty.crypto
 from fastapi import Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -46,6 +45,7 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters, ObjectAlreadyExists
 
@@ -167,9 +167,7 @@ class Plugin(GulpPluginBase):
 
     async def post_init(self, **kwargs):
         if self.is_running_in_main_process():
-            MutyLogger.get_instance().debug(
-                "adding api routes for bridge_manager plugin ..."
-            )
+            Glug.get_instance().debug("adding api routes for bridge_manager plugin")
 
             # read configuration
             cfg = GulpConfig.get_instance().get("bridge_manager", {})
@@ -410,13 +408,11 @@ class Plugin(GulpPluginBase):
                 },
             )
 
-            MutyLogger.get_instance().debug("creating bridges_manager tables ...")
+            Glug.get_instance().debug("creating bridges_manager tables")
             await GulpCollab.get_instance().create_table(GulpBridgeEntry.__table__)
             await GulpCollab.get_instance().create_table(GulpBridgeTaskEntry.__table__)
         else:
-            MutyLogger.get_instance().debug(
-                "bridge_manager initialized in worker process"
-            )
+            Glug.get_instance().debug("bridge_manager initialized in worker process")
 
     async def register_bridge_handler(
         self,
@@ -577,7 +573,7 @@ class Plugin(GulpPluginBase):
                         if r.status != 200:
                             # something wrong happened, report error and set task as failed
                             error_msg: str = await r.text()
-                            MutyLogger.get_instance().error(
+                            Glug.get_instance().error(
                                 f"bridge start_ingestion error: {r.status} {error_msg}"
                             )
                             await task.update(
@@ -625,7 +621,7 @@ class Plugin(GulpPluginBase):
                 if r.status != 200:
                     # error occurred, raise
                     error_msg = await r.text()
-                    MutyLogger.get_instance().error(
+                    Glug.get_instance().error(
                         f"bridge stop_ingestion error: {r.status} {error_msg}"
                     )
                     await task.update(
@@ -830,7 +826,7 @@ class Plugin(GulpPluginBase):
             try:
                 bridge_status = await self._call_health_check(bridge)
             except Exception as ex:
-                MutyLogger.get_instance().error(f"bridge health_check error: {ex}")
+                Glug.get_instance().error(f"bridge health_check error: {ex}")
 
             await bridge.update(
                 sess,
@@ -859,7 +855,7 @@ class Plugin(GulpPluginBase):
                 if r.status != 200:
                     # error occurred, raise
                     error_msg = await r.text()
-                    MutyLogger.get_instance().error(
+                    Glug.get_instance().error(
                         f"bridge health_check error: {r.status} {error_msg}"
                     )
                     return "offline"

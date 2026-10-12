@@ -11,8 +11,9 @@ from typing import Any
 import muty.string
 import muty.time
 import orjson
-from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
+
+from gulp.glug import Glug
 
 
 class GulpCoreEvent(StrEnum):
@@ -199,7 +200,7 @@ class _Events:
                 ex=redis_client.HEARTBEAT_TTL,
             )
         except Exception:
-            MutyLogger.get_instance().exception("failed to update event listener mask")
+            Glug.get_instance().exception("failed to update event listener mask")
 
     @staticmethod
     def _mask_key(server_id: str) -> str:
@@ -256,14 +257,11 @@ class _Events:
                 )
                 subscribers = await self._publish_local(envelope)
                 if subscribers < 1:
-                    MutyLogger.get_instance().warning(
-                        "dropping event %s because no main-process subscriber is available",
-                        event_name,
+                    Glug.get_instance().warning(
+                        f"dropping event {event_name} because no main-process subscriber is available"
                     )
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to publish event %s", event_name
-                )
+                Glug.get_instance().exception(f"failed to publish event {event_name}")
             return None
 
         try:
@@ -398,8 +396,8 @@ class _Events:
                     raise GulpEventError(
                         f"event {event.event} listener {listener.name} failed: {ex}"
                     ) from ex
-                MutyLogger.get_instance().exception(
-                    "event %s listener %s failed", event.event, listener.name
+                Glug.get_instance().exception(
+                    f"event {event.event} listener {listener.name} failed"
                 )
 
         return GulpEventResult(
@@ -428,7 +426,7 @@ class _Events:
 
         if redis_channel == _MAIN_REDIS_CHANNEL:
             if not broadcast:
-                MutyLogger.get_instance().warning(
+                Glug.get_instance().warning(
                     "dropping non-broadcast event received on the cluster channel"
                 )
                 return
@@ -440,14 +438,12 @@ class _Events:
                 event = GulpEvent.model_validate(message.get("payload"))
                 await self._dispatch(event, wait=False)
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to dispatch broadcast event"
-                )
+                Glug.get_instance().exception("failed to dispatch broadcast event")
             return
 
         if redis_channel != local_channel:
-            MutyLogger.get_instance().warning(
-                "dropping event received on unexpected Redis channel %s", redis_channel
+            Glug.get_instance().warning(
+                f"dropping event received on unexpected Redis channel {redis_channel}"
             )
             return
 
@@ -464,7 +460,7 @@ class _Events:
                     response_key, {"ok": False, "error": str(ex)}
                 )
             else:
-                MutyLogger.get_instance().exception("failed to dispatch event")
+                Glug.get_instance().exception("failed to dispatch event")
             return
 
         if broadcast:
@@ -477,18 +473,16 @@ class _Events:
                     forwarded, channel=_MAIN_REDIS_CHANNEL
                 )
                 if int(subscribers or 0) < 1:
-                    MutyLogger.get_instance().warning(
-                        "broadcast event %s had no Redis subscribers", event.event
+                    Glug.get_instance().warning(
+                        f"broadcast event {event.event} had no Redis subscribers"
                     )
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to broadcast event %s", event.event
-                )
+                Glug.get_instance().exception(f"failed to broadcast event {event.event}")
 
     @staticmethod
     async def _write_response(response_key: str | None, response: dict) -> None:
         if not response_key:
-            MutyLogger.get_instance().warning("waited event is missing a response key")
+            Glug.get_instance().warning("waited event is missing a response key")
             return
         from gulp.api.redis_api import GulpRedis
 
@@ -506,7 +500,7 @@ class _Events:
 
             await GulpRedis.get_instance().drain_pubsub_handlers()
         except Exception:
-            MutyLogger.get_instance().exception("failed to drain event dispatch")
+            Glug.get_instance().exception("failed to drain event dispatch")
 
     def _reset_for_tests(self) -> None:
         """Clear process-local listeners without touching Redis."""

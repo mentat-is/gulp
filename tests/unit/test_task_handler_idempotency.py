@@ -517,7 +517,7 @@ async def test_run_query_returns_canceled_without_error_logging(monkeypatch):
 
     logger = MagicMock()
     publish = AsyncMock()
-    monkeypatch.setattr(query_mod.MutyLogger, "get_instance", lambda: logger)
+    monkeypatch.setattr(query_mod.Glug, "get_instance", lambda: logger)
     monkeypatch.setattr(
         query_mod.GulpOpenSearch,
         "get_instance",

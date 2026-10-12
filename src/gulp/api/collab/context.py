@@ -16,14 +16,13 @@ Classes:
 from typing import Optional, override
 
 import muty.crypto
-import muty.string
-from muty.log import MutyLogger
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import COLLABTYPE_CONTEXT, GulpCollabBase
+from gulp.glug import Glug
 from gulp.structs import GulpMappingParameters
 from gulp.api.collab.stats import GulpRequestStats
 
@@ -175,18 +174,18 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
 
         async with GulpSource.advisory_lock(sess, src_id):
             # check if source already exists
-            # MutyLogger.get_instance().debug("called with src_id=%s", src_id)
+            # Glug.get_instance().debug(f"called with src_id={src_id}")
             src: GulpSource = await GulpSource.get_by_id(
                 sess, obj_id=src_id, throw_if_not_found=False
             )
             if src:
-                MutyLogger.get_instance().debug(f"source {src.id}, name={name} already exists in context {self.id}.")
+                Glug.get_instance().debug(f"source {src.id}, name={name} already exists in context {self.id}.")
                 await _update_ingestion_stats_sources(src)
                 # release transaction-scoped advisory lock acquired above
                 await sess.commit()
                 return src, False
 
-            # MutyLogger.get_instance().warning("creating new source: %s, id=%s", name, src_id)
+            # Glug.get_instance().warning(f"creating new source: {name}, id={src_id}")
 
             # create new source and link it to context
             object_data = {
@@ -210,13 +209,9 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 **object_data,
             )
 
-            MutyLogger.get_instance().debug(
-                "context %s granted_user_ids=%s, granted_group_ids=%s"
-                % (
-                    self.id,
-                    self.granted_user_ids,
-                    self.granted_user_group_ids,
-                )
+            Glug.get_instance().debug(
+                f"context {self.id} granted_user_ids={self.granted_user_ids}, "
+                f"granted_group_ids={self.granted_user_group_ids}"
             )
             # TODO: at the moment, keep sources public (ACL checks are only done operation-wide)
             # add same grants to the source as the context
@@ -226,9 +221,12 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             #     await src.add_group_grant(sess, g, commit=False)
 
             await sess.refresh(self)
-            MutyLogger.get_instance().debug(
-                "source=%s, name=%s added to context=%s, src=%s, ctx=%s", src.id, name, self.id, muty.string.make_shorter(str(src),max_len=260), 
-                muty.string.make_shorter(str(self), max_len=260)
+            Glug.get_instance().debug(
+                f"source={src.id}, name={name} added to context={self.id}",
+                detail={
+                    "src": src.to_dict(exclude_none=True),
+                    "ctx": self.to_dict(exclude_none=True),
+                },
             )
             await _update_ingestion_stats_sources(src)
             return src, True

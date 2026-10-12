@@ -1,8 +1,7 @@
 from typing import override
 
-from muty.log import MutyLogger
-
 from gulp.events import GulpCoreEvent, GulpEvent, events
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 
 
@@ -17,17 +16,17 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> None:
         super().__init__(path, module_name, pickled, **kwargs)
-        MutyLogger.get_instance().debug(
-            "path=%s, pickled=%r, kwargs=%s" % (path, pickled, kwargs)
+        Glug.get_instance().debug(
+            f"path={path}, pickled={pickled!r}", detail=kwargs
         )
-    
+
     @override
     async def post_init(self, *kwargs):
         if self.is_running_in_main_process():
             # when running in the main process we register for the EVENT_CHUNK_INGESTED event.
             # workers will publish the event via Redis after every chunk is flushed, dispatching happens in the
             # main process.
-            MutyLogger.get_instance().debug("registering chunk callback in main process.")
+            Glug.get_instance().debug("registering chunk callback in main process")
             events.subscribe(
                 self,
                 [GulpCoreEvent.CHUNK_POST_INGEST, GulpCoreEvent.CHUNK_PRE_INGEST],
@@ -44,7 +43,7 @@ class Plugin(GulpPluginBase):
             user_id = data.get("user_id")
             req_id = data.get("req_id")
             plugin = data.get("plugin")
-            MutyLogger.get_instance().debug(
+            Glug.get_instance().debug(
                 f"extension plugin={self.name} received EVENT_CHUNK_POST_INGEST: chunk_len={chunk_len}, "
                 f"operation_id={operation_id}, user_id={user_id}, req_id={req_id}, "
                 f"plugin={plugin}"

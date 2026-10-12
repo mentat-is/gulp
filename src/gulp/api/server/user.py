@@ -17,12 +17,10 @@ operations beyond self-management.
 """
 
 from typing import Annotated, Any, Optional
-import orjson
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 import muty.crypto
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,6 +38,7 @@ from gulp.api.redis_api import GulpRedis, IpRateLimitError
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import REGEX_CHECK_USERNAME, APIDependencies
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.structs import GulpAPIMethod, ObjectAlreadyExists, ObjectNotFound
 
 
@@ -270,9 +269,7 @@ async def login_handler(
                     sess, user_id, throw_if_not_found=False
                 )
                 if s:
-                    MutyLogger.get_instance().warning(
-                        "user %s already logged in!", user_id
-                    )
+                    Glug.get_instance().warning(f"user {user_id} already logged in")
                     raise ObjectAlreadyExists(
                         "user %s already logged in, use force=true to invalidate the existing session and login again."
                         % user_id
@@ -588,22 +585,18 @@ async def user_update_handler(
             u: GulpUser
             if user_id:
                 # get the requested user using the given token: it will work if the token is admin or it's the same user
-                MutyLogger.get_instance().debug(
-                    "user_id specified, getting user %s", user_id
-                )
+                Glug.get_instance().debug(f"user_id specified, getting user {user_id}")
                 s, u, _ = await GulpUser.get_by_id_wrapper(
                     sess, token, user_id, enforce_owner=True
                 )
-                MutyLogger.get_instance().debug(
-                    "specified user_id=%s, session.user_id=%s", user_id, s.user.id
+                Glug.get_instance().debug(
+                    f"specified user_id={user_id}, session.user_id={s.user.id}"
                 )
             else:
                 # no user_id specified, use the token's user
                 s = calling_user_s
                 u = calling_user_s.user
-                MutyLogger.get_instance().debug(
-                    "no user_id specified, session.user_id=%s", s.user.id
-                )
+                Glug.get_instance().debug(f"no user_id specified, session.user_id={s.user.id}")
 
             delete_existing_user_session: bool = False
             if permission:
@@ -634,10 +627,10 @@ async def user_update_handler(
             if user_data:
                 if merge_user_data:
                     # merge with existing user data
-                    MutyLogger.get_instance().debug("existing user data=%s" % (ud))
+                    Glug.get_instance().debug(f"merging user data for user_id={u.id}", detail=ud)
                     ud.update(user_data)
-                    MutyLogger.get_instance().debug(
-                        "provided user_data=%s, updated user data=%s", user_data, ud
+                    Glug.get_instance().debug(
+                        f"updated user data for user_id={u.id}", detail=ud
                     )
                 else:
                     # replace existing user data
@@ -645,9 +638,8 @@ async def user_update_handler(
 
             if delete_existing_user_session and u.session:
                 # invalidate session for the user being updated (user must login again then)
-                MutyLogger.get_instance().warning(
-                    "updated user password or permission, invalidating session for user_id=%s",
-                    u.id,
+                Glug.get_instance().warning(
+                    f"updated user password or permission, invalidating session for user_id={u.id}"
                 )
 
                 await u.session.delete(sess)
@@ -990,17 +982,11 @@ async def user_set_data_handler(
 
             # get data
             ud: dict = u.user_data if u.user_data else {}
-            MutyLogger.get_instance().debug(
-                "existing user data=%s",
-                orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode(),
-            )
+            Glug.get_instance().debug(f"existing user data for user_id={u.id}", detail=ud)
 
             # update
             ud[key] = value
-            MutyLogger.get_instance().debug(
-                "new user data=%s",
-                orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode(),
-            )
+            Glug.get_instance().debug(f"new user data for user_id={u.id}", detail=ud)
             await u.update(sess, user_data=ud)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=ud))
     except Exception as ex:
@@ -1071,10 +1057,7 @@ async def user_get_data_handler(
 
             # get data
             user_data: dict = u.user_data if u.user_data else {}
-            MutyLogger.get_instance().debug(
-                "existing user data=%s",
-                orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode(),
-            )
+            Glug.get_instance().debug(f"existing user data for user_id={u.id}", detail=user_data)
 
             if key:
                 # get only the requested key
@@ -1154,10 +1137,7 @@ async def user_delete_data_handler(
 
             # get data
             ud: dict = u.user_data if u.user_data else {}
-            MutyLogger.get_instance().debug(
-                "existing user data=%s",
-                orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode(),
-            )
+            Glug.get_instance().debug(f"existing user data for user_id={u.id}", detail=ud)
             if key:
                 # delete only the requested key
                 if key not in ud:

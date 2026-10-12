@@ -19,10 +19,9 @@ from importlib import import_module, resources
 
 import aiofiles
 import muty.string
-import orjson
-from muty.log import MutyLogger
 from sqlalchemy import Table, create_engine, insert, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -33,6 +32,7 @@ from sqlalchemy_utils import create_database, database_exists, drop_database
 
 from gulp.api.collab.structs import GulpCollabBase
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.structs import ObjectNotFound
 
 
@@ -115,7 +115,7 @@ class GulpCollab:
             await self.shutdown()
 
         if main_process:
-            MutyLogger.get_instance().debug("init in MAIN process ...")
+            Glug.get_instance().debug("init in MAIN process ...")
             if force_recreate:
                 # drop and recreate the database
                 await GulpCollab.db_drop(url)
@@ -130,14 +130,25 @@ class GulpCollab:
                 await self.create_default_users()
 
             # check tables exists
-            async with self._collab_sessionmaker() as sess:
-                if not await self._check_all_tables_exist(sess):
-                    self._initialized = True  # we're initialized anyway
-                    raise SchemaMismatch(
-                        "collab database exists but (some) tables are missing."
-                    )
+            try:
+                async with self._collab_sessionmaker() as sess:
+                    if not await self._check_all_tables_exist(sess):
+                        self._initialized = True  # we're initialized anyway
+                        raise SchemaMismatch(
+                            "collab database exists but (some) tables are missing."
+                        )
+            except OperationalError:
+                # hide_password=True: postgres_url embeds credentials in plaintext,
+                # never log it as-is
+                Glug.get_instance().exception(
+                    "failed to connect to the collab database at "
+                    f"{make_url(url).render_as_string(hide_password=True)}",
+                    hint="verify PostgreSQL is running and reachable at the "
+                    "configured postgres_url",
+                )
+                raise
         else:
-            MutyLogger.get_instance().debug("init in worker process ...")
+            Glug.get_instance().debug("init in worker process ...")
             self._engine = await self._create_engine()
             self._collab_sessionmaker = async_sessionmaker(
                 bind=self._engine, expire_on_commit=False
@@ -180,35 +191,29 @@ class GulpCollab:
             processes_per_instance * max_connections_per_process
         )
 
-        MutyLogger.get_instance().info(
-            "postgres pool budget: max_connections_per_process=%d, "
-            "processes_per_instance=%d, max_connections_per_instance=%d, "
-            "pool_timeout_sec=%d, pool_recycle_sec=%d",
-            max_connections_per_process,
-            processes_per_instance,
-            max_connections_per_instance,
-            pool_timeout,
-            pool_recycle,
+        Glug.get_instance().info(
+            f"postgres pool budget: max_connections_per_process={max_connections_per_process}, "
+            f"processes_per_instance={processes_per_instance}, "
+            f"max_connections_per_instance={max_connections_per_instance}, "
+            f"pool_timeout_sec={pool_timeout}, pool_recycle_sec={pool_recycle}"
         )
         if (
             max_connections_per_instance
             >= self._POSTGRES_CONNECTION_WARNING_THRESHOLD
         ):
-            MutyLogger.get_instance().warning(
+            Glug.get_instance().warning(
                 "postgres connection budget is high because "
-                "max_connections_per_instance=%d "
-                "meets the warning threshold=%d "
-                "(processes_per_instance=%d, pool_size=%d, "
-                "max_overflow=%d). Estimated cluster total is "
+                f"max_connections_per_instance={max_connections_per_instance} "
+                f"meets the warning threshold={self._POSTGRES_CONNECTION_WARNING_THRESHOLD} "
+                f"(processes_per_instance={processes_per_instance}, pool_size={pool_size}, "
+                f"max_overflow={max_overflow}). Estimated cluster total is "
                 "gulp_instances * max_connections_per_instance. Reduce "
                 "postgres_pool_size, postgres_max_overflow, "
                 "workers_max, or instance count before raising "
                 "caps.",
-                max_connections_per_instance,
-                self._POSTGRES_CONNECTION_WARNING_THRESHOLD,
-                processes_per_instance,
-                pool_size,
-                max_overflow,
+                hint="lower postgres_pool_size/postgres_max_overflow/workers_max, "
+                "or reduce the number of gulp instances, to stay under PostgreSQL's "
+                "max_connections",
             )
 
         # create engine
@@ -223,8 +228,10 @@ class GulpCollab:
         )
         _engine = create_async_engine(url, **kw)
 
-        MutyLogger.get_instance().info(
-            "engine %s created/initialized, url=%s ..." % (_engine, url)
+        # hide_password=True: url embeds credentials in plaintext, never log it as-is
+        Glug.get_instance().info(
+            f"engine {_engine} created/initialized, "
+            f"url={make_url(url).render_as_string(hide_password=True)}"
         )
         return _engine
 
@@ -255,11 +262,11 @@ class GulpCollab:
         self._engine = None
         self._collab_sessionmaker = None
         if engine:
-            MutyLogger.get_instance().debug(
+            Glug.get_instance().debug(
                 "shutting down collab database engine and invalidate existing connections ..."
             )
             await engine.dispose()
-            MutyLogger.get_instance().debug("collab database engine shutdown DONE!")
+            Glug.get_instance().debug("collab database engine shutdown complete")
         self._initialized = False
 
     @staticmethod
@@ -274,7 +281,10 @@ class GulpCollab:
             bool: True if the database exists, False otherwise.
         """
         b = await asyncio.to_thread(database_exists, url=url)
-        MutyLogger.get_instance().debug("---> exists: url=%s, result=%r" % (url, b))
+        Glug.get_instance().debug(
+            f"db_exists: url={make_url(url).render_as_string(hide_password=True)}, "
+            f"result={b!r}"
+        )
         return b
 
     @staticmethod
@@ -326,24 +336,23 @@ class GulpCollab:
             """
             internal function to drop, and possibly recreate, the database: this is blocking, so this is wrapped in a thread.
             """
+            # hide_password=True everywhere below: url embeds credentials in plaintext,
+            # never log or raise it as-is (an ObjectNotFound message can reach an API
+            # response body, not just a log line)
+            masked_url = make_url(url).render_as_string(hide_password=True)
             if database_exists(url):
-                MutyLogger.get_instance().info(
-                    "--> drop: dropping database %s ..." % (url)
-                )
+                Glug.get_instance().info(f"db_drop: dropping database {masked_url}")
                 _terminate_postgres_backends(url)
                 drop_database(url)
-                MutyLogger.get_instance().info(
-                    "--> drop: database %s dropped ..." % (url)
-                )
+                Glug.get_instance().info(f"db_drop: database {masked_url} dropped")
             else:
-                MutyLogger.get_instance().warning(
-                    "--> drop: database %s does not exist!" % (url)
-                )
+                Glug.get_instance().warning(f"db_drop: database {masked_url} does not exist")
                 if raise_if_not_exists:
-                    raise ObjectNotFound("database %s does not exist!" % (url))
+                    raise ObjectNotFound(f"database {masked_url} does not exist!")
 
-        MutyLogger.get_instance().debug(
-            "---> drop: url=%s, raise_if_not_exists=%r" % (url, raise_if_not_exists)
+        Glug.get_instance().debug(
+            f"db_drop: url={make_url(url).render_as_string(hide_password=True)}, "
+            f"raise_if_not_exists={raise_if_not_exists!r}"
         )
         await asyncio.to_thread(_blocking_drop, url, raise_if_not_exists)
 
@@ -355,12 +364,14 @@ class GulpCollab:
         Args:
             url (str): The URL of the database to create.
         """
-        MutyLogger.get_instance().debug("---> create: url=%s" % (url))
+        Glug.get_instance().debug(
+            f"db_create: url={make_url(url).render_as_string(hide_password=True)}"
+        )
         await asyncio.to_thread(create_database, url=url)
 
     async def _setup_collab_expirations(self) -> None:
         # TODO: check issues with pg-cron process dying
-        MutyLogger.get_instance().debug(
+        Glug.get_instance().debug(
             "setting up stats and tokens expiration with pg_cron ..."
         )
         async with self._collab_sessionmaker() as sess:
@@ -462,12 +473,10 @@ class GulpCollab:
 
         for t in tables:
             if exclude and t in exclude:
-                MutyLogger.get_instance().debug(
-                    "---> skipping clearing table: %s (excluded)" % (t)
-                )
+                Glug.get_instance().debug(f"skipping clearing table: {t} (excluded)")
                 continue
 
-            MutyLogger.get_instance().debug("clearing table: %s ..." % (t))
+            Glug.get_instance().debug(f"clearing table: {t} ...")
             await sess.execute(
                 text('TRUNCATE TABLE "%s" RESTART IDENTITY CASCADE;' % (t))
             )
@@ -533,24 +542,18 @@ class GulpCollab:
             await group.add_user(sess, admin_user.id)
             await sess.refresh(admin_user)
 
-            # dump groups
-            MutyLogger.get_instance().debug("---> groups:")
             groups: list[GulpUserGroup] = await GulpUserGroup.get_by_filter(
                 sess, user_id="admin"
             )
-            for group in groups:
-                MutyLogger.get_instance().debug(
-                    orjson.dumps(
-                        group.to_dict(nested=True), option=orjson.OPT_INDENT_2
-                    ).decode()
-                )
-
-            # dump admin user
-            MutyLogger.get_instance().debug("---> admin user:")
-            MutyLogger.get_instance().debug(
-                orjson.dumps(
-                    admin_user.to_dict(nested=True), option=orjson.OPT_INDENT_2
-                ).decode()
+            # pwd_hash popped out: even hashed, no reason to put it in a log record
+            admin_user_detail = admin_user.to_dict(nested=True)
+            admin_user_detail.pop("pwd_hash", None)
+            Glug.get_instance().debug(
+                f"created default groups ({[g.id for g in groups]}) and admin user",
+                detail={
+                    "groups": [g.to_dict(nested=True) for g in groups],
+                    "admin_user": admin_user_detail,
+                },
             )
 
     async def _check_all_tables_exist(self, sess: AsyncSession) -> bool:

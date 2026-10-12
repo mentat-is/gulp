@@ -14,7 +14,6 @@ from typing import Any, override
 
 import muty.os
 import orjson
-from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +22,7 @@ from gulp.api.mapping.models import GulpMappingField
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS
 from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import (
     GulpDocumentsChunkCallback,
@@ -166,11 +166,11 @@ class Plugin(GulpPluginBase):
 
             src_id = d.get("gulp.source_id")
             ctx_id = d.get("gulp.context_id")
-            # MutyLogger.get_instance().warning(f"src_id: {src_id} -- ctx_id:{ctx_id}")
+            # Glug.get_instance().debug(f"src_id={src_id}, ctx_id={ctx_id}")
             # if source and context are not managed via mapping check gulp plugin parameters
             # and try to create or get from cache the id for context and source
             if not src_id and not ctx_id:
-                # MutyLogger.get_instance().warning(f"try to create context and source from custom parameters")
+                # Glug.get_instance().debug("try to create context and source from custom parameters")
                 source_field_key = kwargs.get("source_field")
                 source_field_value = record.get(source_field_key)
                 source_type = kwargs.get("source_type")
@@ -211,7 +211,7 @@ class Plugin(GulpPluginBase):
             **d,
         )
 
-        # MutyLogger.get_instance().debug(d)
+        # Glug.get_instance().debug("document", detail=d)
         return d
 
     async def _process_record_callback(
@@ -293,7 +293,7 @@ class Plugin(GulpPluginBase):
         # wether to highlight results for the query (warning: may take a lot of memory)
         if q_options.highlight_results:
             n["highlight"] = {"fields": {"*": {}}}
-        # MutyLogger.get_instance().debug("query options: %s" % (orjson.dumps(n, option=orjson.OPT_INDENT_2).decode()))
+        # Glug.get_instance().debug("query options", detail=n)
         return n
 
     async def search_dsl(
@@ -316,10 +316,12 @@ class Plugin(GulpPluginBase):
 
         if el:
             # force use_elasticsearch_api if el is provided
-            MutyLogger.get_instance().debug(
-                "search_dsl: using provided ElasticSearch/OpenSearch client %s, class=%s",
-                el,
-                el.__class__,
+            # NOTE: never log `el` itself — AsyncOpenSearch's repr embeds
+            # credentials (http_auth) in cleartext, and this plugin's whole
+            # purpose is connecting to an external, customer-provided
+            # OpenSearch/Elasticsearch instance.
+            Glug.get_instance().debug(
+                f"search_dsl: using provided client class={el.__class__.__name__}"
             )
 
         parsed_options = self.parse(q_options)
@@ -342,10 +344,9 @@ class Plugin(GulpPluginBase):
             )
 
             processed += len(docs)
-            MutyLogger.get_instance().debug(
-                "_search_dsl_internal returned total_hits=%d, len(docs)=%d",
-                total_hits,
-                len(docs),
+            Glug.get_instance().debug(
+                f"_search_dsl_internal returned total_hits={total_hits}, "
+                f"len(docs)={len(docs)}"
             )
             if (
                 not total_hits
@@ -353,7 +354,7 @@ class Plugin(GulpPluginBase):
                 or (q_options.total_limit and processed >= q_options.total_limit)
             ):
                 # this is the last chunk
-                MutyLogger.get_instance().warning("this is the last chunk")
+                Glug.get_instance().debug("this is the last chunk")
                 last = True
 
             if check_canceled_count % 10 == 0 and check_canceled and sess:
@@ -364,9 +365,7 @@ class Plugin(GulpPluginBase):
 
             if callback:
                 # call the callback at every chunk
-                # MutyLogger.get_instance().warning(
-                #     f"Call callback\nchunk_num={chunk_num}\nprocessed={processed}\ntotal_hits={total_hits}"
-                # )
+                # Glug.get_instance().debug(f"calling callback, chunk_num={chunk_num}, processed={processed}, total_hits={total_hits}")
                 await callback(
                     sess,
                     docs,
@@ -381,8 +380,8 @@ class Plugin(GulpPluginBase):
 
             if last or canceled:
                 if canceled:
-                    MutyLogger.get_instance().warning(
-                        "search_dsl: request %s canceled!", req_id
+                    Glug.get_instance().warning(
+                        f"search_dsl: request {req_id} canceled"
                     )
                     raise RequestCanceledError()
                 break
@@ -392,11 +391,9 @@ class Plugin(GulpPluginBase):
             check_canceled_count += 1
             parsed_options["search_after"] = search_after
 
-        MutyLogger.get_instance().info(
-            "***FINISHED search_dsl***: processed=%d, total_hits=%d, chunk_num=%d",
-            processed,
-            total_hits,
-            chunk_num,
+        Glug.get_instance().info(
+            f"search_dsl finished: processed={processed}, total_hits={total_hits}, "
+            f"chunk_num={chunk_num}"
         )
         return processed, total_hits
 
@@ -494,9 +491,8 @@ class Plugin(GulpPluginBase):
         context_field = self._plugin_params.custom_parameters.get("context_field", None)
         context_type = self._plugin_params.custom_parameters["context_type"]
 
-        MutyLogger.get_instance().info(
-            "connecting to %s, is_elasticsearch=%r, user=%s"
-            % (uri, is_elasticsearch, user)
+        Glug.get_instance().info(
+            f"connecting to {uri}, is_elasticsearch={is_elasticsearch!r}, user={user}"
         )
 
         q_options.fields = "*"
@@ -524,8 +520,8 @@ class Plugin(GulpPluginBase):
                     http_auth=(user, password),
                     verify_certs=False,
                 )
-        except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
+        except Exception:
+            Glug.get_instance().exception("failed to connect to external ES/OpenSearch")
             if self._preview_mode:
                 # in preview mode, we want to raise the exception
                 raise
@@ -558,24 +554,24 @@ class Plugin(GulpPluginBase):
                 context_type=context_type,
             )
             if total_hits == 0:
-                MutyLogger.get_instance().warning("no results!")
+                Glug.get_instance().info("no results")
                 if self._preview_mode:
                     return 0, []
 
                 return 0, 0
 
-            MutyLogger.get_instance().debug(
-                "elasticsearch/opensearch query done, total=%d, processed=%d!"
-                % (total_hits, processed)
+            Glug.get_instance().debug(
+                f"elasticsearch/opensearch query done, total={total_hits}, "
+                f"processed={processed}"
             )
             if self._preview_mode:
                 return total_hits, self.preview_chunk()
 
             return processed, total_hits
 
-        except Exception as ex:
+        except Exception:
             # error during query
-            MutyLogger.get_instance().exception(ex)
+            Glug.get_instance().exception("error during external ES/OpenSearch query")
             if self._preview_mode:
                 raise
 
@@ -583,5 +579,5 @@ class Plugin(GulpPluginBase):
 
         finally:
             # last flush
-            MutyLogger.get_instance().debug("closing client ...")
+            Glug.get_instance().debug("closing client")
             await cl.close()

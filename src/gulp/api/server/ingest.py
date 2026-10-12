@@ -28,11 +28,9 @@ from typing import Annotated, Any, Optional
 import muty.file
 import muty.pydantic
 import muty.string
-import orjson
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,6 +52,7 @@ from gulp.api.server.structs import (
 )
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
@@ -187,9 +186,9 @@ async def _check_existing_context(sess: AsyncSession, context_name: str) -> str:
         sess, context_name, throw_if_not_found=False
     )
     if ctx:
-        MutyLogger.get_instance().warning(
-            "context_name=%s is a context id, using it as context id instead of name",
-            context_name,
+        Glug.get_instance().warning(
+            f"context_name={context_name} is a context id, using it as context id "
+            "instead of name"
         )
         context_name = ctx.name
     return context_name
@@ -321,7 +320,7 @@ async def _ingest_file_internal(
     Raises:
         any exception raised by the underlying plugin.ingest_file method.
     """
-    # MutyLogger.get_instance().debug("---> _ingest_file_internal")
+    # Glug.get_instance().debug("_ingest_file_internal called")
     mod: GulpPluginBase = None
     ctx_id: str = None
     src_id: str = None
@@ -329,9 +328,7 @@ async def _ingest_file_internal(
     delete_ingestion_file = False
 
     if payload.plugin_params.preview_mode:
-        MutyLogger.get_instance().warning(
-            "***PREVIEW MODE*** ingestion for file=%s", file_path
-        )
+        Glug.get_instance().warning(f"preview mode ingestion for file={file_path}")
         # these are set to "preview"
         ctx_id = context_name
         src_id = source_name
@@ -359,10 +356,9 @@ async def _ingest_file_internal(
                     and not stats_created
                     and GulpRequestStats.is_terminal_status(stats.status)
                 ):
-                    MutyLogger.get_instance().warning(
-                        "ingest request %s already terminal with status=%s, skipping duplicate request",
-                        req_id,
-                        stats.status,
+                    Glug.get_instance().warning(
+                        f"ingest request {req_id} already terminal with "
+                        f"status={stats.status}, skipping duplicate request"
                     )
                     return GulpRequestStatus(stats.status), []
 
@@ -375,7 +371,7 @@ async def _ingest_file_internal(
                     ws_id=ws_id,
                     req_id=req_id,
                 )
-                # MutyLogger.get_instance().debug("context in operation %s: %s", operation_id, ctx)
+                # Glug.get_instance().debug(f"context in operation {operation_id}", detail=ctx)
                 src, _ = await ctx.add_source(
                     sess,
                     user_id=user_id,
@@ -396,10 +392,8 @@ async def _ingest_file_internal(
                         file_path
                     )
                     delete_ingestion_file = True
-                    MutyLogger.get_instance().debug(
-                        "decompressed file for ingestion: %s -> %s",
-                        file_path,
-                        ingestion_file_path,
+                    Glug.get_instance().debug(
+                        f"decompressed file for ingestion: {file_path} -> {ingestion_file_path}"
                     )
 
                 mod = await GulpPluginBase.load(plugin)
@@ -421,8 +415,8 @@ async def _ingest_file_internal(
                 )
             except Exception as ae:
                 if isinstance(ae, AttributeError):
-                    # MutyLogger.get_instance().exception(ae) # exception like 'NoneType' object has no attribute 'status' at return stats.status in plugins is nornmal in preview_mode (no stats generated)
-                    # MutyLogger.get_instance().debug("type=%s, %s", type(payload.plugin_params),payload.plugin_params)
+                    # Glug.get_instance().exception(str(ae)) # exception like 'NoneType' object has no attribute 'status' at return stats.status in plugins is nornmal in preview_mode (no stats generated)
+                    # Glug.get_instance().debug(f"type={type(payload.plugin_params)}", detail=payload.plugin_params)
                     if payload.plugin_params.preview_mode:
                         # get the accumulated preview chunk and we're done
                         preview_chunk: list[dict] = deepcopy(mod.preview_chunk())
@@ -433,7 +427,7 @@ async def _ingest_file_internal(
                         ), preview_chunk
                 else:
                     # other exception
-                    MutyLogger.get_instance().exception(ae)
+                    Glug.get_instance().exception(str(ae))
 
                 if mod:
                     # this source failed
@@ -486,17 +480,14 @@ async def run_ingest_file_task(t: dict) -> bool:
     ingest_args["operation_id"] = t["operation_id"]
     pp = ingest_args.get("payload", {})  # save for later in case of errors
     ingest_args["payload"] = GulpIngestPayload.model_validate(ingest_args["payload"])
-    # MutyLogger.get_instance().debug(
-    #     "run_ingest_file_task, t=%s", t)
-    # )
+    # Glug.get_instance().debug(f"run_ingest_file_task, req_id={t.get('req_id')}", detail=t)
     try:
         await _ingest_file_internal(**ingest_args)
         return True
     except:
         ingest_args["payload"] = pp  # restore original payload for logging
-        MutyLogger.get_instance().exception(
-            "***ERROR*** in run_ingest_file_task, task=%s",
-            orjson.dumps(t, option=orjson.OPT_INDENT_2).decode(),
+        Glug.get_instance().exception(
+            f"run_ingest_file_task failed, req_id={t.get('req_id')}", detail=t
         )
         return False
 
@@ -549,10 +540,9 @@ async def _preview_or_enqueue_ingest_task(
 
     # handle preview mode: run ingestion synchronously and return preview chunk
     if payload.plugin_params.preview_mode:
-        MutyLogger.get_instance().warning(
-            "PREVIEW MODE (context_name=%s, source_name=%s), no context and source are created on the collab database.",
-            context_name,
-            source_name,
+        Glug.get_instance().warning(
+            f"PREVIEW MODE (context_name={context_name}, source_name={source_name}), "
+            "no context and source are created on the collab database."
         )
 
         # use "preview" as context and source
@@ -571,7 +561,7 @@ async def _preview_or_enqueue_ingest_task(
 
     # enqueue ingestion task on Redis
     kwds["payload"] = payload.model_dump(exclude_none=True)
-    # MutyLogger.get_instance().debug("ingest payload: %s", kwds["payload"])
+    # Glug.get_instance().debug("ingest payload", detail=kwds["payload"])
     task_msg = {
         "task_type": TASK_TYPE_INGEST,
         "operation_id": operation_id,
@@ -783,9 +773,9 @@ async def ingest_file_handler(
                 return JSONResponse(d, status_code=206)
 
             # ensure payload is valid
-            # MutyLogger.get_instance().debug("ingest_file_handler ingest payload(before model_validate): %s", payload_dict)
+            # Glug.get_instance().debug("ingest_file_handler ingest payload (before model_validate)", detail=payload_dict)
             payload = GulpIngestPayload.model_validate(payload_dict)
-            # MutyLogger.get_instance().debug("ingest_file_handler ingest payload(after model_validate): %s", payload)
+            # Glug.get_instance().debug("ingest_file_handler ingest payload (after model_validate)", detail=payload)
             try:
                 file_size = int(r.headers.get("size") or 0)
             except (TypeError, ValueError):
@@ -919,15 +909,11 @@ async def ingest_file_to_source_handler(
                 )
             payload.plugin_params = plugin_params
             plugin = plugin or src.plugin
-            MutyLogger.get_instance().debug(
-                "ingesting to existing source %s: context_name=%s, operation_id=%s, index=%s, user_id=%s, plugin=%s, plugin_params=%s",
-                src.id,
-                context_name,
-                src.operation_id,
-                op.index,
-                user_id,
-                plugin,
-                plugin_params,
+            Glug.get_instance().debug(
+                f"ingesting to existing source {src.id}: context_name={context_name}, "
+                f"operation_id={src.operation_id}, index={op.index}, user_id={user_id}, "
+                f"plugin={plugin}",
+                detail=plugin_params.model_dump(exclude_none=True),
             )
 
             return await _preview_or_enqueue_ingest_task(
@@ -1031,7 +1017,7 @@ async def ingest_file_local_handler(
 
     # compute local path
     path = muty.file.safe_path_join(GulpConfig.get_instance().path_ingest_local(), path)
-    MutyLogger.get_instance().info("ingesting local file: %s", path)
+    Glug.get_instance().info(f"ingesting local file: {path}")
     try:
         if not await muty.file.exists(path):
             raise FileNotFoundError(f"file not found: {path}")
@@ -1155,9 +1141,7 @@ async def ingest_file_local_to_source_handler(
     path: str = muty.file.safe_path_join(
         GulpConfig.get_instance().path_ingest_local(), path
     )
-    MutyLogger.get_instance().info(
-        "ingesting local file=%s, to source=%s", path, source_id
-    )
+    Glug.get_instance().info(f"ingesting local file={path}, to source={source_id}")
     try:
         if not await muty.file.exists(path):
             raise FileNotFoundError(f"file not found: {path}")
@@ -1256,7 +1240,7 @@ async def _ingest_raw_internal(
                 last=last,
             )
         except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
+            Glug.get_instance().exception(str(ex))
         finally:
             if mod:
                 await mod.update_final_stats_and_unload(flt=flt)
@@ -1349,7 +1333,7 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
     params.pop("r")
     if not plugin:
         plugin = "raw"
-        MutyLogger.get_instance().debug("using default 'raw' plugin")
+        Glug.get_instance().debug("using default 'raw' plugin")
 
     ServerUtils.dump_params(params)
     try:
@@ -1436,9 +1420,7 @@ async def ingest_local_list_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             local_dir: str = GulpConfig.get_instance().path_ingest_local()
-            MutyLogger.get_instance().info(
-                "listing local ingestion directory: %s", local_dir
-            )
+            Glug.get_instance().info(f"listing local ingestion directory: {local_dir}")
             if not await muty.file.exists(local_dir):
                 raise FileNotFoundError(f"directory not found: {local_dir}")
 

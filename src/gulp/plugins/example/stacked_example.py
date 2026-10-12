@@ -5,7 +5,6 @@ the records before ingestion
 
 from typing import override
 
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
@@ -33,7 +32,7 @@ class Plugin(GulpPluginBase):
 
         # tweak event duration ...
         record["event.duration"] = 9999
-        # MutyLogger.get_instance().error("********************* record processed by %s plugin: %s", self.display_name(), record)
+        # Glug.get_instance().debug(f"record processed by {self.display_name()} plugin", detail=record)
         return record
 
     @override

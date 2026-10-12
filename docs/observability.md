@@ -86,7 +86,8 @@ docker compose --profile metrics restart prometheus
 ## 5) Operational checks
 
 Prometheus provides backend metrics, while runtime logs remain the existing
-`MutyLogger` stdout/syslog stream. Watch task queue age, task failures,
+`Glug` stdout stream (plus an optional structured JSON file, see
+[logging.md](./logging.md)). Watch task queue age, task failures,
 PostgreSQL pool pressure, websocket enqueue timeouts, and OpenSearch health.
 Tune from observed service pressure rather than applying a generic production
 profile. Use [scaling.md](./scaling.md) to choose the tier to scale.

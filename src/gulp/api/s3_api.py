@@ -8,12 +8,12 @@ from types_aiobotocore_s3 import S3Client
 from typing import Optional
 import muty.file
 import muty.crypto
-from muty.log import MutyLogger
 from urllib.parse import urlparse
 
 from pyparsing.common import Any
 
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 
 
 class GulpS3:
@@ -88,10 +88,9 @@ class GulpS3:
                     self._client = await client_context.__aenter__()
                     from gulp.process import GulpProcess
 
-                    MutyLogger.get_instance().debug(
-                        "CONNECTED to s3-compatible storage: %s, main_process=%r",
-                        self._client,
-                        GulpProcess.get_instance().is_main_process(),
+                    Glug.get_instance().debug(
+                        f"CONNECTED to s3-compatible storage: {self._client}, "
+                        f"main_process={GulpProcess.get_instance().is_main_process()!r}"
                     )
 
         return self._client
@@ -103,10 +102,9 @@ class GulpS3:
                 await self._client.__aexit__(None, None, None)
                 from gulp.process import GulpProcess
 
-                MutyLogger.get_instance().debug(
-                    "SHUTDOWN s3-compatible storage client=%s DONE!, main_process=%r",
-                    self._client,
-                    GulpProcess.get_instance().is_main_process(),
+                Glug.get_instance().debug(
+                    f"SHUTDOWN s3-compatible storage client={self._client} DONE!, "
+                    f"main_process={GulpProcess.get_instance().is_main_process()!r}"
                 )
                 self._client = None
 
@@ -186,11 +184,7 @@ class GulpS3:
             try:
                 await client.head_bucket(Bucket=bucket_name)
                 d = {"status": "exists", "bucket": bucket_name}
-                MutyLogger.get_instance().debug(
-                    "bucket %s already exists in s3-compatible storage: %s",
-                    bucket_name,
-                    d,
-                )
+                Glug.get_instance().debug(f"bucket {bucket_name} already exists in s3-compatible storage")
                 return d
             except client.exceptions.ClientError as e:
                 error_code = e.response["Error"]["Code"]
@@ -204,8 +198,9 @@ class GulpS3:
                 "bucket": bucket_name,
                 "location": response.get("Location"),
             }
-            MutyLogger.get_instance().debug(
-                "created bucket %s in s3-compatible storage: %s", bucket_name, d
+            Glug.get_instance().debug(
+                f"created bucket {bucket_name} in s3-compatible storage, "
+                f"location={d['location']}"
             )
             return d
 
@@ -229,16 +224,12 @@ class GulpS3:
         try:
             await client.delete_bucket(Bucket=bucket_name)
             d = {"status": "deleted", "bucket": bucket_name}
-            MutyLogger.get_instance().debug(
-                "deleted bucket %s from s3-compatible storage: %s", bucket_name, d
-            )
+            Glug.get_instance().debug(f"deleted bucket {bucket_name} from s3-compatible storage")
             return d
         except client.exceptions.NoSuchBucket:
             d = {"status": "not_found", "bucket": bucket_name}
-            MutyLogger.get_instance().debug(
-                "bucket %s not found in s3-compatible storage for deletion: %s",
-                bucket_name,
-                d,
+            Glug.get_instance().debug(
+                f"bucket {bucket_name} not found in s3-compatible storage for deletion"
             )
             return d
         except Exception as e:
@@ -257,8 +248,8 @@ class GulpS3:
             response = await client.list_buckets()
             buckets = [bucket["Name"] for bucket in response.get("Buckets", [])]
             d = {"buckets": buckets}
-            MutyLogger.get_instance().debug(
-                "listed buckets in s3-compatible storage: %s", d
+            Glug.get_instance().debug(
+                f"listed {len(buckets)} bucket(s) in s3-compatible storage", detail=d
             )
             return d
         except Exception as e:
@@ -347,11 +338,10 @@ class GulpS3:
                 "tags": tags,
                 "next_continuation_token": next_token,
             }
-            MutyLogger.get_instance().debug(
-                "listed objects with tags %s from bucket %s in s3-compatible storage: %s",
-                tags,
-                bucket_name,
-                d,
+            Glug.get_instance().debug(
+                f"listed {len(matched_objects)} object(s) with tags {tags} "
+                f"from bucket {bucket_name} in s3-compatible storage",
+                detail=d,
             )
             return d
         except Exception as e:
@@ -459,11 +449,9 @@ class GulpS3:
                     "tags": tags,
                     "num_deleted": 0,
                 }
-                MutyLogger.get_instance().debug(
-                    "no objects found with tags %s in bucket %s for deletion in s3-compatible storage: %s",
-                    tags,
-                    bucket_name,
-                    d,
+                Glug.get_instance().debug(
+                    f"no objects found with tags {tags} in bucket {bucket_name} "
+                    "for deletion in s3-compatible storage"
                 )
                 return d
 
@@ -473,12 +461,9 @@ class GulpS3:
                 "tags": tags,
                 "num_deleted": num_deleted,
             }
-            MutyLogger.get_instance().debug(
-                "deleted %d objects with tags %s from bucket %s in s3-compatible storage: %s",
-                num_deleted,
-                tags,
-                bucket_name,
-                d,
+            Glug.get_instance().debug(
+                f"deleted {num_deleted} objects with tags {tags} from bucket {bucket_name} "
+                "in s3-compatible storage"
             )
             return d
         except client.exceptions.NoSuchBucket:
@@ -543,11 +528,9 @@ class GulpS3:
         uploaded_chunks: int = 0
         try:
             size: int = await muty.file.get_size(file_path)
-            MutyLogger.get_instance().debug(
-                "uploading file %s (%d bytes) to bucket %s in s3-compatible storage ...",
-                file_path,
-                size,
-                bucket_name,
+            Glug.get_instance().debug(
+                f"uploading file {file_path} ({size} bytes) to bucket {bucket_name} "
+                "in s3-compatible storage ..."
             )
 
             if size <= chunk_size:
@@ -588,11 +571,9 @@ class GulpS3:
                                     "PartNumber": part_number,
                                 }
                             )
-                            MutyLogger.get_instance().debug(
-                                "UPLOADED chunk %d for file %s to bucket %s in s3-compatible storage ...",
-                                part_number,
-                                file_path,
-                                bucket_name,
+                            Glug.get_instance().debug(
+                                f"UPLOADED chunk {part_number} for file {file_path} "
+                                f"to bucket {bucket_name} in s3-compatible storage ..."
                             )
                             part_number += 1
                             uploaded_chunks += 1
@@ -614,8 +595,8 @@ class GulpS3:
                             )
                         )
                     except Exception as ex:
-                        MutyLogger.get_instance().exception(
-                            "failed to abort multipart upload %s: %s", upload_id, ex
+                        Glug.get_instance().exception(
+                            f"failed to abort multipart upload {upload_id}: {ex}"
                         )
                     raise
 
@@ -624,12 +605,9 @@ class GulpS3:
                 "bucket": bucket_name,
                 "object": object_name,
             }
-            MutyLogger.get_instance().debug(
-                "DONE uploaded file %s (%d chunks) to bucket %s in s3-compatible storage: %s",
-                file_path,
-                uploaded_chunks,
-                bucket_name,
-                d,
+            Glug.get_instance().debug(
+                f"DONE uploaded file {file_path} ({uploaded_chunks} chunks) to bucket "
+                f"{bucket_name} as object {object_name} in s3-compatible storage"
             )
             return d
         except Exception as e:
@@ -676,22 +654,18 @@ class GulpS3:
                 tagging = tags
 
         try:
-            MutyLogger.get_instance().debug(
-                "uploading data(len=%d) to object %s in bucket %s in s3-compatible storage ...",
-                len(data),
-                object_name,
-                bucket_name,
+            Glug.get_instance().debug(
+                f"uploading data(len={len(data)}) to object {object_name} "
+                f"in bucket {bucket_name} in s3-compatible storage ..."
             )
             params = {"Bucket": bucket_name, "Key": object_name, "Body": data}
             if tagging:
                 params["Tagging"] = tagging
             await client.put_object(**params)
             d = {"status": "uploaded", "bucket": bucket_name, "object": object_name}
-            MutyLogger.get_instance().debug(
-                "uploaded data to object %s in bucket %s in s3-compatible storage: %s",
-                object_name,
-                bucket_name,
-                d,
+            Glug.get_instance().debug(
+                f"uploaded data to object {object_name} in bucket {bucket_name} "
+                "in s3-compatible storage"
             )
             return d
         except Exception as e:
@@ -748,11 +722,9 @@ class GulpS3:
             bucket_name = "gulp"
 
         try:
-            MutyLogger.get_instance().debug(
-                "downloading object %s from bucket %s in s3-compatible storage to file %s ...",
-                object_name,
-                bucket_name,
-                file_path,
+            Glug.get_instance().debug(
+                f"downloading object {object_name} from bucket {bucket_name} "
+                f"in s3-compatible storage to file {file_path} ..."
             )
 
             # fetch the object
@@ -783,11 +755,9 @@ class GulpS3:
                 "object": object_name,
                 "file_path": file_path,
             }
-            MutyLogger.get_instance().debug(
-                "downloaded file %s from bucket %s in s3-compatible storage: %s",
-                object_name,
-                bucket_name,
-                d,
+            Glug.get_instance().debug(
+                f"downloaded file {object_name} from bucket {bucket_name} "
+                f"in s3-compatible storage to {file_path}"
             )
             return d
         except Exception as e:
@@ -816,27 +786,21 @@ class GulpS3:
             bucket_name = "gulp"
 
         try:
-            MutyLogger.get_instance().debug(
-                "deleting object %s from bucket %s in s3-compatible storage ...",
-                object_name,
-                bucket_name,
+            Glug.get_instance().debug(
+                f"deleting object {object_name} from bucket {bucket_name} "
+                "in s3-compatible storage ..."
             )
             await client.delete_object(Bucket=bucket_name, Key=object_name)
             d = {"status": "deleted", "bucket": bucket_name, "object": object_name}
-            MutyLogger.get_instance().debug(
-                "deleted file %s from bucket %s in s3-compatible storage: %s",
-                object_name,
-                bucket_name,
-                d,
+            Glug.get_instance().debug(
+                f"deleted file {object_name} from bucket {bucket_name} in s3-compatible storage"
             )
             return d
         except client.exceptions.NoSuchKey:
             d = {"status": "not_found", "bucket": bucket_name, "object": object_name}
-            MutyLogger.get_instance().debug(
-                "file %s not found in bucket %s for deletion in s3-compatible storage: %s",
-                object_name,
-                bucket_name,
-                d,
+            Glug.get_instance().debug(
+                f"file {object_name} not found in bucket {bucket_name} "
+                "for deletion in s3-compatible storage"
             )
             return d
         except Exception as e:

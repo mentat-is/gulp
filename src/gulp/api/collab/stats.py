@@ -27,7 +27,6 @@ from typing import Annotated, Optional, Union, override
 import muty.log
 import muty.time
 from fastapi.websockets import WebSocketDisconnect
-from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import ARRAY, BIGINT, Boolean, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -53,6 +52,7 @@ from gulp.api.ws_api import (
     GulpRedisBroker,
 )
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 
 
 class RequestCanceledError(Exception):
@@ -284,12 +284,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             tuple[GulpRequestStats, bool]: The created or existing stats object and a boolean indicating if it was created (True) or already existed (False).
         """
 
-        MutyLogger.get_instance().debug(
-            "---> create_or_get_existing: req_id=%s, operation_id=%s, user_id=%s, stats_type=%s",
-            req_id,
-            operation_id,
-            user_id,
-            req_type,
+        Glug.get_instance().debug(
+            f"create_or_get_existing stats: req_id={req_id}, operation_id={operation_id}, "
+            f"user_id={user_id}, stats_type={req_type}"
         )
 
         # determine expiration time
@@ -301,7 +298,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
             if msecs_to_expiration > 0:
                 time_expire = time_updated + msecs_to_expiration
-            # MutyLogger.get_instance().debug("now=%s, setting stats %s time_expire to %s", time_updated, req_id, time_expire)
+            # Glug.get_instance().debug(f"now={time_updated}, setting stats {req_id} time_expire to {time_expire}")
 
         async with cls.advisory_lock(sess, req_id):
             # check if the stats already exists
@@ -309,9 +306,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 sess, obj_id=req_id, throw_if_not_found=False
             )
             if stats:
-                MutyLogger.get_instance().debug(
-                    "---> create_or_get_existing: req_id=%s, already existing, updating...",
-                    req_id,
+                Glug.get_instance().debug(
+                    f"create_or_get_existing stats: req_id={req_id} already exists, updating"
                 )
                 if stats.req_type == RequestStatsType.REQUEST_TYPE_QUERY.value and data:
                     # update data
@@ -324,10 +320,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                         stats.data = existing_d.model_dump()
 
                 if stats.status != GulpRequestStatus.ONGOING.value:
-                    MutyLogger.get_instance().warning(
-                        "existing stats %s is already finished with status=%s, not updating status or expiration time",
-                        req_id,
-                        stats.status,
+                    Glug.get_instance().warning(
+                        f"existing stats {req_id} is already finished with status={stats.status}, "
+                        "not updating status or expiration time"
                     )
                     # release transaction-scoped advisory lock acquired above
                     await sess.commit()
@@ -366,7 +361,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 server_id=server_id,
             )
         except Exception as e:
-            MutyLogger.get_instance().error("failed to create stats %s: %s", req_id, e)
+            Glug.get_instance().exception(f"failed to create stats {req_id}: {e}")
             await GulpRequestStats.delete_by_id_internal(
                 sess, req_id, throw_on_error=False
             )
@@ -389,7 +384,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             sess, req_id, throw_if_not_found=False
         )
         if stats and stats.status == GulpRequestStatus.CANCELED.value:
-            MutyLogger.get_instance().warning("request %s is canceled!", req_id)
+            Glug.get_instance().warning(f"request {req_id} is canceled")
             return True
         return False
 
@@ -431,12 +426,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             if data:
                 self.data = data
 
-            MutyLogger.get_instance().info(
-                "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
-                self.status,
-                (self.time_finished - self.time_created)
-                // 1000,  # time elapsed in seconds
-                self,
+            Glug.get_instance().info(
+                f"request finished: request={self.id}, status={self.status}, "
+                f"elapsed_time={(self.time_finished - self.time_created) // 1000}s",
+                detail=self.to_dict(exclude_none=True),
             )
             return await self.update(
                 sess,
@@ -472,8 +465,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             # default expires in 1 minutes
             time_expire: int = muty.time.now_msec() + 60 * 1000
 
-        MutyLogger.get_instance().warning(
-            "setting request %s as CANCELED, expires at %s", self.id, time_expire
+        Glug.get_instance().warning(
+            f"setting request {self.id} as CANCELED, expires at {time_expire}"
         )
         await self.set_finished(
             sess,
@@ -541,9 +534,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             deleted = await GulpRequestStats.delete_by_filter(
                 sess, flt, throw_if_not_found=False
             )
-            MutyLogger.get_instance().info(
-                "deleted %d ongoing stats (server_id=%s)", deleted, server_id
-            )
+            Glug.get_instance().info(f"deleted {deleted} ongoing stats (server_id={server_id})")
             return deleted
 
     async def update_ingestion_stats(
@@ -611,19 +602,15 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     # if the request is canceled or failed, mark one more source as failed
                     d.source_failed += 1
 
-                MutyLogger.get_instance().debug(
-                    "source_processed=%d, source_total=%d for request %s",
-                    d.source_processed,
-                    d.source_total,
-                    self.id,
+                Glug.get_instance().debug(
+                    f"source_processed={d.source_processed}, source_total={d.source_total} "
+                    f"for request {self.id}"
                 )
                 if d.source_processed >= d.source_total or ws_disconnected:
-                    MutyLogger.get_instance().debug(
-                        "all sources processed for request %s, processed=%d, total=%d (ws_disconnected=%r)",
-                        self.id,
-                        d.source_processed,
-                        d.source_total,
-                        ws_disconnected,
+                    Glug.get_instance().debug(
+                        f"all sources processed for request {self.id}, "
+                        f"processed={d.source_processed}, total={d.source_total} "
+                        f"(ws_disconnected={ws_disconnected!r})"
                     )
 
                     # request is finished
@@ -633,9 +620,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     if self.status != GulpRequestStatus.CANCELED.value:
                         if d.source_failed == d.source_total:
                             # if all sources failed, mark the request as failed
-                            MutyLogger.get_instance().error(
-                                "all sources failed for request %s, marking as FAILED",
-                                self.id,
+                            Glug.get_instance().error(
+                                f"all sources failed for request {self.id}, marking as FAILED"
                             )
                             self.status = GulpRequestStatus.FAILED.value
                         else:
@@ -646,8 +632,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
                 if set_expiration:
                     # set expiration time based on config
-                    MutyLogger.get_instance().debug(
-                        "setting expiration after completion of request %s", self.id
+                    Glug.get_instance().debug(
+                        f"setting expiration after completion of request {self.id}"
                     )
                     msecs_to_expiration: int = (
                         GulpConfig.get_instance().stats_ttl() * 1000
@@ -657,11 +643,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
             self.data = d.model_dump()
             if self.status != GulpRequestStatus.ONGOING.value:
-                MutyLogger.get_instance().info(
-                    "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
-                    self.status,
-                    (self.time_finished - self.time_created) // 1000,
-                    self,
+                Glug.get_instance().info(
+                    f"request finished: request={self.id}, status={self.status}, "
+                    f"elapsed_time={(self.time_finished - self.time_created) // 1000}s",
+                    detail=self.to_dict(exclude_none=True),
                 )
 
             return await super().update(
@@ -723,11 +708,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     else:
                         self.status = GulpRequestStatus.DONE.value
                 self.time_finished = muty.time.now_msec()
-                MutyLogger.get_instance().info(
-                    "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
-                    self.status,
-                    (self.time_finished - self.time_created) // 1000,
-                    self,
+                Glug.get_instance().info(
+                    f"request finished: request={self.id}, status={self.status}, "
+                    f"elapsed_time={(self.time_finished - self.time_created) // 1000}s",
+                    detail=self.to_dict(exclude_none=True),
                 )
             self.data = d.model_dump()
             return await super().update(
@@ -782,13 +766,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 d.completed_queries += inc_completed
                 d.failed_queries += len(errors or [])
 
-                MutyLogger.get_instance().info(
-                    "**QUERY REQ=%s num queries completed=%d/%d**, current total failed=%d, current total hits=%d",
-                    self.id,
-                    d.completed_queries,
-                    d.num_queries,
-                    d.failed_queries,
-                    d.total_hits,
+                Glug.get_instance().info(
+                    f"query stats update: request={self.id}, "
+                    f"completed={d.completed_queries}/{d.num_queries}, "
+                    f"failed={d.failed_queries}, total_hits={d.total_hits}"
                 )
 
                 # if the query has not been canceled
@@ -805,11 +786,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     self.time_finished = muty.time.now_msec()
                     self.status = final_status
                     # get time elapsed in seconds
-                    MutyLogger.get_instance().info(
-                        "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
-                        self.status,
-                        (self.time_finished - self.time_created) // 1000,
-                        self,
+                    Glug.get_instance().info(
+                        f"request finished: request={self.id}, status={self.status}, "
+                        f"elapsed_time={(self.time_finished - self.time_created) // 1000}s",
+                        detail=self.to_dict(exclude_none=True),
                     )
 
             self.data = d.model_dump()

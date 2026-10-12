@@ -10,7 +10,6 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query
 from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
 import muty.crypto
-from muty.log import MutyLogger
 from gulp.api.collab.link import GulpLink
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
@@ -20,6 +19,7 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.s3_api import GulpS3
 from gulp.api.server_api import GulpServer
+from gulp.glug import Glug
 
 router: APIRouter = APIRouter()
 
@@ -267,8 +267,8 @@ async def storage_file_get_by_id_handler(
 
             async def _cleanup() -> None:
                 """Remove the temporary download after its owner is done."""
-                MutyLogger.get_instance().debug(
-                    "cleanup file %s after response sent", file_path
+                Glug.get_instance().debug(
+                    f"cleanup file {file_path} after response sent"
                 )
                 await muty.file.delete_file_or_dir(file_path)
 

@@ -25,7 +25,6 @@ from typing import Annotated
 
 from fastapi import Depends
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.user_session import GulpUserSession
@@ -33,6 +32,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpRedisBroker
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
 
@@ -48,22 +48,18 @@ class Plugin(GulpPluginBase):
 
         # extensions may support pickling to be able to be re-initialized in worker processes
         super().__init__(path, module_name, pickled, **kwargs)
-        MutyLogger.get_instance().debug(
-            "path=%s, pickled=%r, kwargs=%s" % (path, pickled, kwargs)
-        )
+        Glug.get_instance().debug(f"path={path}, pickled={pickled!r}", detail=kwargs)
 
         # by calling is_running_in_main_process() they can distinguish between main and worker process
         # add api routes only once, in the main process
         if self.is_running_in_main_process():
             # in the first init, add api routes (we are in the MAIN process here)
             self._add_api_routes()
-            MutyLogger.get_instance().debug(
-                "%s extension plugin initialized" % (self.display_name)
-            )
+            Glug.get_instance().debug(f"{self.display_name} extension plugin initialized")
         else:
             # in the re-init, we are in the worker process here
-            MutyLogger.get_instance().debug(
-                "%s extension plugin re-initialized" % self.display_name()
+            Glug.get_instance().debug(
+                f"{self.display_name()} extension plugin re-initialized"
             )
 
     async def _run_in_worker(
@@ -75,9 +71,9 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> dict:
         # this runs in a task in a worker process
-        MutyLogger.get_instance().error(
-            "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
-            % (user_id, operation_id, ws_id, req_id)
+        Glug.get_instance().debug(
+            f"running in worker process, for user_id={user_id}, "
+            f"operation_id={operation_id}, ws_id={ws_id}, req_id={req_id}"
         )
         redis_broker = GulpRedisBroker.get_instance()
         await redis_broker.put(
@@ -100,9 +96,10 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ):
         # this runs in the main process
-        MutyLogger.get_instance().error(
-            "IN MAIN PROCESS, for user_id=%s, operation_id=%s, context_id=%s, ws_id=%s, req_id=%s"
-            % (user_id, operation_id, context_id, ws_id, req_id)
+        Glug.get_instance().debug(
+            f"running in main process, for user_id={user_id}, "
+            f"operation_id={operation_id}, context_id={context_id}, "
+            f"ws_id={ws_id}, req_id={req_id}"
         )
         # create an example stats
         async with GulpCollab.get_instance().session() as sess:
@@ -123,9 +120,10 @@ class Plugin(GulpPluginBase):
 
         # spawn coro in worker process
         tasks = []
-        MutyLogger.get_instance().debug(
-            "spawning process for extension example for user_id=%s, operation_id=%s, context_id=%s, ws_id=%s, req_id=%s"
-            % (user_id, operation_id, context_id, ws_id, req_id)
+        Glug.get_instance().debug(
+            f"spawning process for extension example for user_id={user_id}, "
+            f"operation_id={operation_id}, context_id={context_id}, "
+            f"ws_id={ws_id}, req_id={req_id}"
         )
         try:
             tasks.append(
@@ -137,10 +135,10 @@ class Plugin(GulpPluginBase):
 
             # and async wait for it to finish
             res = await asyncio.gather(*tasks, return_exceptions=True)
-            MutyLogger.get_instance().error("extension example done: %s" % res)
+            Glug.get_instance().debug("extension example done", detail=res)
 
         except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
+            Glug.get_instance().exception("extension example failed")
             raise JSendException(req_id=req_id) from ex
 
     def _add_api_routes(self):

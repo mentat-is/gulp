@@ -17,7 +17,6 @@ including the ability to add contexts and manage access permissions.
 
 from typing import Optional, override
 import muty.string
-from muty.log import MutyLogger
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +28,7 @@ from gulp.api.collab.structs import (
     GulpCollabBase,
 )
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+from gulp.glug import Glug
 from gulp.structs import ObjectAlreadyExists
 
 # every operation have a default context and source which are used to associate data when no specific context or source is provided.
@@ -178,9 +178,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         granted_user_ids: list[str] = None
         granted_user_group_ids: list[str] = None
         if set_default_grants:
-            MutyLogger.get_instance().info(
-                "setting default grants for operation=%s", name
-            )
+            Glug.get_instance().info(f"setting default grants for operation={name}")
             granted_user_ids = ["admin", "guest", "ingest"]
             granted_user_group_ids = [ADMINISTRATORS_GROUP_ID]
         try:
@@ -247,12 +245,12 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             if ctx:
                 # release transaction-scoped advisory lock acquired above
                 await sess.commit()
-                # MutyLogger.get_instance().debug(
-                #     "context %s already added to operation %s", name, self.id
+                # Glug.get_instance().debug(
+                #     f"context {name} already added to operation {self.id}"
                 # )
                 return ctx, False
 
-            # MutyLogger.get_instance().warning("creating new context: %s, id=%s", name, obj_id)
+            # Glug.get_instance().warning(f"creating new context: {name}, id={obj_id}")
 
             # create new context and link it to operation
             ctx = await GulpContext.create_internal(
@@ -277,9 +275,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             await sess.commit()
             await sess.refresh(self)
 
-            MutyLogger.get_instance().debug(
-                "context %s added to operation %s: %s", name, self.id, ctx
-            )
+            Glug.get_instance().debug(f"context {name} added to operation {self.id}: {ctx}")
             return ctx, True
 
     @override

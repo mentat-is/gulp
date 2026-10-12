@@ -20,11 +20,9 @@ import muty.crypto
 import muty.dict
 import muty.file
 import muty.jsend
-import muty.log
 import muty.os
 import muty.string
 import muty.xml
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -35,6 +33,7 @@ from gulp.api.collab.stats import (
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
@@ -219,10 +218,8 @@ class Plugin(GulpPluginBase):
                     else:
                         if field_name not in body_fields:
                             d[flat_key] = str(value)
-                except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        f"error in _pkt_to_dict, value: {value} "
-                    )
+                except Exception:
+                    Glug.get_instance().exception(f"error in _pkt_to_dict, value: {value}")
                     raise
 
             layer_instance = layer_instance.payload
@@ -523,7 +520,7 @@ class Plugin(GulpPluginBase):
             if packet.haslayer(SSH):
                 return "ssh", fields
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse ssh layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse ssh layer: {ex}")
 
         # Fallback: text banner heuristic
         if not payload_text:
@@ -635,12 +632,11 @@ class Plugin(GulpPluginBase):
                         fields["DNS.ns"] = clean_rrname
 
         except IndexError:
-            MutyLogger.get_instance().warning(
-                "skipping dns layer due to IndexError (likely truncated pcap): %s"
-                % packet.summary()
+            Glug.get_instance().warning(
+                f"skipping dns layer due to IndexError (likely truncated pcap): {packet.summary()}"
             )
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse dns layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse dns layer: {ex}")
 
         return "dns", fields
 
@@ -706,7 +702,7 @@ class Plugin(GulpPluginBase):
                     )
 
         except Exception as ex:
-            MutyLogger.get_instance().warning(f"failed to parse tls layer: {ex}")
+            Glug.get_instance().warning(f"failed to parse tls layer: {ex}")
 
         return "tls", fields
 
@@ -794,7 +790,7 @@ class Plugin(GulpPluginBase):
             if pdu is not None:
                 fields["SNMP.pdu_type"] = type(pdu).__name__
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse snmp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse snmp layer: {ex}")
 
         return "snmp", fields
 
@@ -817,7 +813,7 @@ class Plugin(GulpPluginBase):
             if version is not None:
                 fields["NTP.version"] = str(version)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse ntp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse ntp layer: {ex}")
 
         return "ntp", fields
 
@@ -834,7 +830,7 @@ class Plugin(GulpPluginBase):
             if proto_repr and proto_repr != "0x0":
                 fields["GRE.encapsulated_proto"] = proto_repr
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse gre layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse gre layer: {ex}")
         return "gre", fields
 
     @classmethod
@@ -852,7 +848,7 @@ class Plugin(GulpPluginBase):
             if vni is not None:
                 fields["VXLAN.vni"] = str(vni)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse vxlan layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse vxlan layer: {ex}")
         return "vxlan", fields
 
     @classmethod
@@ -873,7 +869,7 @@ class Plugin(GulpPluginBase):
             if dport is not None:
                 fields["SCTP.dport"] = str(dport)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse sctp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse sctp layer: {ex}")
         return "sctp", fields
 
     @classmethod
@@ -903,7 +899,7 @@ class Plugin(GulpPluginBase):
                         )
                     break
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse radius layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse radius layer: {ex}")
         return "radius", fields
 
     @classmethod
@@ -927,7 +923,7 @@ class Plugin(GulpPluginBase):
             if seq is not None:
                 fields["RTP.sequence"] = str(seq)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse rtp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse rtp layer: {ex}")
         return "rtp", fields
 
     @classmethod
@@ -969,7 +965,7 @@ class Plugin(GulpPluginBase):
                 else:
                     fields["DHCP6.msgtype"] = str(msgtype)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse dhcp6 layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse dhcp6 layer: {ex}")
         return "dhcp6", fields
 
     @classmethod
@@ -987,7 +983,7 @@ class Plugin(GulpPluginBase):
             if exch_repr and exch_repr not in ("??", "None"):
                 fields["ISAKMP.exchange_type"] = exch_repr
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse isakmp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse isakmp layer: {ex}")
         return "isakmp", fields
 
     @classmethod
@@ -1011,7 +1007,7 @@ class Plugin(GulpPluginBase):
                     if isinstance(version, bytes) and len(version) > 0:
                         fields["RIP.version"] = str(version[0])
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse rip layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse rip layer: {ex}")
         return "rip", fields
 
     @classmethod
@@ -1045,7 +1041,7 @@ class Plugin(GulpPluginBase):
                 elif name is not None:
                     fields["NetBIOS.rr_name"] = str(name).strip()
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse netbios layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse netbios layer: {ex}")
         return "netbios-ns", fields
 
     @classmethod
@@ -1067,7 +1063,7 @@ class Plugin(GulpPluginBase):
                 else:
                     fields["EAP.identity"] = str(identity)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse eap layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse eap layer: {ex}")
         return "eap", fields
 
     @classmethod
@@ -1100,7 +1096,7 @@ class Plugin(GulpPluginBase):
                 if sname_str:
                     fields["BOOTP.sname"] = sname_str
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse bootp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse bootp layer: {ex}")
         return "bootp", fields
 
     @classmethod
@@ -1163,7 +1159,7 @@ class Plugin(GulpPluginBase):
                 if realm_str:
                     fields["Kerberos.realm"] = str(realm_str)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse kerberos layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse kerberos layer: {ex}")
         return "kerberos", fields
 
     @classmethod
@@ -1251,7 +1247,7 @@ class Plugin(GulpPluginBase):
                     except (TypeError, ValueError):
                         pass
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse ldap layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse ldap layer: {ex}")
         return "ldap", fields
 
     @classmethod
@@ -1279,7 +1275,7 @@ class Plugin(GulpPluginBase):
                 fields["IPsec.spi"] = str(ah.spi)
                 fields["IPsec.seq"] = str(ah.seq)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse ipsec layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse ipsec layer: {ex}")
         return "ipsec", fields
 
     @classmethod
@@ -1297,7 +1293,7 @@ class Plugin(GulpPluginBase):
             if proto_repr and proto_repr != "??":
                 fields["PPP.proto"] = proto_repr
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse ppp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse ppp layer: {ex}")
         return "ppp", fields
 
     @classmethod
@@ -1317,7 +1313,7 @@ class Plugin(GulpPluginBase):
             if version is not None:
                 fields["NetFlow.version"] = str(version)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse netflow layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse netflow layer: {ex}")
         return "netflow", fields
 
     @classmethod
@@ -1349,7 +1345,7 @@ class Plugin(GulpPluginBase):
                 if opnum is not None:
                     fields["DCERPC.opnum"] = str(opnum)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse dcerpc layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse dcerpc layer: {ex}")
         return "dcerpc", fields
 
     @classmethod
@@ -1372,7 +1368,7 @@ class Plugin(GulpPluginBase):
             if status and status != "??":
                 fields["SMB2.status"] = status
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse smb2 layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse smb2 layer: {ex}")
         return "smb2", fields
 
     @classmethod
@@ -1405,7 +1401,7 @@ class Plugin(GulpPluginBase):
                             fields["TFTP.filename"] = str(fname)
                     break
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse tftp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse tftp layer: {ex}")
         return "tftp", fields
 
     @classmethod
@@ -1433,7 +1429,7 @@ class Plugin(GulpPluginBase):
             if version is not None:
                 fields["VRRP.version"] = str(version)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse vrrp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse vrrp layer: {ex}")
         return "vrrp", fields
 
     @classmethod
@@ -1462,7 +1458,7 @@ class Plugin(GulpPluginBase):
             if vip:
                 fields["HSRP.virtual_ip"] = str(vip)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse hsrp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse hsrp layer: {ex}")
         return "hsrp", fields
 
     @classmethod
@@ -1488,7 +1484,7 @@ class Plugin(GulpPluginBase):
             if version is not None:
                 fields["L2TP.version"] = str(version)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse l2tp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse l2tp layer: {ex}")
         return "l2tp", fields
 
     @classmethod
@@ -1526,7 +1522,7 @@ class Plugin(GulpPluginBase):
                     break
                 elt = elt.payload.getlayer(Dot11Elt) if elt.payload else None
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse dot11 layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse dot11 layer: {ex}")
         return "dot11", fields
 
     @classmethod
@@ -1559,7 +1555,7 @@ class Plugin(GulpPluginBase):
                     if qtype_repr and qtype_repr != "??":
                         fields["LLMNR.qtype"] = qtype_repr
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse llmnr layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse llmnr layer: {ex}")
         return "llmnr", fields
 
     @classmethod
@@ -1579,7 +1575,7 @@ class Plugin(GulpPluginBase):
             if msg_type and msg_type != "??":
                 fields["PPTP.ctrl_msg_type"] = msg_type
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse pptp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse pptp layer: {ex}")
         return "pptp", fields
 
     @classmethod
@@ -1608,7 +1604,7 @@ class Plugin(GulpPluginBase):
                 else:
                     fields["MGCP.endpoint"] = str(endpoint)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse mgcp layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse mgcp layer: {ex}")
         return "mgcp", fields
 
     @classmethod
@@ -1628,7 +1624,7 @@ class Plugin(GulpPluginBase):
             if msg and msg != "??":
                 fields["Skinny.msg"] = msg
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse skinny layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse skinny layer: {ex}")
         return "skinny", fields
 
     @classmethod
@@ -1662,7 +1658,7 @@ class Plugin(GulpPluginBase):
                 else:
                     fields["NTLM.message_type"] = str(msg_type)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse ntlm layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse ntlm layer: {ex}")
         return "ntlm", fields
 
     @classmethod
@@ -1703,7 +1699,7 @@ class Plugin(GulpPluginBase):
                         if val:
                             fields[key] = val
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse smb1 layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse smb1 layer: {ex}")
         return "smb1", fields
 
     @classmethod
@@ -1787,7 +1783,7 @@ class Plugin(GulpPluginBase):
                     )
                     fields["SPNEGO.selected_mech"] = _MECH_OID_NAMES.get(oid, oid)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse spnego layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse spnego layer: {ex}")
         return "spnego", fields
 
     @classmethod
@@ -1823,7 +1819,7 @@ class Plugin(GulpPluginBase):
                 if ipv4:
                     fields["LLTD.ipv4"] = str(ipv4)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse lltd layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse lltd layer: {ex}")
         return "lltd", fields
 
     @classmethod
@@ -1860,7 +1856,7 @@ class Plugin(GulpPluginBase):
                     if val:
                         fields[f"MobileIP.{attr}"] = str(val)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse mobileip layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse mobileip layer: {ex}")
         return "mobileip", fields
 
     @classmethod
@@ -1919,7 +1915,7 @@ class Plugin(GulpPluginBase):
                 if ocf is not None:
                     fields["BT.cmd_ocf"] = str(ocf)
         except Exception as ex:
-            MutyLogger.get_instance().debug(
+            Glug.get_instance().debug(
                 f"failed to parse bluetooth hci layer: {ex}"
             )
         return "bluetooth", fields
@@ -1953,7 +1949,7 @@ class Plugin(GulpPluginBase):
                 if llid and llid not in ("??", "None"):
                     fields["BTLE.llid"] = llid
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse btle layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse btle layer: {ex}")
         return "btle", fields
 
     @classmethod
@@ -1986,7 +1982,7 @@ class Plugin(GulpPluginBase):
 
             fields["CAN.variant"] = "CANFD" if has_canfd else "CAN"
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse can layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse can layer: {ex}")
         return "can", fields
 
     @classmethod
@@ -2015,7 +2011,7 @@ class Plugin(GulpPluginBase):
                     "device_to_host" if (int(info) & 1) else "host_to_device"
                 )
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse usb layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse usb layer: {ex}")
         return "usb", fields
 
     @classmethod
@@ -2056,7 +2052,7 @@ class Plugin(GulpPluginBase):
                 if src_panid is not None:
                     fields["Dot15d4.src_panid"] = f"0x{src_panid:04x}"
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse dot15d4 layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse dot15d4 layer: {ex}")
         return "dot15d4", fields
 
     @classmethod
@@ -2097,7 +2093,7 @@ class Plugin(GulpPluginBase):
                 if profile is not None:
                     fields["ZigBee.profile"] = f"0x{profile:04x}"
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse zigbee layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse zigbee layer: {ex}")
         return "zigbee", fields
 
     @classmethod
@@ -2149,7 +2145,7 @@ class Plugin(GulpPluginBase):
                 if dst is not None:
                     fields["6LoWPAN.mesh_dst"] = str(dst)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse sixlowpan layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse sixlowpan layer: {ex}")
         return "sixlowpan", fields
 
     @classmethod
@@ -2196,7 +2192,7 @@ class Plugin(GulpPluginBase):
             if rule_num is not None:
                 fields["PFLog.rule_number"] = str(rule_num)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse pflog layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse pflog layer: {ex}")
         return "pflog", fields
 
     @classmethod
@@ -2241,7 +2237,7 @@ class Plugin(GulpPluginBase):
             if ssap is not None:
                 fields["LLC.ssap"] = _SAP_NAMES.get(ssap, f"0x{ssap:02x}")
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse llc layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse llc layer: {ex}")
         return "llc", fields
 
     @classmethod
@@ -2278,7 +2274,7 @@ class Plugin(GulpPluginBase):
                     if name_str:
                         fields["IrDA.device_name"] = name_str
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse irda layer: {ex}")
+            Glug.get_instance().debug(f"failed to parse irda layer: {ex}")
         return "irda", fields
 
     @classmethod
@@ -2474,20 +2470,16 @@ class Plugin(GulpPluginBase):
             # fallback to pcap
             file_format = "pcap"
 
-        MutyLogger.get_instance().debug(
-            "detected file format: %s for file %s" % (file_format, file_path)
+        Glug.get_instance().debug(
+            f"detected file format: {file_format} for file {file_path}"
         )
 
-        MutyLogger.get_instance().debug("parsing file: %s" % (file_path))
+        Glug.get_instance().debug(f"parsing file: {file_path}")
         if file_format == "pcapng":
-            MutyLogger.get_instance().debug(
-                "using PcapNgReader reader on file: %s" % (file_path)
-            )
+            Glug.get_instance().debug(f"using PcapNgReader reader on file: {file_path}")
             reader = PcapNgReader
         else:
-            MutyLogger.get_instance().debug(
-                "using PcapReader reader on file: %s" % (file_path)
-            )
+            Glug.get_instance().debug(f"using PcapReader reader on file: {file_path}")
             reader = PcapReader
 
         doc_idx = 0

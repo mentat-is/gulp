@@ -75,6 +75,20 @@ remove the container with `docker container rm some_container_id` and run the co
 
 - environment variables to customize postgresql and opensearch installations are defined in [.env](../.env) which is automatically read by docker-compose when starting the containers.
 
+- before starting the server, `gulp` checks that PostgreSQL, OpenSearch and Redis accept TCP connections. If one does not, it logs an error with a hint for each unreachable service and exits with status `1`, without starting uvicorn:
+
+  ~~~text
+  2026-10-02 15:58:32.166 ERRR gulp.api.server_api:_check_required_services:519[]  PostgreSQL is not reachable at localhost:5432 ([Errno 111] Connection refused)
+    → hint: make PostgreSQL available to gulp: start the backing services (e.g. `docker compose --profile dev up -d`) or point postgres_url (or GULP_POSTGRES_URL) to a reachable server
+  2026-10-02 15:58:32.166 CRIT gulp.api.server_api:_check_required_services:527[]  gulp cannot start, required services unreachable: PostgreSQL
+  ~~~
+
+  start the services (in a devcontainer, run `docker compose --profile dev up -d` on the host) or fix the corresponding `*_url` in `gulp_cfg.json` / `GULP_*_URL` environment variable.
+
+  OpenSearch opens its port well before it can serve requests, so it is also probed over HTTP (without credentials): if it accepts the connection but drops it or answers `503`, gulp reports `OpenSearch at <host>:<port> accepts connections but is not ready yet` and exits the same way. This typically happens when gulp is started right after `docker compose up`: wait until `curl http://localhost:9200` answers and start gulp again (gulp does not wait or retry by itself).
+
+  The check only verifies reachability: wrong credentials or a missing database are still reported by the regular startup path.
+
 ## os
 
 - on linux, usually `vm.max_map_count` should be increased for OpenSearch, i.e. you see something like this in the error log when OpenSearch is starting up:

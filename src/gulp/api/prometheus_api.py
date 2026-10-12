@@ -13,9 +13,8 @@ import shutil
 import tempfile
 import time
 
-from muty.log import MutyLogger
-
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 
 # ── Ensure PROMETHEUS_MULTIPROC_DIR is set before importing prometheus_client ──
 # Workers write counters (OpenSearch ingestion, Redis publish, etc.) so
@@ -27,9 +26,7 @@ if _prom_dir:
 else:
     _prom_dir = tempfile.mkdtemp(prefix="gulp_prometheus_")
     _prom_dir_owner_pid = os.getpid()
-    MutyLogger.get_instance(name="gulp").debug(
-        "created Prometheus multiprocess temp dir: %s", _prom_dir
-    )
+    Glug.get_instance().debug(f"created Prometheus multiprocess temp dir: {_prom_dir}")
     os.environ["PROMETHEUS_MULTIPROC_DIR"] = _prom_dir
 
 from prometheus_client import (
@@ -112,8 +109,8 @@ class _PrometheusHttpMiddleware:
                         handler=handler,
                     ).observe(duration)
                 except Exception:
-                    MutyLogger.get_instance().exception(
-                        "failed to record HTTP metrics for %s", handler
+                    Glug.get_instance().exception(
+                        f"failed to record HTTP metrics for {handler}"
                     )
 
 
@@ -184,8 +181,8 @@ class GulpMetrics:
         if cls._multiproc_dir_owner_pid != os.getpid():
             return
         if cls._multiproc_dir and os.path.isdir(cls._multiproc_dir):
-            MutyLogger.get_instance().debug(
-                "cleaning up Prometheus multiprocess temp dir: %s", cls._multiproc_dir
+            Glug.get_instance().debug(
+                f"cleaning up Prometheus multiprocess temp dir: {cls._multiproc_dir}"
             )
             shutil.rmtree(cls._multiproc_dir, ignore_errors=True)
         cls._multiproc_dir = None
@@ -561,7 +558,7 @@ class GulpMetrics:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                MutyLogger.get_instance().exception(
+                Glug.get_instance().exception(
                     "error collecting Prometheus gauge metrics"
                 )
             await asyncio.sleep(interval)
@@ -907,12 +904,9 @@ def record_api_request_rejection(
             scope=scope,
         ).inc()
     except Exception:
-        MutyLogger.get_instance().exception(
-            "failed to record API request rejection endpoint=%s reason=%s task_type=%s scope=%s",
-            endpoint,
-            reason,
-            task_type,
-            scope,
+        Glug.get_instance().exception(
+            f"failed to record API request rejection endpoint={endpoint} "
+            f"reason={reason} task_type={task_type} scope={scope}"
         )
 
 
@@ -925,7 +919,7 @@ def setup_prometheus(app) -> None:
     if not GulpConfig.get_instance().prometheus_enabled():
         return
 
-    MutyLogger.get_instance().info("Enabling Prometheus metrics endpoint...")
+    Glug.get_instance().info("enabling Prometheus metrics endpoint")
 
     endpoint: str = GulpConfig.get_instance().prometheus_endpoint()
     app.add_middleware(_PrometheusHttpMiddleware, excluded_path=endpoint)
@@ -938,9 +932,7 @@ def setup_prometheus(app) -> None:
         tags=["monitoring"],
     )
 
-    MutyLogger.get_instance().info(
-        "Prometheus metrics enabled at %s", endpoint
-    )
+    Glug.get_instance().info(f"Prometheus metrics enabled at {endpoint}")
 
 
 def cleanup_prometheus() -> None:

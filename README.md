@@ -97,6 +97,7 @@ focused on the investigation.
 - [Query behavior](docs/query.md)
 - [Testing](docs/testing.md)
 - [Release process](docs/release.md)
+- [Logging (Glug)](docs/logging.md)
 - [Observability](docs/observability.md)
 - [Troubleshooting](docs/troubleshooting.md)
 

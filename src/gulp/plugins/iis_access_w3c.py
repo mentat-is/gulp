@@ -15,7 +15,6 @@ import os
 from typing import Any, override
 
 import muty.file
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import (
     GulpRequestStats,

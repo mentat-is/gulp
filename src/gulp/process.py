@@ -21,6 +21,7 @@ workloads across multiple processes while maintaining consistent state managemen
 
 import atexit
 import asyncio
+import logging
 import os
 import signal
 import sys
@@ -30,7 +31,6 @@ from multiprocessing import Queue
 
 from aiomultiprocess import Pool as AioProcessPool
 from asyncio_pool import AioPool as AioCoroPool
-from muty.log import MutyLogger
 
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
@@ -38,6 +38,7 @@ from gulp.api.redis_api import GulpRedis
 from gulp.api.s3_api import GulpS3
 from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 
 
 class GulpProcess:
@@ -63,8 +64,6 @@ class GulpProcess:
         # allow the main process to spawn worker processes
         self.process_pool: AioProcessPool = None
         self._log_level: int = None
-        self._logger_file_path: str = None
-        self._log_to_syslog: bool = False
         self._main_process: bool = True
         self._background_tasks: set[asyncio.Task] = set()
         self._worker_result_tasks: set[asyncio.Task] = set()
@@ -113,13 +112,17 @@ class GulpProcess:
         (e.g. flushing buffers, closing connections) when a worker exits.
         this method runs in the worker's event loop, after all tasks have finished.
         """
-        MutyLogger.get_instance().warning("worker_cleanup CALLED (pid=%d)", os.getpid())
+        async def _stop_glug_reconfig() -> None:
+            from gulp.glug import reconfig as glug_reconfig
+
+            await glug_reconfig.stop_subscriber()
 
         cleanup_steps = (
             ("background tasks", self.cancel_bg_tasks),
             ("thread pool", lambda: self.close_thread_pool(wait=True)),
             ("OpenSearch", lambda: GulpOpenSearch.get_instance().shutdown()),
             ("PostgreSQL", lambda: GulpCollab.get_instance().shutdown()),
+            ("glug reconfig subscriber", _stop_glug_reconfig),
             ("Redis", lambda: GulpRedis.get_instance().shutdown()),
             ("S3", lambda: GulpS3.get_instance().shutdown()),
         )
@@ -127,13 +130,9 @@ class GulpProcess:
             try:
                 await cleanup()
             except Exception:
-                MutyLogger.get_instance().exception(
-                    "worker cleanup failed for %s", name
-                )
+                Glug.get_instance().exception(f"worker cleanup failed for {name}")
 
-        MutyLogger.get_instance().warning(
-            "worker_cleanup COMPLETED! (pid=%d)", os.getpid()
-        )
+        Glug.get_instance().debug(f"worker_cleanup completed (pid={os.getpid()})")
 
     async def cancel_bg_tasks(self) -> None:
         """Cancel and await fire-and-forget tasks owned by this process."""
@@ -152,22 +151,19 @@ class GulpProcess:
         runs :meth:`worker_cleanup` in the same event loop used during worker
         initialization so that async cleanup code can safely await coroutines.
         """
-        MutyLogger.get_instance().warning(
-            "_worker_finalizer CALLED (pid=%d)", os.getpid()
-        )
         p = GulpProcess.get_instance()
         try:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(p.worker_cleanup())
-        except Exception as ex:
-            MutyLogger.get_instance().exception("_worker_finalizer error: %s", ex)
+        except Exception:
+            Glug.get_instance().exception("_worker_finalizer error")
 
     @staticmethod
     def _worker_exception_handler(ex: Exception):
         """
         for debugging purposes only, to catch exception eaten by the aiomultiprocess pool (they're critical exceptions, the process dies) ...
         """
-        # MutyLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
+        # Glug.get_instance().exception(f"worker exception: {ex}")
         return
 
     @staticmethod
@@ -182,9 +178,8 @@ class GulpProcess:
         server_id: str,
         spawn_key: str,
         log_level: int = None,
-        logger_file_path: str = None,
-        log_to_syslog: tuple[str, str] = None,
         workers_concurrency_max: int = 1,
+        log_file: str = None,
     ):  # type: ignore
         """
         initializes a worker process
@@ -195,15 +190,28 @@ class GulpProcess:
             server_id (str): the server ID
             spawn_key (str): the redis key to INCR to notify main process of worker process spawn
             log_level (int, optional): the log level. Defaults to None.
-            logger_file_path (str, optional): the logger file path to log to file. Defaults to None, cannot be used with log_to_syslog.
-            log_to_syslog (tuple[str,str], optional): the syslog address and facility to log to syslog. Defaults to (None, None).
-                if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
-                cannot be used with logger_file_path.
             workers_concurrency_max (int): runtime concurrency resolved by the main process.
+            log_file (str, optional): plain-text file shared with the main process, receiving the
+                same lines as stdout. Defaults to None (stdout only).
         """
-        # we do not have mutylogger initialized yet here, so we use print statements
-        print(
-            "_worker_initializer, server_id=%s, spawn_key=%s" % (server_id, spawn_key)
+        # bootstrap glug for this worker process as the very first thing, before any other
+        # logging (including GulpConfig's own early debug calls just below): log_level/
+        # log_file are already available as parameters here, so there is no reason
+        # to wait for finish_initialization() below — a bare or default-named get_instance()
+        # this early would lock in a level=INFO, name=None (root logger) instance that every
+        # .debug() call before the real bootstrap would silently be dropped against.
+        # finish_initialization() reconfigures the same name again — cheap and idempotent,
+        # kept as a safety net, mirroring GulpServer.start()/_lifespan_handler()'s main-process
+        # pattern.
+        Glug.get_instance(
+            name="glug-worker-%d" % (os.getpid()),
+            log_file=log_file,
+            level=log_level or logging.INFO,
+            process_role="worker",
+            reconfigure=True,
+        )
+        Glug.get_instance().debug(
+            f"_worker_initializer starting, server_id={server_id}, spawn_key={spawn_key}"
         )
 
         GulpProcess._apply_worker_runtime_config(workers_concurrency_max)
@@ -234,13 +242,12 @@ class GulpProcess:
                 p.finish_initialization(
                     server_id,
                     log_level=log_level,
-                    logger_file_path=logger_file_path,
-                    log_to_syslog=log_to_syslog,
+                    log_file=log_file,
                     is_worker=True,
                 )
             )
-        except Exception as ex:
-            MutyLogger.get_instance(name="gulp").exception(ex)
+        except Exception:
+            Glug.get_instance().exception("_worker_initializer failed")
 
         # notify main process via Redis counter (spawn_key)
         try:
@@ -251,24 +258,20 @@ class GulpProcess:
                     # refresh TTL in case main set a short expiry
                     loop.run_until_complete(redis_client.expire(spawn_key, 40))
                 except Exception:
-                    MutyLogger.get_instance().warning(
-                        "_worker_initializer: failed to INCR spawn key %s", spawn_key
+                    Glug.get_instance().warning(
+                        f"_worker_initializer: failed to INCR spawn key {spawn_key}"
                     )
         except Exception:
-            MutyLogger.get_instance().warning(
-                "_worker_initializer: redis client not available to INCR spawn key %s",
-                spawn_key,
+            Glug.get_instance().warning(
+                "_worker_initializer: redis client not available to INCR spawn key "
+                f"{spawn_key}"
             )
 
         # register cleanup to run when this worker process exits
         atexit.register(GulpProcess._worker_finalizer)
-        MutyLogger.get_instance().warning(
-            "_worker_initializer DONE, server_id=%s, sys.path=%s, logger level=%d, logger_file_path=%s, spawn_key=%s",
-            server_id,
-            sys.path,
-            MutyLogger.get_instance().level,
-            logger_file_path,
-            spawn_key,
+        Glug.get_instance().debug(
+            f"_worker_initializer done, server_id={server_id}, sys.path={sys.path}, "
+            f"spawn_key={spawn_key}"
         )
 
     async def close_thread_pool(self, wait: bool = True):
@@ -279,9 +282,9 @@ class GulpProcess:
             wait (bool, optional): whether to wait for all threads to finish. Defaults to True
         """
         if self.thread_pool:
-            MutyLogger.get_instance().debug("closing thread pool...")
+            Glug.get_instance().debug("closing thread pool")
             self.thread_pool.shutdown(wait)
-            MutyLogger.get_instance().debug("thread pool closed!")
+            Glug.get_instance().debug("thread pool closed")
 
     async def close_process_pool(self):
         """
@@ -291,24 +294,24 @@ class GulpProcess:
             pool = self.process_pool
             join_task: asyncio.Task | None = None
             pool_stopped = False
-            MutyLogger.get_instance().debug("closing mp pool %s ..." % (pool))
+            Glug.get_instance().debug(f"closing mp pool {pool}")
             try:
                 pool.close()
-                MutyLogger.get_instance().debug("joining mp pool...")
+                Glug.get_instance().debug("joining mp pool")
                 join_task = asyncio.create_task(pool.join())
                 try:
                     await asyncio.wait_for(asyncio.shield(join_task), timeout=5)
                     pool_stopped = True
-                    MutyLogger.get_instance().debug("mp pool JOINED!")
+                    Glug.get_instance().debug("mp pool joined")
                 except asyncio.TimeoutError:
                     # If the graceful join times out, workers are stuck. Shielding
                     # keeps the join alive so it can reap them after termination.
-                    MutyLogger.get_instance().warning(
-                        "mp pool join timed out, terminating forcefully..."
+                    Glug.get_instance().warning(
+                        "mp pool join timed out, terminating forcefully"
                     )
                     # Forcefully terminate the workers, then finish joining.
                     pool.terminate()
-                    MutyLogger.get_instance().warning("mp pool FORCED terminated!")
+                    Glug.get_instance().warning("mp pool forced terminated")
                     await join_task
                     pool_stopped = True
             except asyncio.CancelledError:
@@ -318,8 +321,8 @@ class GulpProcess:
                         await asyncio.shield(join_task)
                     pool_stopped = True
                 raise
-            except Exception as ex:
-                MutyLogger.get_instance().exception(ex)
+            except Exception:
+                Glug.get_instance().exception("error closing process pool")
             finally:
                 if pool_stopped:
                     drain_tasks = tuple(self._worker_result_tasks)
@@ -330,14 +333,13 @@ class GulpProcess:
                     self._worker_result_tasks.difference_update(drain_tasks)
                 # clear the reference to the pool
                 self.process_pool = None
-                MutyLogger.get_instance().debug("close_process_pool DONE!")
+                Glug.get_instance().debug("close_process_pool done")
 
     async def finish_initialization(
         self,
         server_id: str,
         log_level: int = None,
-        logger_file_path: str = None,
-        log_to_syslog: tuple[str, str] = None,
+        log_file: str = None,
         is_worker: bool = False,
     ) -> None:
         """
@@ -346,10 +348,10 @@ class GulpProcess:
         Args:
             server_id (str): the server ID
             log_level (int, optional): the log level for the logger. Defaults to None.
-            logger_file_path (str, optional): the log file path for the logger. Defaults to None, cannot be used with log_to_syslog.
-            log_to_syslog (bool, optional): whether to log to syslog. Defaults to (None, None).
-                if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
-                cannot be used with logger_file_path.
+            log_file (str, optional): plain-text file shared by every gulp process, receiving the
+                same lines as stdout. Defaults to None (stdout only; main already bootstraps its own
+                instance earlier in GulpServer._startup(); this is only used to bootstrap each
+                worker's own instance).
             is_worker (bool): True if this is a worker process, False if main process
         """
 
@@ -364,17 +366,13 @@ class GulpProcess:
             ###############################
             # main process initialization
             ###############################
-            MutyLogger.get_instance().info(
-                "initializing MAIN process (server_id=%s) ...", self.server_id
-            )
+            Glug.get_instance().info(f"initializing MAIN process (server_id={self.server_id})")
             self._log_level = log_level
-            self._logger_file_path = logger_file_path
-            self._log_to_syslog = log_to_syslog
 
             # creates the process pool and shared queue
-            MutyLogger.get_instance().debug(
-                "creating process pool (respawn after %d tasks)..."
-                % (GulpConfig.get_instance().parallel_processes_respawn_after_tasks())
+            Glug.get_instance().debug(
+                "creating process pool (respawn after "
+                f"{GulpConfig.get_instance().parallel_processes_respawn_after_tasks()} tasks)"
             )
 
             num_workers: int = GulpConfig.get_instance().workers_max()
@@ -383,10 +381,8 @@ class GulpProcess:
             spawn_key: str = "gulp:spawn:%s:%d" % (server_id, int(time.time()))
             try:
                 await GulpRedis.get_instance().client().set(spawn_key, 0, ex=40)
-            except Exception as ex:
-                MutyLogger.get_instance().exception(
-                    "failed to create/reset spawn key in redis: %s", ex
-                )
+            except Exception:
+                Glug.get_instance().exception("failed to create/reset spawn key in redis")
                 raise
 
             # load extension plugins
@@ -404,17 +400,14 @@ class GulpProcess:
                 initargs=(
                     server_id,
                     spawn_key,
-                    MutyLogger.log_level,
-                    MutyLogger.logger_file_path,
-                    self._log_to_syslog,
+                    log_level,
                     child_concurrency,
+                    log_file,
                 ),
             )
 
             # wait for all workers to be spawned by polling Redis counter
-            MutyLogger.get_instance().debug(
-                "waiting for all processes to be spawned ..."
-            )
+            Glug.get_instance().debug("waiting for all processes to be spawned")
             start_time = time.time()
             timeout = 60
             spawned_count = 0
@@ -427,39 +420,41 @@ class GulpProcess:
                 if spawned_count >= num_workers:
                     break
                 if time.time() - start_time > timeout:
-                    MutyLogger.get_instance().critical(
-                        "timeout waiting for workers to spawn (got %d/%d)",
-                        spawned_count,
-                        num_workers,
+                    Glug.get_instance().critical(
+                        f"timeout waiting for workers to spawn (got {spawned_count}/{num_workers})"
                     )
                     raise TimeoutError("timeout waiting for workers to spawn")
 
                 await asyncio.sleep(0.1)
 
-            MutyLogger.get_instance().debug("all %d processes spawned!", spawned_count)
+            Glug.get_instance().debug(f"all {spawned_count} processes spawned")
 
             # load extension plugins
             await GulpServer.get_instance()._load_extension_plugins()
 
-            MutyLogger.get_instance().warning(
-                "MAIN process initialized, server_id=%s, sys.path=%s",
-                server_id,
-                sys.path,
+            Glug.get_instance().warning(
+                f"MAIN process initialized, server_id={server_id}, sys.path={sys.path}"
             )
         else:
             ###############################
             # worker process initialization
             ###############################
             # in the worker process, initialize redis, opensearch and collab clients (main process already did it)
-            # we must initialize mutylogger here
-            MutyLogger.get_instance(
-                name="gulp-worker-%d" % (os.getpid()),
-                logger_file_path=logger_file_path,
-                log_to_syslog=log_to_syslog,
-                level=log_level,
+            # bootstrap glug for this worker process as the very first thing, before
+            # any other logging in this branch: every call below must already see
+            # the requested level, not the bare-instance INFO default.
+            # Its live level/dev_mode/log_dir reconfig subscriber (independent from
+            # GulpRedisBroker's pub/sub, which workers deliberately do not get)
+            # starts later, once Redis is actually initialized below.
+            Glug.get_instance(
+                name="glug-worker-%d" % (os.getpid()),
+                log_file=log_file,
+                level=log_level or logging.INFO,
+                process_role="worker",
+                reconfigure=True,
             )
-            MutyLogger.get_instance().info(
-                "initializing WORKER process (server_id=%s) ....", self.server_id
+            Glug.get_instance().info(
+                f"initializing WORKER process (server_id={self.server_id})"
             )
             # read configuration in worker
             GulpConfig.get_instance()
@@ -471,6 +466,11 @@ class GulpProcess:
             GulpRedis.get_instance().initialize(
                 server_id, main_process=False
             )  # do not initialize pub/sub in worker process, just redis client
+
+            from gulp.glug import reconfig as glug_reconfig
+
+            await glug_reconfig.sync_from_persisted_state()
+            await glug_reconfig.start_subscriber()
 
         # always connect to storage (both worker/main) since both may need it
         if self._main_process:

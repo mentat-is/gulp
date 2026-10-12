@@ -19,7 +19,6 @@ import re._constants
 import muty.dict
 import muty.file
 import muty.os
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Match
 
@@ -32,6 +31,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
@@ -179,10 +179,10 @@ class Plugin(GulpPluginBase):
                     break
             else:
                 # no match
-                MutyLogger.get_instance().warning(f"regex did not match: {line}")
+                Glug.get_instance().debug(f"regex did not match: {line}")
 
             doc_idx += 1
-        MutyLogger.get_instance().warning(
-            f"exit from the loop with {doc_idx} readed and status {stats.status}"
+        Glug.get_instance().info(
+            f"exit from the loop with {doc_idx} read and status {stats.status}"
         )
         return stats.status

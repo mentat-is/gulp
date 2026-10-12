@@ -21,7 +21,6 @@ from typing import Optional, override
 import muty.crypto
 import muty.string
 import orjson
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Insert, String
@@ -42,6 +41,7 @@ from gulp.api.ws_api import (
     GulpCollabCreatePacket,
     GulpRedisBroker,
 )
+from gulp.glug import Glug
 
 
 class GulpNoteEdit(BaseModel):
@@ -196,17 +196,14 @@ class GulpNoteAttachment:
             try:
                 await asyncio.shield(sess.rollback())
             except (Exception, asyncio.CancelledError) as rollback_error:
-                MutyLogger.get_instance().exception(
-                    "failed to roll back note attachment insert: %s",
-                    rollback_error,
+                Glug.get_instance().exception(
+                    f"failed to roll back note attachment insert: {rollback_error}"
                 )
             try:
                 await asyncio.shield(GulpS3.get_instance().delete_file(attachment.id))
             except (Exception, asyncio.CancelledError) as cleanup_error:
-                MutyLogger.get_instance().exception(
-                    "failed to compensate note attachment upload %s: %s",
-                    attachment.id,
-                    cleanup_error,
+                Glug.get_instance().exception(
+                    f"failed to compensate note attachment upload {attachment.id}: {cleanup_error}"
                 )
             raise
         return attachment
@@ -451,7 +448,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             the number of notes created
         """
         if not docs:
-            MutyLogger.get_instance().warning("no documents provided, no notes created")
+            Glug.get_instance().warning("no documents provided, no notes created")
             return 0
 
         tt = GulpNote._normalise_auto_note_tags(tags, name)
@@ -477,7 +474,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
 
         # creates a list of notes, one for each document
         notes: list[dict] = []
-        MutyLogger.get_instance().info("creating a bulk of %d notes ..." % len(docs))
+        Glug.get_instance().info(f"creating a bulk of {len(docs)} notes")
         for idx, doc in enumerate(docs):
             # remove highlights from the document, if any
             highlights: dict = doc.get("_highlight", {})
@@ -549,9 +546,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         res = await sess.execute(stmt)
         await sess.commit()
         inserted_ids = [row[0] for row in res]
-        MutyLogger.get_instance().info(
-            "written %d notes on collab db", len(inserted_ids)
-        )
+        Glug.get_instance().info(f"written {len(inserted_ids)} notes on collab db")
 
         # send on ws, only keep the ones inserted (to avoid sending duplicates, but we always send something if "last" is set)
         inserted_id_set = set(inserted_ids)
@@ -579,8 +574,9 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 req_id=req_id,
                 d=p.model_dump(exclude_none=True),
             )
-            MutyLogger.get_instance().debug(
-                "sent (inserted) notes on the websocket %s: notes=%d,inserted=%d,last=%r (if 'notes' > 'inserted', duplicate notes were skipped!)"
-                % (ws_id, len(notes), len(inserted_notes), last)
+            Glug.get_instance().debug(
+                f"sent (inserted) notes on the websocket {ws_id}: "
+                f"notes={len(notes)},inserted={len(inserted_notes)},last={last!r} "
+                "(if 'notes' > 'inserted', duplicate notes were skipped!)"
             )
         return len(inserted_notes)

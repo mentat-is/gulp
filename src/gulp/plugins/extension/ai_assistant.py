@@ -72,11 +72,11 @@ from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.plugins.extension.__shared_object import Plugin as SharedObjectPlugin
 
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 
 _CONFIG_OBJECT_ID = "ai_configuration"
 _CONFIG_OBJECT_TYPE = "plugin_configuration"
@@ -184,7 +184,7 @@ class Plugin(GulpPluginBase):
                 description="tell to ai to explain the events logs provided if there are some correlation about this events based by context and timeline",
             )
         else:
-            MutyLogger.get_instance().debug("initialized in worker process")
+            Glug.get_instance().debug("initialized in worker process")
 
     @staticmethod
     def _configuration_values(obj: dict[str, Any]) -> dict[str, Any]:
@@ -370,8 +370,8 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
             except RequestCanceledError as e:
                 raise e
             except Exception as e:
-                MutyLogger.get_instance().warning(
-                    f"Ai response with error {e}\n retries number {attempt} after {delay} seconds...\n"
+                Glug.get_instance().warning(
+                    f"AI response error: {e}, retry {attempt} after {delay} seconds"
                 )
                 last_exception = e
                 await asyncio.sleep(delay)
@@ -408,8 +408,8 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
                 async with session.post(url, headers=headers, json=payload) as r:
                     if r.status != 200:
                         error_msg = await r.text()
-                        MutyLogger.get_instance().error(
-                            f"API Error: {r.status} - {error_msg}"
+                        Glug.get_instance().error(
+                            f"API error: {r.status} - {error_msg}"
                         )
                         await redis_broker.put(
                             t="ai_assistant_error",

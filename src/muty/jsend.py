@@ -4,6 +4,7 @@ JSend is a specification for building JSON APIs that respond in a consistent for
 For more information, see https://github.com/omniti-labs/jsend.
 """
 
+import logging
 import orjson
 from enum import StrEnum
 from pprint import pprint
@@ -12,8 +13,9 @@ from typing import Any, Optional
 import muty.log
 import muty.string
 import muty.time
-from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
+
+_logger = logging.getLogger(__name__)
 
 
 class JSendException(Exception):
@@ -128,9 +130,7 @@ class JSendResponse(BaseModel):
             js["data"] = data
 
         if print_response:
-            MutyLogger.get_instance().info(
-                orjson.dumps(js, option=orjson.OPT_INDENT_2).decode()
-            )
+            _logger.info(orjson.dumps(js, option=orjson.OPT_INDENT_2).decode())
         return js
 
     @staticmethod
@@ -150,9 +150,7 @@ class JSendResponse(BaseModel):
         if req_id:
             js["req_id"] = req_id
         if print_response:
-            MutyLogger.get_instance().info(
-                orjson.dumps(js, option=orjson.OPT_INDENT_2).decode()
-            )
+            _logger.info(orjson.dumps(js, option=orjson.OPT_INDENT_2).decode())
         return js
 
     @staticmethod
@@ -209,9 +207,7 @@ class JSendResponse(BaseModel):
             d["__error"][k] = v
 
         if print_response:
-            MutyLogger.get_instance().error(
-                orjson.dumps(js, option=orjson.OPT_INDENT_2).decode()
-            )
+            _logger.error(orjson.dumps(js, option=orjson.OPT_INDENT_2).decode())
         return js
 
     @staticmethod

@@ -41,7 +41,6 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,6 +90,7 @@ from gulp.api.ws_api import (
     GulpQueryDonePacket,
     GulpRedisBroker,
 )
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters, GulpPluginParameters, ObjectNotFound
 
@@ -236,10 +236,8 @@ async def _query_raw_chunk_callback(
     - creates notes if requested (and send them to the websocket as well)
     """
     cb_context: dict = kwargs["cb_context"]
-    MutyLogger.get_instance().debug(
-        "query chunk callback, chunk_num=%d, cb_context=%s",
-        chunk_num,
-        muty.string.make_shorter(cb_context, max_len=260),
+    Glug.get_instance().debug(
+        f"query chunk callback, chunk_num={chunk_num}", detail=cb_context
     )
 
     cb_context["total_hits"] = total_hits
@@ -360,7 +358,7 @@ async def run_query_task(t: dict) -> bool:
 
     This function rehydrates the payload and calls the existing `process_queries` routine.
     """
-    # MutyLogger.get_instance().debug("run_query_task, t=%s", muty.string.make_shorter(str(t),max_len=260))
+    # Glug.get_instance().debug(f"run_query_task, req_id={t.get('req_id')}", detail=t)
     extension = t.get("params", {}).get("extension")
     if extension:
         mod = None
@@ -368,8 +366,9 @@ async def run_query_task(t: dict) -> bool:
             mod = await GulpPluginBase.load(extension, extension=True)
             return await mod.run_queued_task(t)
         except Exception:
-            MutyLogger.get_instance().exception(
-                "***ERROR*** in queued extension query task, extension=%s", extension
+            Glug.get_instance().exception(
+                f"queued extension query task failed, extension={extension}",
+                detail=t,
             )
             return False
         finally:
@@ -442,9 +441,8 @@ async def run_query_task(t: dict) -> bool:
             )
             return True
     except Exception as ex:
-        MutyLogger.get_instance().exception(
-            "***ERROR*** in run_query_task, task=%s",
-            orjson.dumps(t, option=orjson.OPT_INDENT_2).decode(),
+        Glug.get_instance().exception(
+            f"run_query_task failed, req_id={t.get('req_id')}", detail=t
         )
         return False
 
@@ -490,17 +488,16 @@ async def run_query(
     stats: GulpRequestStats = None
     exx: Exception = None
     cb_context: dict | None = None
-    MutyLogger.get_instance().debug(
-        "---> run_query: user_id=%s, req_id=%s, operation_id=%s, ws_id=%s, gq=%s, q_options=%s, index=%s, plugin=%s, plugin_params=%s",
-        user_id,
-        req_id,
-        operation_id,
-        ws_id,
-        muty.string.make_shorter(str(gq), max_len=260),
-        q_options,
-        index,
-        plugin,
-        plugin_params,
+    Glug.get_instance().debug(
+        f"run_query: user_id={user_id}, req_id={req_id}, "
+        f"operation_id={operation_id}, ws_id={ws_id}, index={index}, plugin={plugin}",
+        detail={
+            "gq": gq.model_dump(exclude_none=True),
+            "q_options": q_options.model_dump(exclude_none=True),
+            "plugin_params": (
+                plugin_params.model_dump(exclude_none=True) if plugin_params else None
+            ),
+        },
     )
 
     try:
@@ -555,9 +552,7 @@ async def run_query(
                         callback=_query_raw_chunk_callback,
                         cb_context=cb_context,
                     )
-                    # MutyLogger.get_instance().debug(
-                    #     "after search_dsl, cb_context=%s", cb_context
-                    # )
+                    # Glug.get_instance().debug("after search_dsl", detail=cb_context)
                     total_hits = cb_context.get("total_hits", 0)
                     total_processed = cb_context.get("total_processed", 0)
 
@@ -579,8 +574,8 @@ async def run_query(
                 return total_processed, total_hits, q_options.name, False
             except Exception as ex:
                 exx = ex
-                MutyLogger.get_instance().exception(
-                    "EXCEPTION=%s,\nquery=\n%s", str(ex), gq
+                Glug.get_instance().exception(
+                    f"query {gq.q_name} failed: {ex}", detail=gq.model_dump(exclude_none=True)
                 )
                 raise
             finally:
@@ -631,13 +626,9 @@ async def run_query_batch(
     or an Exception instance for that query.
     This function also performs the aggregated stats update for non-external queries.
     """
-    MutyLogger.get_instance().debug(
-        "---> run_query_batch: user_id=%s, req_id=%s, operation_id=%s, ws_id=%s, num_queries=%d",
-        user_id,
-        req_id,
-        operation_id,
-        ws_id,
-        len(queries),
+    Glug.get_instance().debug(
+        f"run_query_batch: user_id={user_id}, req_id={req_id}, "
+        f"operation_id={operation_id}, ws_id={ws_id}, num_queries={len(queries)}",
     )
 
     # normalize inputs
@@ -661,7 +652,7 @@ async def run_query_batch(
                 GulpQuery.model_validate(q_item) if isinstance(q_item, dict) else q_item
             )
         except Exception as ex:
-            MutyLogger.get_instance().exception("invalid query in batch: %s", ex)
+            Glug.get_instance().exception(f"invalid query in batch: {ex}")
             per_query_results.append(ex)
             continue
 
@@ -686,7 +677,7 @@ async def run_query_batch(
         except RequestCanceledError:
             per_query_results.append((0, 0, q_opts.name, True))
         except Exception as ex:
-            MutyLogger.get_instance().exception("error running query in batch: %s", ex)
+            Glug.get_instance().exception(f"error running query in batch: {ex}")
             per_query_results.append(ex)
             # continue to next query
 
@@ -720,7 +711,7 @@ async def run_query_batch(
                     except WebSocketDisconnect:
                         pass
         except Exception:
-            MutyLogger.get_instance().exception(
+            Glug.get_instance().exception(
                 "error updating aggregated stats in run_query_batch"
             )
 
@@ -802,17 +793,14 @@ async def process_queries(
             and not stats_created
             and GulpRequestStats.is_terminal_status(stats.status)
         ):
-            MutyLogger.get_instance().warning(
-                "query request %s already terminal with status=%s, skipping duplicate request",
-                req_id,
-                stats.status,
+            Glug.get_instance().warning(
+                f"query request {req_id} already terminal with status={stats.status}, "
+                "skipping duplicate request"
             )
             return stats.status == GulpRequestStatus.CANCELED.value
 
         if stats and stats.status == GulpRequestStatus.CANCELED.value:
-            MutyLogger.get_instance().warning(
-                "request %s already canceled, abort processing!", req_id
-            )
+            Glug.get_instance().warning(f"request {req_id} already canceled, aborting processing")
             req_canceled = True
             return req_canceled
 
@@ -958,9 +946,9 @@ async def _query_raw_sync(
     q_options.fields = "*"
     if q_options.preview_mode:
         q_options.limit = q_options.preview_mode_max_records
-        MutyLogger.get_instance().debug("running preview query %s" % (q))
+        Glug.get_instance().debug("running preview query", detail=q)
     else:
-        MutyLogger.get_instance().debug("running sync raw query %s" % (q))
+        Glug.get_instance().debug("running sync raw query", detail=q)
     mod: GulpPluginBase = None
     total_hits: int = 0
     docs: list[dict] = []
@@ -2448,9 +2436,7 @@ async def _export_json_internal(
                 f=f,
             )
     except Exception as ex:
-        MutyLogger.get_instance().error(
-            "export json failed, removing file %s" % file_path
-        )
+        Glug.get_instance().exception(f"export json failed, removing file {file_path}")
         await muty.file.delete_file_or_dir(file_path)
         return ex
     return file_path
@@ -2549,9 +2535,7 @@ async def query_gulp_export_json_handler(
             os.close(fd)
 
             async def _cleanup() -> None:
-                MutyLogger.get_instance().debug(
-                    "cleanup file %s after response sent", file_path
-                )
+                Glug.get_instance().debug(f"cleanup file {file_path} after response sent")
                 await muty.file.delete_file_or_dir(file_path)
 
             # execute export operation in worker process (non-blocking)

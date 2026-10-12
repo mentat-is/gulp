@@ -4,13 +4,10 @@ import zlib
 from enum import StrEnum
 from typing import Annotated, Any, Awaitable, Optional
 
-import muty
-import muty.string
 import muty.time
 import orjson
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,6 +17,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.redis_api import GulpRedis, _MAIN_REDIS_CHANNEL
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.structs import GulpPluginParameters
 
 
@@ -179,20 +177,14 @@ class GulpWsData(BaseModel):
             payload_data_type
             and payload_data_type in GulpRedisBroker.get_instance().broadcast_types
         ):
-            # MutyLogger.get_instance().debug(
-            #     "GulpWsData.check_type_in_broadcast_types(): payload_data_type=%s is in broadcast types",
-            #     payload_data_type,
-            # )
+            # Glug.get_instance().debug(f"payload_data_type={payload_data_type} is in broadcast types")
             return True
 
         t: str = self.type
 
         # resort to plain data type
         if t in GulpRedisBroker.get_instance().broadcast_types:
-            # MutyLogger.get_instance().debug(
-            #     "GulpWsData.check_type_in_broadcast_types(): type=%s is in broadcast types",
-            #     self.type,
-            # )
+            # Glug.get_instance().debug(f"type={self.type} is in broadcast types")
             return True
         return False
 
@@ -886,10 +878,9 @@ class GulpConnectedSocket:
             return True
         except asyncio.TimeoutError:
             # client cannot keep up after generous timeout - disconnect
-            MutyLogger.get_instance().error(
-                "ws_id=%s ENQUEUE TIMEOUT after %.2fs - client unresponsive, will disconnect",
-                self.ws_id,
-                timeout,
+            Glug.get_instance().error(
+                f"ws_id={self.ws_id} enqueue timeout after {timeout:.2f}s, "
+                "client unresponsive, will disconnect"
             )
             if GulpConfig.get_instance().prometheus_enabled():
                 try:
@@ -898,15 +889,14 @@ class GulpConnectedSocket:
                         socket_type=self.socket_type.value,
                     ).inc()
                 except Exception:
-                    MutyLogger.get_instance().exception(
-                        "failed to record websocket enqueue timeout metric ws_id=%s",
-                        self.ws_id,
+                    Glug.get_instance().exception(
+                        f"failed to record websocket enqueue timeout metric ws_id={self.ws_id}"
                     )
             return False
         except asyncio.QueueFull:
             # should not happen with blocking put, but handle defensively
-            MutyLogger.get_instance().exception(
-                "**** ws_id=%s QUEUE FULL (unexpected with blocking) ****", self.ws_id
+            Glug.get_instance().exception(
+                f"ws_id={self.ws_id} queue full (unexpected with blocking put)"
             )
             return False
 
@@ -938,12 +928,9 @@ class GulpConnectedSocket:
             return
 
         self._last_pressure_log_ts = now
-        MutyLogger.get_instance().warning(
-            "ws queue high pressure ws_id=%s utilization=%.2f capacity=%d high_watermark=%d",
-            self.ws_id,
-            utilization,
-            self._queue_capacity,
-            self._queue_high_watermark,
+        Glug.get_instance().warning(
+            f"ws queue high pressure ws_id={self.ws_id}, utilization={utilization:.2f}, "
+            f"capacity={self._queue_capacity}, high_watermark={self._queue_high_watermark}"
         )
 
     def _calculate_throttle_delay(self) -> float:
@@ -973,8 +960,8 @@ class GulpConnectedSocket:
         """
         flushes the websocket queue and send the terminator message.
         """
-        MutyLogger.get_instance().debug(
-            "---> flushing queue for ws=%s, ws_id=%s", self.ws, self.ws_id
+        Glug.get_instance().debug(
+            f"flushing queue for ws={self.ws}, ws_id={self.ws_id}"
         )
 
         try:
@@ -992,26 +979,23 @@ class GulpConnectedSocket:
                 except asyncio.QueueEmpty:
                     break
 
-            MutyLogger.get_instance().debug(
-                "---> drained %d queued items for ws=%s, ws_id=%s",
-                drained,
-                self.ws,
-                self.ws_id,
+            Glug.get_instance().debug(
+                f"drained {drained} queued items for ws={self.ws}, ws_id={self.ws_id}"
             )
 
             # put terminator
             await self.q.put(None)
         except Exception as ex:
-            MutyLogger.get_instance().exception(
-                "error flushing queue for ws=%s, ws_id=%s: %s", self.ws, self.ws_id, ex
+            Glug.get_instance().exception(
+                f"error flushing queue for ws={self.ws}, ws_id={self.ws_id}: {ex}"
             )
 
     async def cleanup(self) -> None:
         """
         ensure websocket is cleaned up when canceled/closing
         """
-        MutyLogger.get_instance().debug(
-            "---> cleanup, ensuring ws cleanup for ws=%s, ws_id=%s", self.ws, self.ws_id
+        Glug.get_instance().debug(
+            f"cleanup, ensuring ws cleanup for ws={self.ws}, ws_id={self.ws_id}"
         )
 
         # empty the queue
@@ -1021,10 +1005,8 @@ class GulpConnectedSocket:
             # clear tasks
             await asyncio.shield(self.cleanup_tasks())
 
-        MutyLogger.get_instance().debug(
-            "---> GulpConnectedSocket.cleanup() DONE, ws=%s, ws_id=%s",
-            self.ws,
-            self.ws_id,
+        Glug.get_instance().debug(
+            f"GulpConnectedSocket.cleanup() complete, ws={self.ws}, ws_id={self.ws_id}"
         )
 
     async def cleanup_tasks(self) -> None:
@@ -1036,30 +1018,24 @@ class GulpConnectedSocket:
             try:
                 await task
             except asyncio.CancelledError:
-                MutyLogger.get_instance().debug(
-                    "task %s cancelled successfully", task.get_name()
+                Glug.get_instance().debug(
+                    f"task {task.get_name()} cancelled successfully"
                 )
             except WebSocketDisconnect:
-                MutyLogger.get_instance().debug(
-                    "task %s disconnected during cleanup", task.get_name()
+                Glug.get_instance().debug(
+                    f"task {task.get_name()} disconnected during cleanup"
                 )
-            except Exception as ex:
-                MutyLogger.get_instance().error(
-                    "error cleaning up %s: %s", task.get_name(), str(ex)
-                )
+            except Exception:
+                Glug.get_instance().exception(f"error cleaning up {task.get_name()}")
 
         # unregister from Redis
         from gulp.api.redis_api import GulpRedis
 
-        MutyLogger.get_instance().debug(
-            "unregistering ws_id=%s from Redis ...", self.ws_id
-        )
+        Glug.get_instance().debug(f"unregistering ws_id={self.ws_id} from Redis")
         try:
             await GulpRedis.get_instance().ws_unregister(self.ws_id)
-        except Exception as ex:
-            MutyLogger.get_instance().error(
-                "error unregistering ws_id=%s: %s", self.ws_id, ex
-            )
+        except Exception:
+            Glug.get_instance().exception(f"error unregistering ws_id={self.ws_id}")
 
     def validate_connection(self) -> None:
         """
@@ -1124,17 +1100,12 @@ class GulpConnectedSocket:
                 await self.ws.send_text(item.decode())
             else:
                 await self.ws.send_json(item)
-            # MutyLogger.get_instance().debug(
-            #     "---> SENT message to ws_id=%s, type=%s, content=%s",
-            #     self.ws_id,
-            #     item.get("type"),
-            #     muty.string.make_shorter(str(item), max_len=260),
-            # )
+            # Glug.get_instance().debug(f"sent message to ws_id={self.ws_id}, type={item.get('type')}", detail=item)
             await asyncio.sleep(await self._ws_rate_limit_delay())
             return True
         except asyncio.CancelledError:
-            MutyLogger.get_instance().warning(
-                "---> _process_queue_message canceled for ws_id=%s", self.ws_id
+            Glug.get_instance().warning(
+                f"_process_queue_message canceled for ws_id={self.ws_id}"
             )
             raise
         except asyncio.TimeoutError:
@@ -1155,9 +1126,8 @@ class GulpConnectedSocket:
             # raise exception if websocket is disconnected
             self.validate_connection()
             if self._terminated:
-                MutyLogger.get_instance().debug(
-                    "---> _receive loop terminator found, terminating ws_id=%s",
-                    self.ws_id,
+                Glug.get_instance().debug(
+                    f"_receive_loop terminator found, terminating ws_id={self.ws_id}"
                 )
                 break
 
@@ -1169,8 +1139,8 @@ class GulpConnectedSocket:
                 # no message received
                 continue
             except asyncio.CancelledError:
-                MutyLogger.get_instance().warning(
-                    "---> _receive loop canceled for ws_id=%s", self.ws_id
+                Glug.get_instance().warning(
+                    f"_receive_loop canceled for ws_id={self.ws_id}"
                 )
                 raise
             except WebSocketDisconnect:
@@ -1185,10 +1155,8 @@ class GulpConnectedSocket:
         try:
             acknowledgement = GulpDocumentsChunkAckPacket.model_validate(message)
         except Exception as ex:
-            MutyLogger.get_instance().warning(
-                "ignoring invalid query chunk acknowledgement for ws_id=%s: %s",
-                self.ws_id,
-                ex,
+            Glug.get_instance().warning(
+                f"ignoring invalid query chunk acknowledgement for ws_id={self.ws_id}: {ex}"
             )
             return
         await GulpRedis.get_instance().query_chunk_ack_record(
@@ -1204,9 +1172,7 @@ class GulpConnectedSocket:
         processes outgoing messages and sends them to the websocket
         """
         try:
-            MutyLogger.get_instance().debug(
-                f"---> starting send loop for ws_id={self.ws_id}"
-            )
+            Glug.get_instance().debug(f"starting send loop for ws_id={self.ws_id}")
 
             # tracking variables for metrics
             message_count: int = 0
@@ -1216,9 +1182,8 @@ class GulpConnectedSocket:
                 # process message from the websocket queue
                 message_processed = await self._process_queue_message()
                 if self._terminated:
-                    MutyLogger.get_instance().debug(
-                        "---> _send loop terminator found, terminating ws_id=%s",
-                        self.ws_id,
+                    Glug.get_instance().debug(
+                        f"_send_loop terminator found, terminating ws_id={self.ws_id}"
                     )
                     break
 
@@ -1232,23 +1197,19 @@ class GulpConnectedSocket:
                         await asyncio.sleep(self.YIELD_CONTROL_DELAY)
 
         except asyncio.CancelledError:
-            MutyLogger.get_instance().warning(
-                "---> send loop canceled for ws_id=%s", self.ws_id
-            )
+            Glug.get_instance().warning(f"send loop canceled for ws_id={self.ws_id}")
             raise
 
         except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().warning(
-                "---> websocket disconnected: ws_id=%s", self.ws_id
+            Glug.get_instance().warning(
+                f"websocket disconnected: ws_id={self.ws_id}: {ex}"
             )
-            MutyLogger.get_instance().exception(ex)
             raise
 
         except Exception as ex:
-            MutyLogger.get_instance().error(
-                "---> error in send loop: ws_id=%s", self.ws_id
+            Glug.get_instance().exception(
+                f"error in send loop: ws_id={self.ws_id}: {ex}"
             )
-            MutyLogger.get_instance().exception(ex)
             raise
 
     def __str__(self):
@@ -1282,24 +1243,22 @@ class GulpConnectedSocket:
             self._tasks, return_when=asyncio.FIRST_EXCEPTION
         )
 
-        # MutyLogger.get_instance().debug("---> wait returned for ws_id=%s, done=%s, pending=%s", self.ws_id, done, pending)
+        # Glug.get_instance().debug(f"wait returned for ws_id={self.ws_id}, done={done}, pending={pending}")
         for d in done:
-            MutyLogger.get_instance().debug(
-                "---> completed task %s for ws_id=%s", d.get_name(), self.ws_id
+            Glug.get_instance().debug(
+                f"completed task {d.get_name()} for ws_id={self.ws_id}"
             )
         if pending:
             for t in pending:
-                MutyLogger.get_instance().debug(
-                    "---> cancelling pending task %s for ws_id=%s",
-                    t.get_name(),
-                    self.ws_id,
+                Glug.get_instance().debug(
+                    f"cancelling pending task {t.get_name()} for ws_id={self.ws_id}"
                 )
                 t.cancel()
                 try:
                     await t
                 except asyncio.CancelledError:
-                    MutyLogger.get_instance().debug(
-                        "pending task %s cancelled successfully", t.get_name()
+                    Glug.get_instance().debug(
+                        f"pending task {t.get_name()} cancelled successfully"
                     )
 
         # propagate disconnects and unexpected errors to the endpoint handler
@@ -1412,9 +1371,9 @@ class GulpConnectedSockets:
         """
         if ws_id in self._sockets:
             # disconnect the existing socket with the same ID
-            MutyLogger.get_instance().warning(
-                "add(): websocket with ws_id=%s already exists, disconnecting existing socket",
-                ws_id,
+            Glug.get_instance().warning(
+                f"add(): websocket with ws_id={ws_id} already exists, "
+                "disconnecting existing socket"
             )
             existing_socket = self._sockets[ws_id]
             await existing_socket.cleanup()
@@ -1449,11 +1408,8 @@ class GulpConnectedSockets:
                 del self._sockets[ws_id]
             raise
 
-        MutyLogger.get_instance().debug(
-            "---> added connected ws: %s, ws_id=%s, len=%d",
-            ws,
-            ws_id,
-            len(self._sockets),
+        Glug.get_instance().debug(
+            f"added connected ws: {ws}, ws_id={ws_id}, len={len(self._sockets)}"
         )
 
         if GulpConfig.get_instance().prometheus_enabled():
@@ -1478,21 +1434,20 @@ class GulpConnectedSockets:
                 exact connection. This prevents stale cleanup from an old
                 same-id connection from unregistering a newer reconnect.
         """
-        MutyLogger.get_instance().debug("---> remove, ws_id=%s", ws_id)
+        Glug.get_instance().debug(f"remove, ws_id={ws_id}")
 
         connected_socket = self._sockets.get(ws_id)
         if not connected_socket:
-            MutyLogger.get_instance().warning(
-                "remove(): no websocket ws_id=%s found, num connected sockets=%d",
-                ws_id,
-                len(self._sockets),
+            Glug.get_instance().warning(
+                f"remove(): no websocket ws_id={ws_id} found, "
+                f"num connected sockets={len(self._sockets)}"
             )
             return
 
         if expected_socket is not None and connected_socket is not expected_socket:
-            MutyLogger.get_instance().warning(
-                "remove(): skipping stale cleanup for ws_id=%s because a newer socket is registered",
-                ws_id,
+            Glug.get_instance().warning(
+                f"remove(): skipping stale cleanup for ws_id={ws_id} "
+                "because a newer socket is registered"
             )
             return
 
@@ -1506,11 +1461,9 @@ class GulpConnectedSockets:
 
         # drop cached ownership so workers do not rely on stale entries
 
-        MutyLogger.get_instance().debug(
-            "---> removed connected ws=%s, ws_id=%s, num connected sockets=%d",
-            connected_socket.ws,
-            ws_id,
-            len(self._sockets),
+        Glug.get_instance().debug(
+            f"removed connected ws={connected_socket.ws}, ws_id={ws_id}, "
+            f"num connected sockets={len(self._sockets)}"
         )
 
         if GulpConfig.get_instance().prometheus_enabled():
@@ -1549,15 +1502,13 @@ class GulpConnectedSockets:
         sockets_to_cancel = list(self._sockets.values())
 
         for connected_socket in sockets_to_cancel:
-            MutyLogger.get_instance().warning(
-                "---> canceling ws=%s, ws_id=%s",
-                connected_socket.ws,
-                connected_socket.ws_id,
+            Glug.get_instance().debug(
+                f"canceling ws={connected_socket.ws}, ws_id={connected_socket.ws_id}"
             )
             await connected_socket.cleanup_tasks()
 
-        MutyLogger.get_instance().debug(
-            "---> all active websockets cancelled, count=%d", len(sockets_to_cancel)
+        Glug.get_instance().info(
+            f"all active websockets cancelled, count={len(sockets_to_cancel)}"
         )
 
     def num_connected_sockets(self, default_sockets_only: bool = True) -> int:
@@ -1614,17 +1565,17 @@ class GulpConnectedSockets:
             """
             # route only to WS_DEFAULT sockets: these are the sockets used by the UI for receiving most of the data (collab objects and chunks), corresponding to the ws_id in most of the API calls
             if cws.socket_type != GulpWsType.WS_DEFAULT:
-                # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing cws.socket_type=%s",wsd.ws_id, cws.socket_type)
+                # Glug.get_instance().debug(f"not routing, data.ws_id={wsd.ws_id}, cws.socket_type={cws.socket_type}")
                 continue
 
             # check type filter
             if cws.types and wsd.type not in cws.types:
-                # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing data.type=%s", wsd.ws_id, wsd.type)
+                # Glug.get_instance().debug(f"not routing, data.ws_id={wsd.ws_id}, data.type={wsd.type}")
                 continue
 
             # check operation filter
             if cws.operation_ids and wsd.operation_id not in cws.operation_ids:
-                # MutyLogger.get_instance().warning("***** wsd.ws_id=%s, not routing data.operation_id=%s", wsd.ws_id, wsd.operation_id)
+                # Glug.get_instance().debug(f"not routing, wsd.ws_id={wsd.ws_id}, data.operation_id={wsd.operation_id}")
                 continue
 
             if targeted_ws_only:
@@ -1642,10 +1593,9 @@ class GulpConnectedSockets:
             for i, result in enumerate(results):
                 if isinstance(result, Exception) or result is False:
                     ws_id = ws_ids[i]
-                    MutyLogger.get_instance().warning(
-                        "failed to broadcast to local ws, ws_id=%s: %s, removing dead socket",
-                        ws_id,
-                        result,
+                    Glug.get_instance().warning(
+                        f"failed to broadcast to local ws, ws_id={ws_id}: {result}, "
+                        "removing dead socket"
                     )
                     await self.remove(ws_id)
 
@@ -1747,7 +1697,7 @@ class GulpRedisBroker:
         NOTE: must be called in the main process.
         """
         if self._initialized:
-            MutyLogger.get_instance().debug("GulpRedisBroker already initialized")
+            Glug.get_instance().debug("GulpRedisBroker already initialized")
             return
 
         redis_client = GulpRedis.get_instance()
@@ -1756,7 +1706,7 @@ class GulpRedisBroker:
         await redis_client.subscribe(self._handle_pubsub_message)
         self._initialized = True
 
-        MutyLogger.get_instance().info("GulpRedisBroker initialized!")
+        Glug.get_instance().info("GulpRedisBroker initialized")
 
     async def shutdown(self) -> None:
         """
@@ -1765,7 +1715,7 @@ class GulpRedisBroker:
         NOTE: must be called in the main process.
         """
         if not self._initialized:
-            MutyLogger.get_instance().debug("GulpRedisBroker already uninitialized")
+            Glug.get_instance().debug("GulpRedisBroker already uninitialized")
             return
 
         redis_client = GulpRedis.get_instance()
@@ -1773,7 +1723,7 @@ class GulpRedisBroker:
         # unsubscribe from worker->main channel
         await redis_client.unsubscribe()
         self._initialized = False
-        MutyLogger.get_instance().info("GulpRedisBroker uninitialized!")
+        Glug.get_instance().info("GulpRedisBroker uninitialized")
 
     async def _handle_pubsub_message(self, message: dict) -> None:
         """
@@ -1790,11 +1740,10 @@ class GulpRedisBroker:
         route_target_type: str = message.pop("route_target_type", None)
         origin_server_id: str = message.pop("origin_server_id", None)
         if not route_target_type or not origin_server_id:
-            MutyLogger.get_instance().warning(
-                "dropping malformed pubsub message missing routing metadata: channel=%s, route_target_type=%s, origin_server_id=%s",
-                redis_channel,
-                route_target_type,
-                origin_server_id,
+            Glug.get_instance().warning(
+                "dropping malformed pubsub message missing routing metadata: "
+                f"channel={redis_channel}, route_target_type={route_target_type}, "
+                f"origin_server_id={origin_server_id}"
             )
             return
 
@@ -1858,12 +1807,11 @@ class GulpRedisBroker:
                 if not should_retrieve:
                     # this node should not retrieve chunks - another node will handle it
                     self._record_pointer_resolve("skipped_not_owner")
-                    MutyLogger.get_instance().debug(
-                        "skipping chunk retrieval for ptr=%s (chunk_server_id=%s, our_server_id=%s, redis_channel=%s)",
-                        ptr,
-                        chunk_server_id,
-                        redis_client.server_id,
-                        redis_channel,
+                    Glug.get_instance().debug(
+                        f"skipping chunk retrieval for ptr={ptr} "
+                        f"(chunk_server_id={chunk_server_id}, "
+                        f"our_server_id={redis_client.server_id}, "
+                        f"redis_channel={redis_channel})"
                     )
                     # leave message as-is with pointer, don't process further
                     return
@@ -1904,9 +1852,8 @@ class GulpRedisBroker:
                                     try:
                                         data_bytes = zlib.decompress(data_bytes)
                                     except Exception:
-                                        MutyLogger.get_instance().exception(
-                                            "failed to decompress stored chunks for base=%s",
-                                            ptr,
+                                        Glug.get_instance().exception(
+                                            f"failed to decompress stored chunks for base={ptr}"
                                         )
                                         data_bytes = None
 
@@ -1915,20 +1862,17 @@ class GulpRedisBroker:
                                     message = full_msg
                                     self._record_pointer_resolve("resolved")
                                 else:
-                                    MutyLogger.get_instance().warning(
-                                        "failed to decode stored chunks for base=%s",
-                                        ptr,
+                                    Glug.get_instance().warning(
+                                        f"failed to decode stored chunks for base={ptr}"
                                     )
                             except Exception:
-                                MutyLogger.get_instance().exception(
-                                    "failed to decode stored large payload for base=%s",
-                                    ptr,
+                                Glug.get_instance().exception(
+                                    f"failed to decode stored large payload for base={ptr}"
                                 )
                         else:
                             self._record_pointer_resolve("missing")
-                            MutyLogger.get_instance().warning(
-                                "large payload chunked pointer missing in Redis for base=%s",
-                                ptr,
+                            Glug.get_instance().warning(
+                                f"large payload chunked pointer missing in Redis for base={ptr}"
                             )
                     else:
                         # single-key pointer handling
@@ -1951,23 +1895,21 @@ class GulpRedisBroker:
                                 message = full_msg
                                 self._record_pointer_resolve("resolved")
                             except Exception:
-                                MutyLogger.get_instance().exception(
-                                    "failed to decode stored large payload for key=%s",
-                                    ptr,
+                                Glug.get_instance().exception(
+                                    f"failed to decode stored large payload for key={ptr}"
                                 )
                         else:
                             self._record_pointer_resolve("missing")
-                            MutyLogger.get_instance().warning(
-                                "large payload pointer missing in Redis for key=%s", ptr
+                            Glug.get_instance().warning(
+                                f"large payload pointer missing in Redis for key={ptr}"
                             )
                 except Exception:
                     self._record_pointer_resolve("error")
-                    MutyLogger.get_instance().exception(
-                        "error resolving large payload pointer %s from Redis",
-                        ptr,
+                    Glug.get_instance().exception(
+                        f"error resolving large payload pointer {ptr} from Redis"
                     )
         except Exception:
-            MutyLogger.get_instance().exception("error while resolving payload pointer")
+            Glug.get_instance().exception("error while resolving payload pointer")
 
         if route_target_type == GulpMessageRoutingTarget.EVENT.value:
             from gulp.events import events
@@ -2042,7 +1984,7 @@ class GulpRedisBroker:
                 return
 
         except Exception as ex:
-            MutyLogger.get_instance().error("error processing pubsub message: %s", ex)
+            Glug.get_instance().exception(f"error processing pubsub message: {ex}")
 
     async def _route_message_to_local_client_data_websockets(
         self, wsd: GulpWsData, wsd_dict: dict
@@ -2054,10 +1996,9 @@ class GulpRedisBroker:
             wsd (GulpWsData): The client_data message
             wsd_dict (dict): The message as a dictionary (pre-serialized for efficiency).
         """
-        MutyLogger.get_instance().debug(
-            "processing cross-instance client_data: ws_id=%s, operation_id=%s",
-            wsd.ws_id,
-            wsd.operation_id,
+        Glug.get_instance().debug(
+            f"processing cross-instance client_data: ws_id={wsd.ws_id}, "
+            f"operation_id={wsd.operation_id}"
         )
         s = GulpConnectedSockets.get_instance()
 
@@ -2102,16 +2043,13 @@ class GulpRedisBroker:
             for i, result in enumerate(results):
                 if isinstance(result, Exception) or result is False:
                     ws_id = ws_ids[i]
-                    MutyLogger.get_instance().warning(
-                        "failed to broadcast to local ws, ws_id=%s: %s, removing dead socket",
-                        ws_id,
-                        result,
+                    Glug.get_instance().warning(
+                        f"failed to broadcast to local ws, ws_id={ws_id}: {result}, "
+                        "removing dead socket"
                     )
                     await s.remove(ws_id)
                 else:
-                    """MutyLogger.get_instance().debug(
-                        "routed ws_client_data to ws_id=%s", cws.ws_id
-                    )"""
+                    # Glug.get_instance().debug(f"routed ws_client_data to ws_id={cws.ws_id}")
                     pass
 
     async def _put_common(self, wsd: GulpWsData) -> None:

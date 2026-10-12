@@ -20,7 +20,6 @@ import os
 from typing import Any, override
 import muty.os
 from evtx import PyEvtxParser
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -31,6 +30,7 @@ from gulp.api.collab.stats import (
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument, GulpNormalizedTimestamp
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
@@ -230,7 +230,7 @@ class Plugin(GulpPluginBase):
         normalized_timestamp = self._event_timestamp(record, js_record)
 
         # if d.get("event.code") == "0":
-        #     MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2).decode())
+        #     Glug.get_instance().debug("mapped document", detail=d)
 
         return GulpDocument(
             self,

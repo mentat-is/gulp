@@ -30,7 +30,8 @@ object storage.
 - `gulp-sdk/` and `gulp-cli/`: Python SDK and CLI maintained with affected
   backend interfaces.
 - `gulp-ui/`: separate React and TypeScript development area that shares the
-  root release version and root changelog with the backend.
+  root release version and root changelog with the backend. See
+  `gulp-ui/AGENTS.md`.
 
 ## Working rules
 

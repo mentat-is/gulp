@@ -2,6 +2,7 @@
 
 import asyncio
 import codecs
+import logging
 import os
 import shutil
 import tempfile
@@ -14,7 +15,7 @@ import aiofiles.ospath
 import aioshutil
 from async_unzip.unzipper import unzip as _unzip
 
-from muty.log import MutyLogger
+_logger = logging.getLogger(__name__)
 
 
 DEFAULT_TEXT_READ_CHUNK_SIZE = 4 * 1024 * 1024
@@ -375,7 +376,7 @@ async def unzip(f: str, dest_dir: str | None = None) -> str:
             await aiofiles.os.makedirs(dest_dir, exist_ok=True)
             created = True
 
-        MutyLogger.get_instance().debug("unzipping %s to %s ..." % (f, dest_dir))
+        _logger.debug("unzipping %s to %s", f, dest_dir)
         # extract entries with async I/O
         await _unzip(f, path=dest_dir)
 

@@ -24,15 +24,14 @@ import time
 from dataclasses import dataclass
 from importlib import resources as impresources
 from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import aiofiles
 import muty.dict
 import muty.file
-import muty.string
 import muty.time
 import orjson
 from elasticsearch import AsyncElasticsearch
-from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch, NotFoundError
 from opensearchpy.exceptions import TransportError
 from opensearchpy.serializer import JSONSerializer
@@ -58,6 +57,7 @@ from gulp.api.ws_api import (
     GulpRedisBroker,
 )
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.structs import (
     GulpDocumentsChunkCallback,
     GulpProgressCallback,
@@ -142,6 +142,23 @@ class GulpOpenSearch:
             cls._instance = cls()
         return cls._instance
 
+    @staticmethod
+    def _masked_opensearch_url(url: str) -> str:
+        """
+        strips embedded credentials from an opensearch URL for safe logging.
+
+        Args:
+            url (str): the opensearch URL, possibly with embedded user:password.
+
+        Returns:
+            str: the URL with credentials removed (host/port/path/query kept as-is).
+        """
+        parts = urlsplit(url)
+        netloc = parts.hostname or ""
+        if parts.port:
+            netloc += f":{parts.port}"
+        return urlunsplit(parts._replace(netloc=netloc))
+
     def _get_client(self) -> AsyncOpenSearch:
         """
         creates an OpenSearch client instance.
@@ -157,7 +174,9 @@ class GulpOpenSearch:
             http_compress=True,
             pool_maxsize=config.opensearch_pool_maxsize(),
         )
-        MutyLogger.get_instance().debug("created opensearch client: %s", el)
+        Glug.get_instance().debug(
+            f"created opensearch client: url={self._masked_opensearch_url(url)}"
+        )
         return el
 
     async def shutdown(self) -> None:
@@ -167,11 +186,9 @@ class GulpOpenSearch:
         Returns:
             None
         """
-        MutyLogger.get_instance().debug(
-            "shutting down opensearch client: %s", self._opensearch
-        )
+        Glug.get_instance().debug("shutting down opensearch client")
         await self._opensearch.close()
-        MutyLogger.get_instance().debug("opensearch client shutdown DONE!")
+        Glug.get_instance().debug("opensearch client shutdown complete")
 
     async def check_alive(self) -> None:
         """
@@ -182,7 +199,7 @@ class GulpOpenSearch:
 
         """
         res = await self._opensearch.info()
-        MutyLogger.get_instance().debug("opensearch info: %s", res)
+        Glug.get_instance().debug("opensearch info retrieved", detail=res)
 
     async def datastream_get_field_types(
         self, index: str, return_raw_result: bool = False
@@ -219,12 +236,12 @@ class GulpOpenSearch:
         try:
             res = await self._opensearch.indices.get_mapping(index=index)
         except Exception as e:
-            MutyLogger.get_instance().warning(
-                'no field types mapping for index "%s" found: %s', index, e
+            Glug.get_instance().warning(
+                f'no field types mapping for index "{index}" found: {e}'
             )
             return {}
 
-        # MutyLogger.get_instance().debug("index_get_mapping: %s", orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())
+        # Glug.get_instance().debug("index_get_mapping", detail=res)
         if return_raw_result:
             return res
 
@@ -365,8 +382,8 @@ class GulpOpenSearch:
         """
 
         async def _internal(sess: AsyncSession) -> None:
-            MutyLogger.get_instance().debug(
-                "number of unique (ctx_id, src_id) pairs: %d", len(ctx_src_pairs)
+            Glug.get_instance().debug(
+                f"number of unique (ctx_id, src_id) pairs: {len(ctx_src_pairs)}"
             )
             for ctx_id, src_id in ctx_src_pairs:
                 await self.datastream_update_source_field_types_by_src(
@@ -432,12 +449,7 @@ class GulpOpenSearch:
 
         """
 
-        # MutyLogger.get_instance().debug(
-        #     "creating/updating source->fieldtypes for source_id=%s, context_id=%s, operation_id=%s ...",
-        #     source_id,
-        #     context_id,
-        #     operation_id,
-        # )
+        # Glug.get_instance().debug(f"creating/updating source->fieldtypes for source_id={source_id}, context_id={context_id}, operation_id={operation_id}")
 
         from gulp.api.opensearch.structs import GulpQueryParameters
 
@@ -527,7 +539,7 @@ class GulpOpenSearch:
 
             options.search_after = search_after
             processed += len(docs)
-            # MutyLogger.get_instance().debug("processed=%d, total=%d", processed, total_hits)
+            # Glug.get_instance().debug(f"processed={processed}, total={total_hits}")
 
             # update filtered_mapping with all fields from each document (including flat_object inner keys)
             for doc in docs:
@@ -544,11 +556,9 @@ class GulpOpenSearch:
             await asyncio.sleep(0.1)
 
         if not filtered_mapping:
-            MutyLogger.get_instance().warning(
-                "no documents found for source_id=%s, context_id=%s, operation_id=%s",
-                source_id,
-                context_id,
-                operation_id,
+            Glug.get_instance().warning(
+                f"no documents found for source_id={source_id}, "
+                f"context_id={context_id}, operation_id={operation_id}"
             )
             return {}
 
@@ -556,12 +566,10 @@ class GulpOpenSearch:
         # filtered_mapping = dict(sorted(filtered_mapping.items()))
 
         # store on database (create or update)
-        MutyLogger.get_instance().debug(
-            "***DONE*** datastream_update_source_field_types_by_src, found %d source->fieldtype mappings (src_id=%s, ctx_id=%s, operation_id=%s), storing/updating on collab db...",
-            len(filtered_mapping),
-            source_id,
-            context_id,
-            operation_id,
+        Glug.get_instance().debug(
+            f"datastream_update_source_field_types_by_src: found {len(filtered_mapping)} "
+            f"source->fieldtype mappings (src_id={source_id}, ctx_id={context_id}, "
+            f"operation_id={operation_id}), storing/updating on collab db"
         )
 
         if sess:
@@ -592,17 +600,15 @@ class GulpOpenSearch:
         """
         try:
             template_name = "%s-template" % (index)
-            MutyLogger.get_instance().debug(
-                "deleting index template: %s ...", template_name
-            )
+            Glug.get_instance().debug(f"deleting index template: {template_name}")
             res = await self._opensearch.indices.delete_index_template(
                 name=template_name
             )
-            MutyLogger.get_instance().debug(
-                "index template deleted: %s, res=%s", template_name, res
+            Glug.get_instance().debug(
+                f"index template deleted: {template_name}", detail=res
             )
         except Exception as e:
-            MutyLogger.get_instance().warning("index template does not exist: %s", e)
+            Glug.get_instance().warning(f"index template does not exist: {e}")
 
     async def index_template_get(self, index: str) -> dict:
         """
@@ -643,7 +649,7 @@ class GulpOpenSearch:
             }
         """
         template_name = "%s-template" % (index)
-        MutyLogger.get_instance().debug("getting index template: %s ...", template_name)
+        Glug.get_instance().debug(f"getting index template: {template_name}")
 
         try:
             res = await self._opensearch.indices.get_index_template(name=template_name)
@@ -666,14 +672,12 @@ class GulpOpenSearch:
             dict: The response from the OpenSearch client.
         """
         template_name = "%s-template" % (index)
-        MutyLogger.get_instance().debug("putting index template: %s ...", template_name)
+        Glug.get_instance().debug(f"putting index template: {template_name}")
         headers = {"accept": "application/json", "content-type": "application/json"}
         res = await self._opensearch.indices.put_index_template(
             name=template_name, body=d, headers=headers
         )
-        MutyLogger.get_instance().debug(
-            "index template set for index: %s, res=%s", index, res
-        )
+        Glug.get_instance().debug(f"index template set for index: {index}", detail=res)
         return res
 
     async def index_template_set_from_file(
@@ -690,9 +694,7 @@ class GulpOpenSearch:
             dict: The response from OpenSearch after setting the index template.
         """
 
-        MutyLogger.get_instance().debug(
-            'loading index template from file "%s" ...', path
-        )
+        Glug.get_instance().debug(f'loading index template from file "{path}"')
 
         d = muty.dict.from_json_file(path)
         return await self.build_and_set_index_template(index, d, apply_patches)
@@ -716,7 +718,7 @@ class GulpOpenSearch:
             - It applies specific patches to the mappings and settings before setting the index template.
             - The configured OpenSearch replica count is applied to new index templates.
         """
-        MutyLogger.get_instance().debug('setting index template for "%s" ...', index)
+        Glug.get_instance().debug(f'setting index template for "{index}"')
         template = d.get("template", None)
         if template is None:
             raise ValueError('no "template" key found in the index template')
@@ -787,9 +789,7 @@ class GulpOpenSearch:
 
             replicas = GulpConfig.get_instance().opensearch_index_replicas()
             settings["index"]["number_of_replicas"] = replicas
-            MutyLogger.get_instance().warning(
-                "setting number_of_replicas to %d", replicas
-            )
+            Glug.get_instance().debug(f"setting number_of_replicas to {replicas}")
 
         # write template
         await self.index_template_put(index, d)
@@ -809,7 +809,7 @@ class GulpOpenSearch:
         """
         headers = {"accept": "text/plain,application/json"}
         l = await self._opensearch.indices.get_data_stream(headers=headers)
-        # MutyLogger.get_instance().debug(orjson.dumps(l, option=orjson.OPT_INDENT_2).decode())
+        # Glug.get_instance().debug("data streams retrieved", detail=l)
         ll = []
         ds = l.get("data_streams", [])
         for c in ds:
@@ -845,7 +845,7 @@ class GulpOpenSearch:
             res = await self._opensearch.indices.delete_data_stream(
                 name=ds, headers=headers
             )
-            MutyLogger.get_instance().debug('deleted datastream "%s", res=%s', ds, res)
+            Glug.get_instance().debug(f'deleted datastream "{ds}"', detail=res)
 
             for pattern in [f".ds-{ds}-*", ds]:
                 try:
@@ -856,16 +856,16 @@ class GulpOpenSearch:
                         ignore_unavailable=True,
                     )
                 except Exception as e:
-                    MutyLogger.get_instance().warning(
-                        "delete index %s failed (may be ok): %s", pattern, e
+                    Glug.get_instance().warning(
+                        f"delete index {pattern} failed (may be ok): {e}"
                     )
         finally:
             # also (try to) delete the corresponding template
             try:
                 await self.index_template_delete(ds)
-            except Exception as e:
-                MutyLogger.get_instance().error(
-                    "cannot delete template for index/datastream: %s (%s)", ds, e
+            except Exception:
+                Glug.get_instance().exception(
+                    f"cannot delete template for index/datastream: {ds}"
                 )
 
     async def datastream_exists(self, ds: str) -> bool:
@@ -927,8 +927,8 @@ class GulpOpenSearch:
         """
         if delete_first:
             # attempt to delete the datastream first, if it exists
-            MutyLogger.get_instance().debug(
-                "datastream_create, deleting datastream before creation: %s ...", ds
+            Glug.get_instance().debug(
+                f"datastream_create, deleting datastream before creation: {ds}"
             )
             await self.datastream_delete(ds)
 
@@ -939,8 +939,8 @@ class GulpOpenSearch:
             template_path = self._default_index_template_path()
         else:
             template_path = index_template
-            MutyLogger.get_instance().debug(
-                "datastream_create, using custom index template: %s ...", template_path
+            Glug.get_instance().debug(
+                f"datastream_create, using custom index template: {template_path}"
             )
             apply_patches = False
         await self.index_template_set_from_file(
@@ -953,17 +953,15 @@ class GulpOpenSearch:
             r = await self._opensearch.indices.create_data_stream(
                 name=ds, headers=headers
             )
-            MutyLogger.get_instance().debug(
-                "datastream_create, datastream created: %s", r
-            )
+            Glug.get_instance().debug(f"datastream_create, datastream created: {ds}", detail=r)
             return r
-        except Exception as e:
+        except Exception:
             # also delete the index template
-            MutyLogger.get_instance().error(
-                "error creating datastream %s, deleting template", ds
+            Glug.get_instance().exception(
+                f"error creating datastream {ds}, deleting template"
             )
             await self.index_template_delete(ds)
-            raise e
+            raise
 
     async def datastream_create_from_raw_dict(
         self, ds: str, index_template: dict = None, delete_first: bool = True
@@ -982,8 +980,8 @@ class GulpOpenSearch:
         """
         if delete_first:
             # attempt to delete the datastream first, if it exists
-            MutyLogger.get_instance().debug(
-                "datastream_create_from_raw_dict, re/creating datastream: %s ...", ds
+            Glug.get_instance().debug(
+                f"datastream_create_from_raw_dict, re/creating datastream: {ds}"
             )
 
             await self.datastream_delete(ds)
@@ -1004,8 +1002,8 @@ class GulpOpenSearch:
             r = await self._opensearch.indices.create_data_stream(
                 name=ds, headers=headers
             )
-            MutyLogger.get_instance().debug(
-                "datastream_create_from_raw_dict, datastream created: %s", r
+            Glug.get_instance().debug(
+                f"datastream_create_from_raw_dict, datastream created: {ds}", detail=r
             )
             return r
         except Exception as e:
@@ -1159,17 +1157,15 @@ class GulpOpenSearch:
                 ]
                 if discovered:
                     self._bulk_max_content_length_bytes = min(discovered)
-                    MutyLogger.get_instance().info(
-                        "OpenSearch bulk HTTP limit=%d bytes",
-                        self._bulk_max_content_length_bytes,
+                    Glug.get_instance().info(
+                        f"OpenSearch bulk HTTP limit={self._bulk_max_content_length_bytes} bytes"
                     )
                 else:
                     raise ValueError("response contains no valid node HTTP limit")
             except Exception as ex:
-                MutyLogger.get_instance().warning(
+                Glug.get_instance().warning(
                     "cannot discover OpenSearch HTTP content limit, using the "
-                    "documented 100 MiB default: %s",
-                    ex,
+                    f"documented 100 MiB default: {ex}"
                 )
             return self._bulk_max_content_length_bytes
 
@@ -1307,12 +1303,9 @@ class GulpOpenSearch:
                     raise
                 if GulpConfig.get_instance().prometheus_enabled():
                     GulpMetrics.opensearch_bulk_retries_total.inc()
-                MutyLogger.get_instance().warning(
-                    "bulk ingestion failed, retrying in %.2fs (attempt %d/%d): %s",
-                    retry_delay,
-                    attempt,
-                    retry_max,
-                    ex,
+                Glug.get_instance().warning(
+                    f"bulk ingestion failed, retrying in {retry_delay:.2f}s "
+                    f"(attempt {attempt}/{retry_max}): {ex}"
                 )
                 await asyncio.sleep(retry_delay)
 
@@ -1339,28 +1332,19 @@ class GulpOpenSearch:
                 failed_items.append(item)
 
         if failed_items:
-            serialized_errors = orjson.dumps(
-                failed_items, option=orjson.OPT_INDENT_2
-            ).decode()
-            MutyLogger.get_instance().error(
-                "%d docs failed ingestion, %d docs skipped: %s",
-                failed,
-                skipped,
-                muty.string.make_shorter(serialized_errors, max_len=1024),
+            Glug.get_instance().error(
+                f"{failed} docs failed ingestion, {skipped} docs skipped",
+                detail=failed_items,
             )
         if skipped:
-            MutyLogger.get_instance().debug(
-                "%d docs skipped, %d docs failed in this bulk ingestion of %d docs",
-                skipped,
-                failed,
-                len(prepared.documents),
+            Glug.get_instance().debug(
+                f"{skipped} docs skipped, {failed} docs failed in this bulk "
+                f"ingestion of {len(prepared.documents)} docs"
             )
         if failed:
-            MutyLogger.get_instance().critical(
-                "failed is set (skipped=%d, ingested=%d, failed=%d), ingestion format needs to be fixed!",
-                skipped,
-                len(ingested_docs),
-                failed,
+            Glug.get_instance().critical(
+                f"failed is set (skipped={skipped}, ingested={len(ingested_docs)}, "
+                f"failed={failed}), ingestion format needs to be fixed"
             )
 
         if GulpConfig.get_instance().prometheus_enabled():
@@ -1396,7 +1380,7 @@ class GulpOpenSearch:
         """Prepare and ingest one logical document chunk."""
         prepared = await self.prepare_bulk_ingest(docs, flt=flt)
         if not prepared.body:
-            MutyLogger.get_instance().warning("no document to ingest (flt=%s)", flt)
+            Glug.get_instance().warning("no document to ingest after filtering", detail=flt)
             return 0, [], 0
         return await self.bulk_ingest_prepared(
             index, prepared, wait_for_refresh=wait_for_refresh
@@ -1428,19 +1412,20 @@ class GulpOpenSearch:
             if task_id in tasks:
                 task_obj = tasks[task_id]
                 if task_obj.get("cancelled", False):
-                    MutyLogger.get_instance().info(
+                    Glug.get_instance().info(
                         f"task_id {task_id} was cancelled on node {node_name}"
                     )
                     canceled = True
                 else:
-                    MutyLogger.get_instance().warning(
+                    Glug.get_instance().warning(
                         f"task_id {task_id} present but not cancelled on node {node_name}"
                     )
                     canceled = False
         # If canceled is still None, task_id not found in any node
         if canceled is None:
-            MutyLogger.get_instance().info(
-                f"task_id {task_id} not found in any node; may have already completed or never existed."
+            Glug.get_instance().info(
+                f"task_id {task_id} not found in any node; "
+                "may have already completed or never existed"
             )
             canceled = True
 
@@ -1614,11 +1599,9 @@ class GulpOpenSearch:
             "query": base_query,
             "sort": ["_doc"],
         }
-        MutyLogger.get_instance().debug(
-            "starting rebase by query: index=%s, query=%s, offset_msec=%d ...",
-            index,
-            base_query,
-            offset_msec,
+        Glug.get_instance().debug(
+            f"starting rebase by query: index={index}, offset_msec={offset_msec}",
+            detail=base_query,
         )
         while True:
             # search for up to batch_size docs matching the filter
@@ -1634,11 +1617,9 @@ class GulpOpenSearch:
                 # call update_by_query on the doc_ids chunk
                 total_hits = res["hits"]["total"]["value"]
                 doc_ids = [hit["_id"] for hit in hits]
-                MutyLogger.get_instance().debug(
-                    "rebase chunk %d, offset_nsec=%d, updating %d docs ...",
-                    chunk_num,
-                    offset_nsec,
-                    len(doc_ids),
+                Glug.get_instance().debug(
+                    f"rebase chunk {chunk_num}, offset_nsec={offset_nsec}, "
+                    f"updating {len(doc_ids)} docs"
                 )
 
                 update_query = {
@@ -1687,8 +1668,8 @@ class GulpOpenSearch:
                 )
             if last or canceled:
                 if canceled:
-                    MutyLogger.get_instance().warning(
-                        "opensearch_rebase_by_query: request %s canceled!", req_id
+                    Glug.get_instance().warning(
+                        f"opensearch_rebase_by_query: request {req_id} canceled"
                     )
                     raise RequestCanceledError()
                 break
@@ -1699,13 +1680,10 @@ class GulpOpenSearch:
             search_after = hits[-1]["sort"]
             search_body["search_after"] = search_after
 
-        MutyLogger.get_instance().debug(
-            "rebase completed: index=%s, flt=%s, total_hits=%d, updated=%d, errors=%s",
-            index,
-            flt,
-            total_hits,
-            total_updated,
-            errors,
+        Glug.get_instance().debug(
+            f"rebase completed: index={index}, total_hits={total_hits}, "
+            f"updated={total_updated}, num_errors={len(errors)}",
+            detail={"flt": flt, "errors": errors},
         )
         return total_hits, total_updated, errors
 
@@ -1719,9 +1697,9 @@ class GulpOpenSearch:
         Returns:
             None
         """
-        MutyLogger.get_instance().debug("refreshing index: %s", index)
+        Glug.get_instance().debug(f"refreshing index: {index}")
         res = await self._opensearch.indices.refresh(index=index)
-        MutyLogger.get_instance().debug("refreshed index: %s", res)
+        Glug.get_instance().debug(f"refreshed index: {index}", detail=res)
 
     async def delete_data_by_operation(
         self, index: str, operation_id: str, refresh: bool = True
@@ -1823,7 +1801,7 @@ class GulpOpenSearch:
         res = await self._opensearch.delete_by_query(
             index=index, body=q, params=params, headers=headers
         )
-        MutyLogger.get_instance().debug("delete_by_query result=%s", res)
+        Glug.get_instance().debug("delete_by_query completed", detail=res)
         return res
 
     def _parse_query_max_min(self, d: dict) -> dict:
@@ -1910,13 +1888,12 @@ class GulpOpenSearch:
                     "aggs": aggregations,
                 }
             }
-            MutyLogger.get_instance().debug(f"aggregations with group_by={group_by}: {
-                    orjson.dumps(aggregations, option=orjson.OPT_INDENT_2).decode()}")
+            Glug.get_instance().debug(
+                f"aggregations with group_by={group_by}", detail=aggregations
+            )
 
         q = flt.to_opensearch_dsl()
-        MutyLogger.get_instance().debug(
-            f"query_max_min_per_field: q={orjson.dumps(q, option=orjson.OPT_INDENT_2).decode()}"
-        )
+        Glug.get_instance().debug("query_max_min_per_field", detail=q)
         body = {
             "track_total_hits": True,
             "query": q["query"],
@@ -1932,9 +1909,8 @@ class GulpOpenSearch:
             raise ObjectNotFound()
 
         if group_by:
-            MutyLogger.get_instance().debug(
-                f"group_by={group_by}, res['aggregations']={
-                    orjson.dumps(res['aggregations'], option=orjson.OPT_INDENT_2).decode()}"
+            Glug.get_instance().debug(
+                f"group_by={group_by}", detail=res["aggregations"]
             )
             return self._parse_query_max_min(res["aggregations"])
 
@@ -1972,7 +1948,7 @@ class GulpOpenSearch:
             list[dict]: Parsed operations with context and source details
         """
         # get all operations from collab db
-        # MutyLogger.get_instance().debug(f"parsing operations aggregations: {orjson.dumps(aggregations, option=orjson.OPT_INDENT_2).decode()}")
+        # Glug.get_instance().debug("parsing operations aggregations", detail=aggregations)
         async with GulpCollab.get_instance().session() as sess:
             all_operations = await GulpOperation.get_by_filter(
                 sess,
@@ -2223,20 +2199,19 @@ class GulpOpenSearch:
         res = await self._opensearch.search(body=body, index=index, headers=headers)
         hits = res["hits"]["total"]["value"]
         if not hits:
-            MutyLogger.get_instance().warning(
-                "no results found, returning empty aggregations (possibly no data on opensearch)!"
+            Glug.get_instance().warning(
+                "no results found, returning empty aggregations "
+                "(possibly no data on opensearch)"
             )
             return await self._query_operations_from_collab_index(
                 index,
                 user_id,
                 include_empty_sources=include_empty_sources,
             )
-        MutyLogger.get_instance().debug(
-            orjson.dumps(res, option=orjson.OPT_INDENT_2).decode()
-        )
+        Glug.get_instance().debug("operations aggregation query result", detail=res)
 
         d = {"total": hits, "aggregations": res["aggregations"]}
-        # MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2).decode())
+        # Glug.get_instance().debug("operations aggregation", detail=d)
         return await self._parse_operation_aggregation(
             d["aggregations"],
             user_id,
@@ -2322,12 +2297,7 @@ class GulpOpenSearch:
             # set timeout in seconds
             params["timeout"] = timeout
 
-        # MutyLogger.get_instance().debug(
-        #     "---> about to run this query: index=%s,\nbody=\n%s,\nparsed q_options=\n%s",
-        #     index,
-        #     orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(),
-        #     orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode(),
-        # )
+        # Glug.get_instance().debug(f"about to run query on index={index}", detail={"body": body, "parsed_options": parsed_options})
 
         options = dict(parsed_options)
         track_total_hits: bool = True
@@ -2398,16 +2368,14 @@ class GulpOpenSearch:
                 options["highlight"] = (
                     None  # disable highlighting to reduce memory usage
                 )
-                MutyLogger.get_instance().warning(
-                    "OpenSearch circuit breaker while querying %s, backing off (attempt %d/%d, size=%s)",
-                    index,
-                    cb_attempt,
-                    cb_max_attempts,
-                    options.get("size"),
+                Glug.get_instance().warning(
+                    f"OpenSearch circuit breaker while querying {index}, "
+                    f"backing off (attempt {cb_attempt}/{cb_max_attempts}, "
+                    f"size={options.get('size')})"
                 )
                 await asyncio.sleep(1.0)
 
-        # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s", orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())
+        # Glug.get_instance().debug("_search_dsl_internal result", detail=res)
         total_hits = res["hits"]["total"]["value"]
         aggregations: dict = res.get("aggregations", {})
         hits = res["hits"]["hits"]
@@ -2618,7 +2586,7 @@ class GulpOpenSearch:
         try:
             await self.delete_pit(pit_id)
         except Exception as ex:  # pragma: no cover - logging is the fallback
-            MutyLogger.get_instance().warning("failed to close pagination PIT: %s", ex)
+            Glug.get_instance().warning(f"failed to close pagination PIT: {ex}")
 
     async def _search_pit(
         self,
@@ -2929,10 +2897,11 @@ class GulpOpenSearch:
 
         if el:
             # force use_elasticsearch_api if el is provided
-            MutyLogger.get_instance().debug(
-                "search_dsl: using provided ElasticSearch/OpenSearch client %s, class=%s",
-                el,
-                el.__class__,
+            # NOTE: never log `el` itself — AsyncOpenSearch's repr embeds
+            # credentials (http_auth) in cleartext, and this client may hold
+            # an external, customer-provided OpenSearch/Elasticsearch URL.
+            Glug.get_instance().debug(
+                f"search_dsl: using provided client class={el.__class__.__name__}"
             )
 
         parsed_options: dict = q_options.parse()
@@ -2950,10 +2919,9 @@ class GulpOpenSearch:
             )
 
             processed += len(docs)
-            MutyLogger.get_instance().debug(
-                "_search_dsl_internal returned total_hits=%d, len(docs)=%d",
-                total_hits,
-                len(docs),
+            Glug.get_instance().debug(
+                f"_search_dsl_internal returned total_hits={total_hits}, "
+                f"len(docs)={len(docs)}"
             )
             if (
                 not total_hits
@@ -2961,7 +2929,7 @@ class GulpOpenSearch:
                 or (q_options.total_limit and processed >= q_options.total_limit)
             ):
                 # this is the last chunk
-                MutyLogger.get_instance().warning("this is the last chunk")
+                Glug.get_instance().debug("this is the last chunk")
                 last = True
 
             if check_canceled_count % 10 == 0 and check_canceled and req_id:
@@ -2990,8 +2958,8 @@ class GulpOpenSearch:
 
             if last or canceled:
                 if canceled:
-                    MutyLogger.get_instance().warning(
-                        "search_dsl: request %s canceled!", req_id
+                    Glug.get_instance().warning(
+                        f"search_dsl: request {req_id} canceled"
                     )
                     raise RequestCanceledError()
                 break
@@ -3001,10 +2969,8 @@ class GulpOpenSearch:
             check_canceled_count += 1
             parsed_options["search_after"] = search_after
 
-        MutyLogger.get_instance().info(
-            "***FINISHED search_dsl***: processed=%d, total_hits=%d, chunk_num=%d",
-            processed,
-            total_hits,
-            chunk_num,
+        Glug.get_instance().info(
+            f"search_dsl finished: processed={processed}, total_hits={total_hits}, "
+            f"chunk_num={chunk_num}"
         )
         return processed, total_hits

@@ -2,16 +2,17 @@ import argparse
 import asyncio
 import logging
 import os
+import random
 import sys
 from multiprocessing import freeze_support
 import signal
 import time
 
 import art
-from muty.log import MutyLogger
 
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 
 # just for quick testing from the command line
 __RUN_TESTS__ = os.getenv("INTERNAL_TEST", "0") == "1"
@@ -29,7 +30,7 @@ async def async_test():
     #         raise JSendException("this is the jsend exceptiom", req_id="1234") from ex
     # except Exception as ex:
     #     # this will be logged
-    #     MutyLogger.get_instance().exception(ex)
+    #     Glug.get_instance().exception(str(ex))
     #     print("-----")
     #     print(ex.to_string())
     pass
@@ -39,6 +40,69 @@ def _pid_from_pidfile_path(pidfile_path: str) -> int:
     """Extract the process id from a gulp pidfile path."""
     bare_file = os.path.basename(pidfile_path)
     return int(bare_file.removeprefix("gulp").removesuffix(".pid"))
+
+
+# bright ANSI foreground colors the startup banner/version are picked from
+_BANNER_COLORS = ["91", "92", "93", "94", "95", "96"]
+
+
+def _colored_banner(banner: str, ver: str, use_color: bool) -> str:
+    """
+    formats the startup banner and version string for stdout.
+
+    Args:
+        banner (str): the ascii-art banner.
+        ver (str): the version string.
+        use_color (bool): whether to emit ANSI color codes; callers should pass
+            sys.stdout.isatty(), as the console formatter does.
+
+    Returns:
+        str: the banner in a random color, followed by the version in bold and in
+            another color (both plain when use_color is False).
+    """
+    if not use_color:
+        return "%s\n%s" % (banner, ver)
+    banner_color, ver_color = random.sample(_BANNER_COLORS, 2)
+    return "\x1b[%sm%s\x1b[0m\n\x1b[1;%sm%s\x1b[0m" % (
+        banner_color,
+        banner,
+        ver_color,
+        ver,
+    )
+
+
+def _describe_args(
+    parser: argparse.ArgumentParser, argv: list[str] = None
+) -> dict[str, str]:
+    """
+    describes the effective value of every command line option, for the startup debug log.
+
+    Args:
+        parser (argparse.ArgumentParser): the gulp argument parser.
+        argv (list[str], optional): the arguments to parse. Defaults to None (sys.argv[1:]).
+
+    Returns:
+        dict[str, str]: option dest -> effective value, suffixed with " (default)" when
+            the option was not given and its default applies.
+    """
+    args = parser.parse_args(argv)
+
+    # argparse only fills in a default when the namespace lacks that dest, so a
+    # namespace pre-filled with a sentinel tells "not given" apart from "given
+    # with the default value" (e.g. an explicit --log-level debug)
+    unset = object()
+    probe = parser.parse_args(
+        argv, namespace=argparse.Namespace(**{k: unset for k in vars(args)})
+    )
+
+    described: dict[str, str] = {}
+    for k, v in vars(args).items():
+        # nargs=1 options parse to a one-item list
+        value = v[0] if isinstance(v, list) and len(v) == 1 else v
+        described[k] = (
+            f"{value!r} (default)" if getattr(probe, k) is unset else repr(value)
+        )
+    return described
 
 
 def main():
@@ -57,25 +121,22 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "--log-to-file",
-        action="store_true",
-        default=False,
-        help="also outputs log (in addition to stdout) to $GULP_WORKING_DIR/logs/gulp.log (rotating every 4mb). Cannot be used with --log-to-syslog.",
-    )
-    parser.add_argument(
-        "--log-to-syslog",
-        help="also outputs log (in addition to stdout) to syslog, default address=(either /var/log or /var/run/syslog, depending on what is available), default facility=1 (LOG_LOCAL_0). Cannot be used with --log-to-file.",
-        nargs="*",
-        metavar=("address", "facility"),
-        default=None,
-    )
-    parser.add_argument(
         "--log-level",
         nargs=1,
         metavar=("level"),
-        help='select log level, default="debug".',
+        help='select log level, default="info". Given explicitly, it also takes precedence over '
+        "a level saved by an extension plugin.",
         choices=["critical", "error", "warning", "info", "debug"],
-        default=["debug"],
+        default=None,
+    )
+    parser.add_argument(
+        "--log-file",
+        help="also append every log line printed on stdout (same content, no colors) to this file, "
+        "shared by the main process and every worker. gulp never rotates it: use an external tool "
+        "such as logrotate. Omit to log to stdout only.",
+        nargs=1,
+        metavar=("path"),
+        default=None,
     )
     parser.add_argument(
         "--reset-collab",
@@ -105,42 +166,13 @@ def main():
         default=False,
     )
     args = parser.parse_args()
-    print(". command line args (sys.argv):\n%s" % (sys.argv))
-    print(". command line args (parsed):\n%s" % (args))
 
-    # reconfigure logger
-    logs_path: str = GulpConfig.get_instance().path_logs()
-    lv: str = logging.getLevelNamesMapping()[args.log_level[0].upper()]
-    logger_file_path: str = (
-        os.path.join(logs_path, "gulp.log") if args.log_to_file else None
-    )
-
-    # post-process log_to_syslog to always be a tuple of two elements (possibly None)
-    log_to_syslog: tuple[str, str]
-    if args.log_to_syslog and len(args.log_to_syslog) > 2:
-        print(
-            "ERROR: log_to_syslog can only have 0, 1 or 2 arguments, got %d"
-            % len(args.log_to_syslog)
-        )
-        return 1
-
-    if args.log_to_syslog is None:
-        # no syslog logging
-        log_to_syslog = None
-    elif len(args.log_to_syslog) == 0:
-        # no args means default syslog settings
-        log_to_syslog = (None, None)
-    elif len(args.log_to_syslog) == 1:
-        log_to_syslog = (args.log_to_syslog[0], None)
-    else:
-        log_to_syslog = (args.log_to_syslog[0], args.log_to_syslog[1])
-    print(". log_to_syslog:", log_to_syslog)
-    MutyLogger.get_instance(
-        "gulp",
-        logger_file_path=logger_file_path,
-        level=lv,
-        log_to_syslog=log_to_syslog,
-        reconfigure=True,
+    # None when --log-level is not given: the server applies INFO, and an extension
+    # plugin keeping its own saved level can tell the two cases apart
+    lv: int | None = (
+        logging.getLevelNamesMapping()[args.log_level[0].upper()]
+        if args.log_level
+        else None
     )
     if __RUN_TESTS__:
         # test stuff
@@ -221,25 +253,37 @@ def main():
                         "Failed to remove pidfile, it may have already been removed: %s"
                         % (pidfile_path)
                     )"""
-            MutyLogger.get_instance().info("Stopped %d gulp instances !" % (len(pids)))
+            Glug.get_instance().info(f"stopped {len(pids)} gulp instances")
             return 0
         else:
             create_operation: str = None
             if args.create:
                 create_operation = args.create[0]
 
+            # --version/--stop never reach this branch, no point logging them
+            cli_options: dict[str, str] = {
+                k: v
+                for k, v in _describe_args(parser).items()
+                if k not in ("version", "stop")
+            }
+
+            if lv is None:
+                cli_options["log_level"] = "'info' (default)"
+
             # default
-            print("%s\n%s" % (banner, ver))
-            GulpServer.get_instance().start(
-                logger_file_path=logger_file_path,
+            print(_colored_banner(banner, ver, sys.stdout.isatty()))
+            if not GulpServer.get_instance().start(
                 level=lv,
                 reset_collab=args.reset_collab,
                 create_operation=create_operation,
-                log_to_syslog=log_to_syslog,
-            )
-    except Exception as ex:
+                log_file=args.log_file[0] if args.log_file else None,
+                cli_options=cli_options,
+            ):
+                # a required service is unreachable, already logged with a hint
+                return 1
+    except Exception:
         # print exception and exit
-        MutyLogger.get_instance().exception(ex)
+        Glug.get_instance().exception("fatal error in main()")
         return 1
 
     # done

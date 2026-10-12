@@ -18,7 +18,6 @@ import string
 from typing import Any, override
 
 import muty.os
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -29,6 +28,7 @@ from gulp.api.collab.stats import (
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
@@ -79,7 +79,7 @@ class Plugin(GulpPluginBase):
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
 
-        # MutyLogger.get_instance().debug(custom_mapping"record: %s" % record)
+        # Glug.get_instance().debug("record", detail=record)
         event: dict = record
         data: dict = kwargs["data"]
 
@@ -205,8 +205,8 @@ class Plugin(GulpPluginBase):
 
         # check if key_type is supported
         if key_type.lower() not in ["key", "textkey", "hexkey"]:
-            MutyLogger.get_instance().warning(
-                "unsupported key type %s, defaulting to 'key'" % (key_type,)
+            Glug.get_instance().warning(
+                f"unsupported key type {key_type}, defaulting to 'key'"
             )
             key_type = "key"
 
@@ -222,9 +222,9 @@ class Plugin(GulpPluginBase):
                 async with db.execute(
                     "PRAGMA ?='?'", (key_type, encryption_key)
                 ) as cur:
-                    MutyLogger.get_instance().info(
-                        "attempting database decryption with provided key: %s"
-                        % (await cur.fetchall())
+                    Glug.get_instance().info(
+                        "attempting database decryption with provided key",
+                        detail=await cur.fetchall(),
                     )
 
             # these are the tables found effectively matching the mapping_ids

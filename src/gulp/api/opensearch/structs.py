@@ -23,13 +23,13 @@ import muty.crypto
 import muty.string
 import muty.time
 from dateutil import parser as dateparser, tz
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 from gulp.api.s3_api import GulpS3
+from gulp.glug import Glug
 from gulp.structs import GulpPluginParameters, GulpSortOrder
 
 if TYPE_CHECKING:
@@ -292,7 +292,12 @@ class GulpDocument(GulpBasicDocument):
                 False,
             )
         except Exception as ex:
-            MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {ex}")
+            # WARNING, not ERROR: this runs per-document during ingestion, a malformed
+            # timestamp is expected/handled input (falls back to `invalid`, ingestion
+            # continues) rather than a system fault, and is already counted in the
+            # request's records_failed stat (see api/collab/stats.py) — an ERROR-level
+            # line per bad record in a large malformed source would flood the log.
+            Glug.get_instance().warning(f"invalid timestamp: {timestamp}, {ex}")
             return invalid
 
     @staticmethod
@@ -470,18 +475,17 @@ class GulpDocument(GulpBasicDocument):
         ts = normalized_timestamp.iso8601
         ts_nanos = normalized_timestamp.nanos
         invalid = normalized_timestamp.invalid
-        """if ts.startswith("3300"):
-            MutyLogger.get_instance().error("ts=%s, ts_nanos=%s, invalid=%s, timestamp=%s, data=%s" % (ts, ts_nanos, invalid, timestamp, data))"""
+        # if ts.startswith("3300"):
+        #     Glug.get_instance().error(f"ts={ts}, ts_nanos={ts_nanos}, invalid={invalid}, timestamp={timestamp}, data={data}")
 
         data["timestamp"] = ts
         data["gulp_timestamp"] = ts_nanos
         if invalid or ts_nanos == 0:
             # flag invalid timestamp
             data["invalid_timestamp"] = True
-        """MutyLogger.get_instance().error(
-            "ts=%s, ts_nanos=%s, invalid=%s, timestamp=%s, data=%s"
-            % (ts, ts_nanos, invalid, timestamp, data)
-        )"""
+        # Glug.get_instance().error(
+        #     f"ts={ts}, ts_nanos={ts_nanos}, invalid={invalid}, timestamp={timestamp}, data={data}"
+        # )
 
         if plugin_instance._plugin_params and plugin_instance._plugin_params.store_file:
             # Use the same ingestion IDs as the upload; mappings may override a document's IDs.
@@ -842,7 +846,7 @@ if set, highlights are included in the results (default=False).
         # wether to highlight results for the query (warning: may take a lot of memory)
         if self.highlight_results:
             n["highlight"] = {"fields": {"*": {}}}
-        # MutyLogger.get_instance().debug("query options: %s" % (orjson.dumps(n, option=orjson.OPT_INDENT_2).decode()))
+        # Glug.get_instance().debug(f"query options: {orjson.dumps(n, option=orjson.OPT_INDENT_2).decode()}")
         return n
 
 

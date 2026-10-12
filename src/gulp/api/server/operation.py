@@ -8,7 +8,6 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
@@ -21,6 +20,7 @@ from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.events import GulpCoreEvent, events
+from gulp.glug import Glug
 from gulp.structs import GulpPluginParameters, ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
@@ -264,7 +264,11 @@ async def operation_delete_handler(
                     ),
                     throw_if_not_found=False,
                 )
-                MutyLogger.get_instance().debug("%d running requests during operation_delete: %s", len(running_requests), running_requests)
+                Glug.get_instance().debug(
+                    f"{len(running_requests)} running requests during operation_delete: "
+                    f"{[r.id for r in running_requests if r]}",
+                    detail=[r.to_dict(exclude_none=True) for r in running_requests if r],
+                )
                 if running_requests:
                     running_request_ids = sorted({r.id for r in running_requests if r and r.id})
                     raise ValueError(
@@ -278,18 +282,15 @@ async def operation_delete_handler(
             await sess.commit()
 
             if delete_data:
-                MutyLogger.get_instance().info(
-                    f"deleting data related to operation_id={
-                        operation_id} on index={index} ..."
+                Glug.get_instance().info(
+                    f"deleting data related to operation_id={operation_id} on index={index}"
                 )
 
                 # delete the index
                 await GulpOpenSearch.get_instance().datastream_delete(index)
 
             # delete the operation itself
-            MutyLogger.get_instance().info(
-                "deleting operation_id=%s, ws_id=%s ..." % (operation_id, ws_id)
-            )
+            Glug.get_instance().info(f"deleting operation_id={operation_id}, ws_id={ws_id}")
             await op.delete(
                 sess,
                 ws_id=ws_id,
@@ -369,12 +370,9 @@ async def operation_cleanup_handler(
                 deleted += await obj_class.delete_by_filter(
                     sess, flt=flt, user_id=s.user_id, throw_if_not_found=False
                 )
-                MutyLogger.get_instance().info(
-                    "deleted %d objects from table=%s for operation_id=%s, user_id=%s.",
-                    deleted,
-                    t,
-                    operation_id,
-                    s.user_id,
+                Glug.get_instance().info(
+                    f"deleted {deleted} objects from table={t} for "
+                    f"operation_id={operation_id}, user_id={s.user_id}."
                 )
                 await asyncio.sleep(0.1)  # yield to event loop
             return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
@@ -622,14 +620,14 @@ async def context_delete_handler(
             s, ctx, op = await GulpContext.get_by_id_wrapper(
                 sess, token, context_id, permission=GulpUserPermission.INGEST
             )
-            MutyLogger.get_instance().info("got context=%s, operation=%s", ctx, op)
+            Glug.get_instance().debug(f"got context={ctx.id}, operation={op.id}")
             # Release the ACL transaction before OpenSearch and S3 cleanup.
             await sess.commit()
             if delete_data:
                 # delete all data
-                MutyLogger.get_instance().info(
-                    f"deleting data related to operation_id={
-                        ctx.operation_id}, context_id={context_id} on index={op.index} ..."
+                Glug.get_instance().info(
+                    f"deleting data related to operation_id={ctx.operation_id}, "
+                    f"context_id={context_id} on index={op.index}"
                 )
                 await GulpOpenSearch.get_instance().delete_data_by_context(
                     op.index, ctx.operation_id, context_id
@@ -1095,9 +1093,9 @@ async def source_delete_handler(
 
             if delete_data:
                 # delete all data
-                MutyLogger.get_instance().info(
-                    f"deleting data related to operation_id={src.operation_id}, context_id={
-                        src.context_id}, source_id={source_id} on index={op.index} ..."
+                Glug.get_instance().info(
+                    f"deleting data related to operation_id={src.operation_id}, "
+                    f"context_id={src.context_id}, source_id={source_id} on index={op.index}"
                 )
                 
                 # delete data from storage (files with operation_id, context_id, source_id tags)

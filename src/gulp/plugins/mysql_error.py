@@ -14,7 +14,6 @@ import re
 from typing import Any, override
 
 import muty.file
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -25,6 +24,7 @@ from gulp.api.collab.stats import (
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
@@ -131,7 +131,7 @@ class Plugin(GulpPluginBase):
                         )
                         doc_idx += 1
                     except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
+                        Glug.get_instance().warning(f"ingestion canceled: {ex}")
                         break
 
                 current_rec = line

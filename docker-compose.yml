@@ -209,7 +209,7 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus_alerts.yml:/etc/prometheus/rules/gulp_alerts.yml:ro
       - prometheus_data:/prometheus
-      
+
 volumes:
   postgres_data:
   opensearch_data:

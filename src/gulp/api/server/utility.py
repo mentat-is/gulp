@@ -24,7 +24,6 @@ import psutil
 from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 import muty.crypto
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +45,7 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
@@ -162,9 +162,8 @@ async def request_cancel_handler(
             d: int = await GulpRedis.get_instance().task_purge_by_filter(
                 operation_id=op.id, req_id=req_id_to_cancel
             )
-            MutyLogger.get_instance().debug(
-                "also deleted %d pending tasks for request %s" % (
-                    d, req_id_to_cancel)
+            Glug.get_instance().debug(
+                f"also deleted {d} pending tasks for request {req_id_to_cancel}"
             )
 
             return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
@@ -1053,7 +1052,7 @@ async def mapping_file_list_handler(
         """
         lists mapping files in path and append to d
         """
-        MutyLogger.get_instance().info("listing mapping files in %s" % (path))
+        Glug.get_instance().info(f"listing mapping files in {path}")
         if not path:
             return
 
@@ -1066,9 +1065,7 @@ async def mapping_file_list_handler(
 
             filename = os.path.basename(f)
             if _exists(d, filename):
-                MutyLogger.get_instance().warning(
-                    "skipping mapping file %s (already exists)" % (f)
-                )
+                Glug.get_instance().warning(f"skipping mapping file {f} (already exists)")
                 continue
 
             # read file

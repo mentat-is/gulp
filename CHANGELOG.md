@@ -13,6 +13,13 @@
 - `muty-python` is now built into this repository under `src/muty/`; existing
   environments should remove the external package and rebuild their virtual
   environment.
+- The `gulp` options `--log-to-file` and `--log-to-syslog` have been removed.
+  The new optional `--log-file <path>` appends the console lines, without
+  colors, to one file shared by the main process and the workers; gULP never
+  rotates it. `--log-level` now defaults to `info` instead of `debug`.
+- gULP logs through the new `gulp.glug` package instead of `MutyLogger`.
+  `muty.log.MutyLogger` is kept unchanged only for external plugins, which
+  should move to `Glug`; `muty` itself now uses the standard `logging` module.
 
 ## Added
 
@@ -55,6 +62,22 @@
   main-process listener registry and Redis worker bridge.
 - Added the new scheduler and task-management system, multi-user stress coverage,
   and documented Prometheus multi-instance scraping requirements.
+- Added `gulp.glug` (Glug), the logging gateway of the main process and the
+  workers: one readable console line per record with date, level,
+  `module:function:line` and asyncio task; automatic request, operation and
+  user context; optional `detail=` payloads shown only in dev mode and `hint=`
+  remedy lines. See `docs/logging.md`.
+- Added runtime log controls for extension plugins: dev mode, the log level
+  and per-process JSON-lines files with a separate exceptions-only file,
+  applied live to every process through Redis, plus
+  `GulpServer.cli_log_level()`, `GulpServer.extension_plugins()` and
+  `Glug.effective_level()`.
+- Added startup checks that PostgreSQL, OpenSearch and Redis accept
+  connections: an unreachable service is reported with a hint and `gulp` exits
+  with status 1 instead of failing inside the server startup.
+- Added the effective value of each server option to the startup log at
+  `DEBUG`, replacing the raw command-line dump, and a colored startup banner on
+  terminals.
 
 ## Fixed
 
@@ -77,6 +100,24 @@
   source deletion, and plugin configuration behavior.
 - Improved error handling, documentation, code organization, configuration
   cleanup, and automated coverage throughout the project.
+- Fixed credentials reaching the logs: Glug masks `token`, `password` and
+  `pwd_hash` values in every output, handler parameters are redacted, the
+  configuration and the environment are summarized at startup instead of
+  dumped, and PostgreSQL and OpenSearch URLs and clients are logged without
+  their credentials.
+- Fixed failed API requests being logged as a full JSON dump at `ERROR`: each
+  one is now a single line, at `WARNING` for client errors and at `ERROR` with
+  the traceback for server errors.
+- Fixed exceptions logged without their traceback, and third-party loggers
+  such as uvicorn and opensearch-py ignoring gULP's level and format; the
+  per-request logging of the storage clients is capped at `WARNING`.
+- Reviewed the level and wording of every log message: routine conditions,
+  such as a malformed ingestion timestamp, no longer log at `ERROR` or
+  `WARNING`, and messages that never interpolated their values are fixed.
+- Fixed a module taken from the plugin cache being added to it again on every
+  load.
+- Fixed the Docker entrypoint leaving a working directory created by Docker
+  owned by root, which prevented the runtime user from writing to it.
 
 ## Removed
 

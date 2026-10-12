@@ -15,7 +15,6 @@ import muty.crypto
 import muty.dict
 import muty.os
 from construct.core import EnumInteger
-from muty.log import MutyLogger
 
 from sqlalchemy.ext.asyncio import AsyncSession
 import orjson
@@ -27,6 +26,7 @@ from gulp.api.collab.stats import (
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
@@ -76,7 +76,7 @@ class Plugin(GulpPluginBase):
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
 
-        # MutyLogger.get_instance().debug(custom_mapping"record: %s" % record)
+        # Glug.get_instance().debug("record", detail=record)
         event: Subkey = record
 
         regkey = {
@@ -104,8 +104,8 @@ class Plugin(GulpPluginBase):
                     data = val.get("value", None)
 
                 values.append(orjson.dumps({name: data}).decode())
-            except Exception as e:
-                MutyLogger.get_instance().error(e)
+            except Exception:
+                Glug.get_instance().exception("error processing registry value")
 
         regkey["values"] = values
 

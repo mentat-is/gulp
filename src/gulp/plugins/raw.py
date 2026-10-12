@@ -12,7 +12,6 @@ from typing import override
 
 import orjson
 from muty.dict import flatten
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -24,6 +23,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.glug import Glug
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import (
     GulpMappingParameters,
@@ -113,7 +113,7 @@ class Plugin(GulpPluginBase):
 
         # Build the final document from mapped values, preserving record-level
         # event_original/event_sequence values when provided in the payload.
-        # MutyLogger.get_instance().debug("raw: d=%s, flattened=%s" % (d, flattened))
+        # Glug.get_instance().debug("raw document", detail={"d": d, "flattened": flattened})
         return GulpDocument(
             self,
             operation_id=self._operation_id,

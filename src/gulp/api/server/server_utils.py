@@ -26,7 +26,6 @@ import orjson
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendResponse
-from muty.log import MutyLogger
 from requests_toolbelt.multipart import decoder
 
 from gulp.api.collab.context import GulpContext
@@ -35,6 +34,7 @@ from gulp.api.prometheus_api import record_api_request_rejection
 from gulp.api.redis_api import TaskQueueFullError
 from gulp.api.server.structs import GulpUploadResponse
 from gulp.config import GulpConfig
+from gulp.glug import Glug
 
 
 class ServerUtils:
@@ -78,15 +78,11 @@ class ServerUtils:
                             pass
                     removed += 1
                 except OSError as ex:
-                    MutyLogger.get_instance().warning(
-                        "failed to clean stale multipart upload %s: %s",
-                        file_path,
-                        ex,
+                    Glug.get_instance().warning(
+                        f"failed to clean stale multipart upload {file_path}: {ex}"
                     )
         if removed:
-            MutyLogger.get_instance().info(
-                "cleaned %d stale multipart upload(s)", removed
-            )
+            Glug.get_instance().info(f"cleaned {removed} stale multipart upload(s)")
         return removed
 
     @staticmethod
@@ -128,23 +124,28 @@ class ServerUtils:
             status_code=503,
         )
 
+    # param names never logged as-is, even in dev_mode: session tokens/credentials,
+    # not useful for debugging and a session-hijacking/credential-leak risk if a log
+    # is ever shared
+    _SENSITIVE_PARAM_NAMES = frozenset({"token", "password", "pwd_hash"})
+
     @staticmethod
-    def dump_params(params: dict) -> str:
+    def dump_params(params: dict) -> None:
         """
-        Dumps the parameters dictionary as a string.
+        Logs the calling handler's parameters (dev_mode only, see Glug's `detail`),
+        for debugging. Sensitive parameters (session token, password, ...) are
+        redacted regardless of dev_mode.
 
         Args:
-            params (dict): The parameters dictionary.
-
-        Returns:
-            str: The string representation of the parameters.
+            params (dict): The parameters dictionary (typically the handler's `locals()`).
         """
         caller_frame = inspect.currentframe().f_back
         caller_name = caller_frame.f_code.co_name
-        MutyLogger.get_instance().debug(
-            "---> %s() params: %s"
-            % (caller_name, orjson.dumps(params, option=orjson.OPT_INDENT_2).decode())
-        )
+        redacted = {
+            k: ("***" if k.lower() in ServerUtils._SENSITIVE_PARAM_NAMES else v)
+            for k, v in params.items()
+        }
+        Glug.get_instance().debug(f"{caller_name}() params", detail=redacted)
 
     @staticmethod
     async def send_mail(
@@ -183,9 +184,9 @@ class ServerUtils:
             cc_list = to[1:]
 
         m = EmailMessage()
-        MutyLogger.get_instance().info(
-            "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
-            % (server, port, sender, to_email, cc_list, subject)
+        Glug.get_instance().info(
+            f"sending mail using {server}:{port}, from {sender} to {to_email}, "
+            f"cc={cc_list}, subject={subject}"
         )
         m["From"] = sender
         m["To"] = to_email
@@ -220,13 +221,13 @@ class ServerUtils:
             # validate the uploaded content
             payload = content.decode("utf-8")
             payload_dict = orjson.loads(payload)
-            MutyLogger.get_instance().debug(
-                "parsed payload: %s"
-                % orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2).decode()
-            )
+            Glug.get_instance().debug("parsed payload", detail=payload_dict)
             return payload_dict
         except Exception:
-            MutyLogger.get_instance().error(f"invalid payload: {content}")
+            # bounded preview via repr(), not the raw (possibly huge/binary) content
+            Glug.get_instance().exception(
+                f"invalid payload (len={len(content)}): {content[:200]!r}"
+            )
             return {}
 
     @staticmethod
@@ -328,14 +329,21 @@ class ServerUtils:
                     filename = filename[1:-1]
                 filename = filename.strip()
                 if filename:
-                    MutyLogger.get_instance().debug(
-                        "extracted filename from Content-Disposition: %s" % (filename)
+                    Glug.get_instance().debug(
+                        f"extracted filename from Content-Disposition: {filename}"
                     )
                     return filename
 
             raise ValueError('No "filename" found in Content-Disposition header')
 
-        MutyLogger.get_instance().debug("headers=%s" % (r.headers))
+        # redacted: the auth token travels as a request header (see APIDependencies.param_token)
+        Glug.get_instance().debug(
+            "headers",
+            detail={
+                k: ("***" if k.lower() in ServerUtils._SENSITIVE_PARAM_NAMES else v)
+                for k, v in r.headers.items()
+            },
+        )
 
         # parse request headers, continue_offset=0 (first chunk) is assumed if missing
         continue_offset = int(r.headers.get("continue_offset", 0))
@@ -360,7 +368,7 @@ class ServerUtils:
         payload_dict = ServerUtils._validate_json_payload(json_part.content)
 
         # extract filename and prepare path
-        MutyLogger.get_instance().debug("file_part.headers=%s" % (file_part.headers))
+        Glug.get_instance().debug("file_part.headers", detail=dict(file_part.headers))
         filename = _extract_filename(
             file_part.headers[b"Content-Disposition"].decode("utf-8")
         )
@@ -383,18 +391,11 @@ class ServerUtils:
         async with lock:
             # Check if file is already complete
             current_size = await muty.file.get_size(cache_file_path)
-            MutyLogger.get_instance().debug(
-                "extracted_filename=%s, cache_file_path=%s, continue_offset=%d, current_size=%d, total_file_size=%d, filename=%s, cache_file_path=%s, payload_dict=%s"
-                % (
-                    filename,
-                    cache_file_path,
-                    continue_offset,
-                    current_size,
-                    total_file_size,
-                    filename,
-                    cache_file_path,
-                    payload_dict,
-                )
+            Glug.get_instance().debug(
+                f"filename={filename}, cache_file_path={cache_file_path}, "
+                f"continue_offset={continue_offset}, current_size={current_size}, "
+                f"total_file_size={total_file_size}",
+                detail=payload_dict,
             )
 
             if current_size > total_file_size:
@@ -451,13 +452,8 @@ class ServerUtils:
                 done=is_complete,
                 continue_offset=0 if is_complete else current_written_size,
             )
-        MutyLogger.get_instance().debug(
-            "file_path=%s,\npayload=%s,\nresult=%s"
-            % (
-                cache_file_path,
-                orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2).decode(),
-                result,
-            )
+        Glug.get_instance().debug(
+            f"file_path={cache_file_path}, result={result}", detail=payload_dict
         )
 
         return (cache_file_path, payload_dict, result)

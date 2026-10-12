@@ -25,7 +25,6 @@ from urllib.parse import parse_qs, urlparse
 
 import muty.elastic
 import muty.file
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (

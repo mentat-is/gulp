@@ -18,8 +18,6 @@ import muty.log
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
-import orjson
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.operation import GulpOperation
@@ -45,6 +43,7 @@ from gulp.api.server.structs import TASK_TYPE_REBASE, APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRedisBroker
 from gulp.events import GulpCoreEvent, events
+from gulp.glug import Glug
 
 router: APIRouter = APIRouter()
 
@@ -64,10 +63,8 @@ async def db_reset() -> None:
         await sess.commit()
         for op in ops:
             op: GulpOperation
-            MutyLogger.get_instance().debug(
-                "found operation: %s, index=%s" % (op.id, op.index)
-            )
-            MutyLogger.get_instance().info("deleting data for operation %s" % (op.id))
+            Glug.get_instance().debug(f"found operation: {op.id}, index={op.index}")
+            Glug.get_instance().info(f"deleting data for operation {op.id}")
 
             # delete the whole datastream
             await GulpOpenSearch.get_instance().datastream_delete(op.index)
@@ -76,13 +73,11 @@ async def db_reset() -> None:
             try:
                 await GulpS3.get_instance().delete_by_tags({"operation_id": op.id})
             except Exception as ex:
-                MutyLogger.get_instance().exception(ex)
+                Glug.get_instance().exception(str(ex))
 
     # reset
     # TODO: try to handle worker processes termination gracefully
-    MutyLogger.get_instance().warning(
-        "resetting collab database, all data will be lost!"
-    )
+    Glug.get_instance().warning("resetting collab database, all data will be lost")
     await GulpCollab.get_instance().init(main_process=True, force_recreate=True)
 
 
@@ -137,7 +132,7 @@ async def run_rebase_task(t: dict) -> bool:
     This function runs in the main process, reconstructs the filter model and
     spawns a worker task to actually perform the rebase
     """
-    MutyLogger.get_instance().debug("run_rebase_task, t=%s", t)
+    Glug.get_instance().debug(f"run_rebase_task, req_id={t.get('req_id')}", detail=t)
     try:
         params: dict = t.get("params", {})
         user_id: str = t.get("user_id")
@@ -179,8 +174,8 @@ async def run_rebase_task(t: dict) -> bool:
         return True
 
     except Exception as ex:
-        MutyLogger.get_instance().exception(
-            "***ERROR*** in run_rebase_task, task=%s", orjson.dumps(t, option=orjson.OPT_INDENT_2).decode()
+        Glug.get_instance().exception(
+            f"run_rebase_task failed, req_id={t.get('req_id')}", detail=t
         )
         return False
 
@@ -228,10 +223,9 @@ async def _rebase_by_query_internal(
                     and not stats_created
                     and GulpRequestStats.is_terminal_status(stats.status)
                 ):
-                    MutyLogger.get_instance().warning(
-                        "rebase request %s already terminal with status=%s, skipping duplicate request",
-                        req_id,
-                        stats.status,
+                    Glug.get_instance().warning(
+                        f"rebase request {req_id} already terminal with status={stats.status}, "
+                        "skipping duplicate request"
                     )
                     total_updated = -1
                     return
@@ -265,11 +259,11 @@ async def _rebase_by_query_internal(
                         )
                 raise
             finally:
-                MutyLogger.get_instance().debug(
-                    "****** rebase_by_query finished, total_hits=%d, total_updated=%d, errors=%s",
-                    total_hits,
-                    total_updated,
-                    errors)
+                Glug.get_instance().debug(
+                    f"rebase_by_query finished, total_hits={total_hits}, "
+                    f"total_updated={total_updated}, num_errors={len(errors)}",
+                    detail=errors,
+                )
                 if stats and total_updated >= 0:
                     # send a WSDATA_REBASE_DONE packet to the websocket
                     await GulpRedisBroker.get_instance().put(
@@ -282,7 +276,7 @@ async def _rebase_by_query_internal(
                     )
 
     except Exception as ex:
-        MutyLogger.get_instance().exception(ex)
+        Glug.get_instance().exception(str(ex))
         errors.append(muty.log.exception_to_string(ex))
         return
 
@@ -469,7 +463,7 @@ async def opensearch_delete_index_handler(
                         req_id=req_id,
                     )
                 else:
-                    MutyLogger.get_instance().warning(
+                    Glug.get_instance().warning(
                         f"operation with index={index} not found, skipping deletion..."
                     )
 

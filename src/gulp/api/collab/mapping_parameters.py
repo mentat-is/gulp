@@ -6,7 +6,6 @@ from typing import Optional, Tuple
 
 import muty.crypto
 import muty.time
-from muty.log import MutyLogger
 from sqlalchemy import BIGINT, String, delete, exists, insert, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +13,7 @@ from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api.collab.structs import COLLABTYPE_MAPPING_PARAMETERS, GulpCollabBase
+from gulp.glug import Glug
 
 
 class GulpMappingParametersEntry(GulpCollabBase, type=COLLABTYPE_MAPPING_PARAMETERS):
@@ -60,7 +60,7 @@ class GulpMappingParametersEntry(GulpCollabBase, type=COLLABTYPE_MAPPING_PARAMET
                 operation_id=operation_id,
                 mapping=mapping,
             )
-            MutyLogger.get_instance().debug("mapping parameters %s created by %s", mp.id, user_id)
+            Glug.get_instance().debug(f"mapping parameters {mp.id} created by {user_id}")
             return mp, True
 
     @classmethod
@@ -77,5 +77,5 @@ class GulpMappingParametersEntry(GulpCollabBase, type=COLLABTYPE_MAPPING_PARAMET
             # always end transaction to release advisory lock even when nothing was deleted
             await sess.commit()
             if deleted:
-                MutyLogger.get_instance().debug("deleted %d orphan mapping parameters", deleted)
+                Glug.get_instance().debug(f"deleted {deleted} orphan mapping parameters")
             return deleted
