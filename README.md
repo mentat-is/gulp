@@ -48,7 +48,7 @@ web UI provides the investigation workspace.
 
 ## quick start
 
-Choose [PyPI installation](docs/installation.md#pypi-installation),
+Choose a [tagged source installation](docs/installation.md#tagged-source-installation),
 [development installation](docs/installation.md#development-installation), or
 [Docker installation](docs/installation.md#docker-installation).
 Public deployments should follow the
@@ -61,9 +61,10 @@ covers [development](docs/webui/install.md),
 [ingestion](docs/webui/ingestion.md), [workflow](docs/webui/flow.md),
 [features](docs/webui/features.md), and [views](docs/webui/view.md).
 
-PyPI packages include the compiled UI; run `gulp-webui` to serve it on port
-3000. The launcher requires Node.js and pnpm. Docker's standalone UI image
-serves the production build with nginx.
+The UI is developed in the same repository and released together with the core.
+Docker's standalone UI image serves the production build with nginx. Source
+installations can build it with `scripts/build_webui_package.sh` and serve the
+bundled files with `gulp-webui`.
 
 Start by connecting to a backend and choosing an investigation operation.
 
@@ -95,6 +96,7 @@ focused on the investigation.
 - [Integration API and raw ingestion](docs/integration.md)
 - [Query behavior](docs/query.md)
 - [Testing](docs/testing.md)
+- [Release process](docs/release.md)
 - [Observability](docs/observability.md)
 - [Troubleshooting](docs/troubleshooting.md)
 

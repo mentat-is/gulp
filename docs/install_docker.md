@@ -44,16 +44,23 @@ To run the local backend and UI together:
 docker compose --profile gulp --profile ui up -d
 ```
 
-Add `--build` when UI source or build arguments have changed.
+Add `--build` when UI source has changed.
 
 ## Use a local backend image
 
 Build the backend image from this repository:
 
 ```bash
-docker buildx build --progress=plain --build-arg _VERSION="$(git describe --tags --always)" --rm -t gulp-core:local .
+docker buildx build --progress=plain \
+  --build-arg GULP_VERSION=0.0.0 \
+  --build-arg GULP_REVISION="$(git rev-parse HEAD)" \
+  --rm -t gulp-core:local .
 GULP_IMAGE=gulp-core:local docker compose --profile gulp up -d
 ```
+
+Official release images use the semantic tag, for example
+`mentatis/gulp-core:v2.0.0` and `mentatis/gulp-ui:v2.0.0`. Their OCI labels
+contain the normalized version and full source revision.
 
 The backend image uses Debian 13 (Trixie). Rebuild local images after updating
 the Dockerfile, or pull a newly published image to pick up the new system

@@ -29,8 +29,8 @@ object storage.
   documentation, and test suites.
 - `gulp-sdk/` and `gulp-cli/`: Python SDK and CLI maintained with affected
   backend interfaces.
-- `gulp-ui/`: separate React and TypeScript project; do not include it in
-  backend change coordination.
+- `gulp-ui/`: separate React and TypeScript development area that shares the
+  root release version and root changelog with the backend.
 
 ## Working rules
 
@@ -45,7 +45,8 @@ object storage.
   record the change before proceeding.
 - Stop and ask for feedback when requirements are unclear or when a test or
   investigation suggests a backend or plugin bug.
-- Update `CHANGELOG.md` with a short summary when a goal is complete.
+- Update the root `CHANGELOG.md` under `Unreleased` with a short summary when a
+  goal is complete. Create the section with the standard categories if absent.
 
 ## Documentation and change coordination
 
@@ -55,14 +56,30 @@ object storage.
 - When backend behavior or interfaces change, update `gulp-sdk/` and
   `gulp-cli/` wherever either is affected. If the SDK changes, always check the
   CLI for corresponding work.
-- Treat `gulp-ui/` as a separate project. Do not change it as part of backend
-  coordination; document any required UI work for its maintainers.
+- Treat `gulp-ui/` as a separate development area, but coordinate any affected
+  behavior and document all backend and UI changes in the single root changelog.
 - Request retries are the client's responsibility. The backend should return
   appropriate status codes and retry metadata, such as `retry_after_msec` in a
   queue-backpressure `503`; do not add backend retry loops.
 - Plans must be Markdown (`.md`) files. Keep their progress and landed details
   current through completion. Explain every necessary deviation and update the
   plan to match what actually landed.
+
+## Versioning and releases
+
+- Use `# Unreleased` as the first changelog section during development, with
+  `Breaking Changes and Migrations`, `Added`, `Fixed`, and `Removed` headings.
+- Before a release, a developer manually renames `Unreleased` to the final
+  `vMAJOR.MINOR.PATCH` tag and commits that change on `develop` before the
+  fast-forward merge to `master`.
+- Never edit or commit `src/gulp/_version.py`; `setuptools-scm` generates it
+  from the Git tag and commit during installation or build.
+- The React application has no independent version. If it needs to display the
+  product version, obtain it from the backend `/version` API.
+- Only a version tag on the current `master` head may run the release workflow.
+  Branch pushes, pull requests, and manual dispatches must not start a pipeline.
+- Do not publish the gULP core to PyPI. `gulp-sdk` and `gulp-cli` maintain their
+  own versions and publication workflows.
 
 ## Plugin reference implementations
 
@@ -85,7 +102,7 @@ unit coverage when practical.
   integration test:
 
 ```bash
-curl -fsS http://localhost:8080/docs >/dev/null || gulp --reset-collab --create test_operation
+curl -fsS http://localhost:8080/docs >/dev/null || gulp --create test_operation
 .venv/bin/python -m pytest -v -s -x tests/integration/<test_file>
 ```
 

@@ -4,8 +4,8 @@ Choose the installation mode that fits your use case:
 
 1. **Development:** use a repository checkout and run backend and UI tools
    manually.
-2. **PyPI:** install `mentat-gulp`; the wheel includes the compiled UI and a
-   `gulp-webui` launcher.
+2. **Tagged source:** clone a release tag or download its GitHub source archive
+   and install it locally.
 3. **Docker:** run the backend and UI in separate containers.
 4. **Enterprise:** put private backend instances behind a TLS-terminating proxy.
 
@@ -22,46 +22,48 @@ For a quick setup, the recommended option is to start these services with the
 docker compose up -d
 ```
 
-For a PyPI installation without a repository checkout, download the Compose
-file and its environment defaults from GitHub and start the services in one
-line:
+For a source installation without a repository checkout, download the Compose
+file and its environment defaults from GitHub and start the services in one line:
 
 ```bash
 mkdir gulp-services && cd gulp-services && curl -fsSLO 'https://raw.githubusercontent.com/mentat-is/gulp/master/{.env,docker-compose.yml}' && docker compose up -d
 ```
 
-PyPI and manual development installations may use this Compose stack or
+Tagged-source and development installations may use this Compose stack or
 provide the services separately.
 
-## PyPI installation
+## Tagged source installation
 
-Requirements: Python 3.12+. The wheel includes a prebuilt UI, so no repository
-checkout or frontend build is required. Running it separately with `gulp-webui`
-requires Node.js and pnpm.
-
-For example, on Arch Linux:
+Requirements: Python 3.12+. Select an immutable release tag when cloning:
 
 ```bash
-sudo pacman -S nodejs pnpm
+git clone --branch v2.0.0 --depth 1 https://github.com/mentat-is/gulp.git
+cd gulp
+python3 -m venv .venv
+source .venv/bin/activate
+pip install .
 ```
 
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-# ensure you get 2.x 
-pip install mentat-gulp\>=2.0.0
-gulp
-```
+The Git tag and commit generate `src/gulp/_version.py` during installation. To
+install from GitHub's **Source code (zip)** archive instead, extract the archive
+and run the same virtual-environment and `pip install .` commands inside it.
+Archive metadata preserves the tag and commit even though the ZIP has no `.git`
+directory.
 
-In another terminal, serve the packaged UI:
+The source package does not contain an independently versioned React build. To
+build and bundle the UI, install Node.js and pnpm, then run:
 
 ```bash
+bash scripts/build_webui_package.sh
+pip install .
 gulp-webui
 ```
 
+Run `gulp` in another terminal for the backend. The first run creates
+`~/.config/gulp/gulp_cfg.json`; the default local credentials are `admin/admin`.
+
 Open [http://localhost:3000](http://localhost:3000) for the standalone UI and
-[http://localhost:8080/docs](http://localhost:8080/docs) for the API. The
-first run creates `~/.config/gulp/gulp_cfg.json`; the default local credentials
-are `admin/admin`.
+[http://localhost:8080/docs](http://localhost:8080/docs) for the API.
 
 ## Development installation
 

@@ -1,11 +1,19 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel", "setuptools_scm[toml]>=7.0"]
+requires = ["setuptools>=80", "wheel", "setuptools-scm[toml]>=10.3.4,<11"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
-write_to = "src/gulp/_version.py"
+version_file = "src/gulp/_version.py"
+write_to_source = true
 version_scheme = "guess-next-dev"
 local_scheme = "no-local-version"
+
+[tool.setuptools_scm.tag]
+regex = '^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+strict = true
+
+[tool.setuptools_scm.scm.git]
+describe_command = "git describe --dirty --tags --long --abbrev=40 --match v[0-9]*.[0-9]*.[0-9]*"
 
 
 [project]

@@ -1,10 +1,9 @@
 {
   "name": "gulpui-web",
-  "version": "0.3.0",
   "private": true,
   "scripts": {
     "predev": "node ./scripts/copy_paid_plugins.js",
-    "prebuild": "node ./scripts/copy_paid_plugins.js && node scripts/write-version.js",
+    "prebuild": "node ./scripts/copy_paid_plugins.js",
     "check:locales": "node ./scripts/check-locale-fallback.mjs",
     "build": "react-app-rewired build",
     "dev": "react-app-rewired start",

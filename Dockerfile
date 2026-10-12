@@ -2,19 +2,23 @@
 ARG _PYTHON_VERSION=3.13
 
 FROM node:22-alpine AS webui-build
-ARG _VERSION
 WORKDIR /gulp-ui
 RUN corepack enable && corepack prepare pnpm@10.8.1 --activate
 COPY ./gulp-ui/package.json ./gulp-ui/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY ./gulp-ui ./
-RUN BACKEND_VERSION="$(date +'%Y%m%d')+${_VERSION}" pnpm run build
+RUN pnpm run build
 
 FROM python:${_PYTHON_VERSION}-trixie
 
-# Add build arguments
-ARG _VERSION
-ENV _VERSION=${_VERSION}
+# Release metadata is supplied by the tag-only release workflow. Defaults keep
+# local image builds usable without pretending they are official releases.
+ARG GULP_VERSION=0.0.0
+ARG GULP_REVISION=0000000000000000000000000000000000000000
+ARG GULP_SOURCE=https://github.com/mentat-is/gulp
+LABEL org.opencontainers.image.version="${GULP_VERSION}" \
+      org.opencontainers.image.revision="${GULP_REVISION}" \
+      org.opencontainers.image.source="${GULP_SOURCE}"
 
 # creates a non-root user with the same UID/GID as the build context user if possible
 ARG _USER_NAME=gulp
@@ -66,14 +70,12 @@ COPY ./samples /gulp/samples
 # exlude imklog module from rsyslog.conf
 RUN sed -i 's/^module(load="imklog")/#module(load="imklog")/' /etc/rsyslog.conf
 
-# set version passed as build argument and use it for setuptools_scm
+# Generate the installed Python metadata without copying .git into the image.
 RUN chown -R $_USER_NAME:$_USER_NAME .
 
-RUN echo "[.] GULP version: ${_VERSION}" && \
-    export GULP_BUILD_VERSION="$(cat src/gulp/webui/version)" && \
-    echo "[.] using setuptools_scm pretend version: ${GULP_BUILD_VERSION}" && \
-    SETUPTOOLS_SCM_PRETEND_VERSION="${GULP_BUILD_VERSION}" \
-    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_MENTAT_GULP="${GULP_BUILD_VERSION}" \
+RUN echo "[.] GULP version: ${GULP_VERSION} (${GULP_REVISION})" && \
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_MENTAT_GULP="${GULP_VERSION}" \
+    SETUPTOOLS_SCM_PRETEND_METADATA_FOR_MENTAT_GULP="{node=\"g${GULP_REVISION}\", distance=0, dirty=false, tag=\"${GULP_VERSION}\"}" \
     pip3 install --timeout=1000 -e .
 
 # set permissions for the non-root user

@@ -59,4 +59,3 @@ package.json
 node_modules
 dc1-logs
 .pnpm-store
-gulp-ui/public/version

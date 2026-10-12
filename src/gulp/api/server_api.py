@@ -54,7 +54,7 @@ from gulp.structs import (
     PaginationSnapshotExpired,
 )
 from gulp.api.prometheus_api import GulpMetrics, cleanup_prometheus
-from gulp import __version__, commit_id
+from gulp import format_version
 
 
 class GulpServer:
@@ -106,8 +106,7 @@ class GulpServer:
         Returns:
             str: version string
         """
-        ver: str = f"{__version__} ({commit_id})" if commit_id else __version__
-        return f"gulp_{ver}"
+        return format_version(prefix="gulp_")
 
     async def _unload_extension_plugins(self) -> None:
         """

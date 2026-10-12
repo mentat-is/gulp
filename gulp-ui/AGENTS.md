@@ -35,3 +35,18 @@ To ensure accuracy and prevent hallucinations, you must follow this workflow:
 2. **Ask for Clarification**: If the requirements are ambiguous or if a library choice is unclear, stop and ask the user before proceeding.
 3. **Chain-of-Thought**: When tasked with a complex feature, explain your plan step-by-step in a "Plan" section before providing the code.
 4. **Verification**: After writing code, self-check against the "No Inline Styles" and "Library Constraint" rules.
+
+## 4. Versioning and changelog
+
+- The React application has no independent version and must not generate or
+  maintain version files, constants, or build-time version variables.
+- The UI container may receive the shared release version and commit solely for
+  OCI image labels; do not expose those values to the React build.
+- If the UI needs to show the running product version, retrieve it from the
+  backend `/version` API.
+- Record every completed UI change in the root `../CHANGELOG.md` under
+  `Unreleased`; create that section if it is absent.
+- Use only the root changelog. Do not create a UI-specific changelog or split
+  release notes into backend and frontend sections.
+- The UI is released together with the core by the repository tag. The Docker
+  image tag describes the shared gULP release, not a separate React version.
