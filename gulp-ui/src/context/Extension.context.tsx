@@ -78,8 +78,16 @@ function _({ children, filenames, slots }: Extension.Provider.Props) {
 				await Promise.all(
 					selectedPlugins.map(async (plugin) => {
 						try {
+							// A template import() makes webpack bundle every file under
+							// src/plugins: keep the test suites colocated with paid plugins
+							// (__tests__/, *.test.*, *.spec.*) and their mocks out of the
+							// production build.
 							const Component = Extension.safe(
-								() => import(`@/plugins/${plugin.filename}`),
+								() =>
+									import(
+										/* webpackExclude: /(\/__tests__\/|\/__mocks__\/|\.(test|spec)\.[cm]?[jt]sx?$)/ */
+										`@/plugins/${plugin.filename}`
+									),
 							);
 							const component = await Component();
 
