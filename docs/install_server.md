@@ -41,15 +41,22 @@ sudo apt update
 sudo apt install -y git curl ca-certificates openssl \
   python3-venv python3-dev \
   build-essential pkg-config rustc cargo \
-  libffi-dev libssl-dev libpq-dev zlib1g-dev libxml2-dev libxslt1-dev libmagic1 \
-  nodejs npm
-sudo npm install -g pnpm@10
+  libffi-dev libssl-dev libpq-dev zlib1g-dev libxml2-dev libxslt1-dev libmagic1
 ```
 
 The compilers are for dependencies that have no prebuilt wheel for your Python
-version. If your distribution's Node.js is older than 22, install Node.js 22
-from [nodejs.org](https://nodejs.org/en/download) instead of the `nodejs npm`
-packages.
+version.
+
+Install Node.js 22 and pnpm 10. If your distribution's Node.js is 22 or later
+(`apt-cache policy nodejs`), `sudo apt install -y nodejs npm` is enough.
+Otherwise, as on Ubuntu 24.04 (Node.js 18), use NodeSource's repository:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x -o nodesource_setup.sh
+sudo bash nodesource_setup.sh
+sudo apt install -y nodejs
+sudo npm install -g pnpm@10
+```
 
 OpenSearch needs a higher memory-map limit:
 
@@ -300,10 +307,13 @@ sudo docker compose --project-directory /etc/gulp/services exec -T postgres \
 
 sudo systemctl stop gulp-ui gulp
 sudo -u gulp -H git -C /opt/gulp/src fetch --tags
-sudo -u gulp -H git -C /opt/gulp/src checkout v2.0.1
+sudo -u gulp -H git -C /opt/gulp/src checkout --force v2.0.1
 sudo -u gulp -H sh -c 'cd /opt/gulp/src && bash scripts/build_webui_package.sh'
 sudo -u gulp -H /opt/gulp/venv/bin/pip install /opt/gulp/src
 sudo systemctl start gulp gulp-ui
 ```
 
-Replace `v2.0.1` with the release you are updating to.
+Replace `v2.0.1` with the release you are updating to. `--force` discards
+the changes the web UI build of some releases makes to tracked files (in
+`v2.0.0`, `gulp-ui/public/version`), which would otherwise stop the checkout:
+keep no changes of your own in `/opt/gulp/src`.
