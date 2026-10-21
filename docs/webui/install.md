@@ -1,34 +1,52 @@
-# Web UI installation and development
+# Web UI development
 
-gULP UI is a React and TypeScript frontend for the gULP platform. It connects
-to a running gULP backend from the login page.
+The web UI is the React and TypeScript application in `gulp-ui/`. It connects
+to a running gULP backend from the login page. To run it as a user, follow an
+[installation guide](../installation.md); this page is for working on it.
 
 ![Login page](images/login.png)
 
-## Requirements
+Requirements: Node.js 22, pnpm 10, and a running backend.
 
-- Node.js `22.14.1`
-- pnpm `10.8.1`
-- A reachable gULP backend server
+## Run with live reload
 
-The published Python package already contains the compiled UI. Node.js and
-pnpm are only needed to serve that bundle separately or to develop the UI.
-
-## Run the UI from the Python package
-
-Install and start the backend, then run the packaged UI launcher in another
-terminal:
+From the repository root:
 
 ```bash
-gulp
-gulp-webui
+pnpm --dir gulp-ui install
+pnpm --dir gulp-ui start
 ```
 
-Open [http://localhost:3000](http://localhost:3000). `gulp-webui` serves the
-compiled bundle included under `gulp/webui`; it does not rebuild the UI. It
-uses the pinned `serve` package through pnpm, which may download that package
-on first use. Use `--host` and `--port` to change the default
-`0.0.0.0:3000` listener.
+Open the printed URL and enter the backend address (for example
+`http://localhost:8080`), user name and password on the login page.
+
+If pnpm reports that it ignored dependency build scripts, approve them with
+`pnpm --dir gulp-ui approve-builds`.
+
+## Build
+
+```bash
+pnpm --dir gulp-ui run build
+```
+
+The production build is a static site in `gulp-ui/build/`.
+`pnpm --dir gulp-ui run server` serves it locally; in production use a static
+web server such as nginx, as the Docker UI image does.
+
+`scripts/build_webui_package.sh` builds the UI and copies it into the Python
+package (`src/gulp/webui`); after `pip install .`, `gulp-webui` serves it on
+`0.0.0.0:3000` (change it with `--host` and `--port`). `gulp-webui` does not
+rebuild the UI, and downloads its pinned `serve` package through pnpm on first
+use.
+
+## Scripts
+
+- `pnpm start`: development server with live reload.
+- `pnpm run build`: production build in `build/`.
+- `pnpm run server`: serve `build/`.
+- `pnpm run check:locales`: check the translations' fallback coverage.
+
+## Browser storage
 
 The scalable EventStore pipeline attempts to persist streamed events in
 IndexedDB on every origin, including a non-secure hostname such as
@@ -48,54 +66,3 @@ Undo/Redo is unavailable. HTTPS remains recommended for deployed environments
 because it enables the full set of browser security and storage APIs, but it is
 not required by this EventStore selection logic. Deleting site data also deletes
 the persisted fallback marker.
-
-## Install Dependencies
-
-From a gULP repository checkout, install UI dependencies. These commands are
-only for UI development:
-
-```bash
-pnpm --dir gulp-ui install
-```
-
-If pnpm blocks dependency build scripts, approve the required scripts:
-
-```bash
-pnpm --dir gulp-ui approve-builds
-```
-
-## Run for Development
-
-Start the React development server:
-
-```bash
-pnpm --dir gulp-ui start
-```
-
-Open the printed local URL in a browser. On the login page, enter the backend
-server address, username, and password.
-
-## Build for Deployment
-
-Create a production build:
-
-```bash
-pnpm --dir gulp-ui run build
-```
-
-Preview the generated `build/` folder locally:
-
-```bash
-pnpm --dir gulp-ui run server
-```
-
-The `server` script serves `build/` through the `serve` package. For production,
-use a dedicated static server such as nginx; the supplied Docker UI image does
-this.
-
-## Current Scripts
-
-- `pnpm start`: run the development server.
-- `pnpm run build`: create a production build.
-- `pnpm run server`: serve the production build from `build/`.
-- `pnpm run check:locales`: validate locale fallback coverage.

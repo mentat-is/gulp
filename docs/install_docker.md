@@ -1,54 +1,61 @@
-- [Docker installation](#docker-installation)
-  - [Run the backend](#run-the-backend)
-  - [Run the web UI](#run-the-web-ui)
-  - [Use a local backend image](#use-a-local-backend-image)
-  - [Compose profiles](#compose-profiles)
-    - [Exposed services](#exposed-services)
-    - [Production TLS](#production-tls)
-    - [Cleanup](#cleanup)
+# Docker Compose reference
 
-# Docker installation
+The repository's [docker-compose.yml](../docker-compose.yml) runs the services
+gULP needs and, optionally, the backend, the web UI and a few tools. To get
+started, see [Try it with Docker](installation.md#try-it-with-docker); for a
+server, see the [server installation](install_server.md).
 
-Docker Compose defines separate backend and nginx web UI services alongside
-the backend's required services.
-This configuration is intended for local evaluation; secure it and adapt it
-before production use.
+The supplied file is meant for local use: default passwords from
+[.env](../.env), every port on all network interfaces, and OpenSearch's
+security plugin disabled.
 
-## Run the backend
+## Profiles
 
-The `gulp` profile starts the backend without a web UI.
+Without a profile, `docker compose up -d` starts OpenSearch, PostgreSQL, Redis
+and SeaweedFS. Add profiles for more:
 
-```bash
-git clone https://github.com/mentat-is/gulp.git && cd gulp
-docker compose --profile gulp up -d
-```
+| Profile | Adds |
+| --- | --- |
+| `gulp` | the gULP backend, from the `mentatis/gulp-core` image |
+| `ui` | the web UI, served by nginx; the image is built from `gulp-ui/` |
+| `dev` | Adminer, Elasticvue and Redis Insight |
+| `metrics` | Prometheus, Grafana, Redis Insight and Elasticvue |
+| `extra` | OpenSearch Dashboards, and an FTP server on the working directory |
 
-The API is at [http://localhost:8080](http://localhost:8080), and its reference
-is at [http://localhost:8080/docs](http://localhost:8080/docs).
-Set `GULP_WORKING_DIR` before the command to store the generated configuration,
-plugins, and mappings outside the default `~/.config/gulp`.
+`docker compose --profile ui up -d gulp-ui` starts the web UI alone. Add
+`--build` after changing the UI's sources.
 
-## Run the web UI
+`GULP_WORKING_DIR` (default `~/.config/gulp`) is mounted into the backend
+container: the generated configuration, extra plugins and mappings live there.
+Set it before `docker compose` to keep them elsewhere.
 
-The independent `ui` profile starts only the nginx web UI when the service is
-named explicitly. nginx serves the compiled production build; pnpm development
-servers are not used in Docker.
+## Ports and default credentials
 
-```bash
-docker compose --profile ui up -d gulp-ui
-```
+| Service | Address | Credentials |
+| --- | --- | --- |
+| gULP API (`gulp`) | <http://localhost:8080>, reference at `/docs` | `admin` / `admin` |
+| web UI (`ui`) | <http://localhost:3000> | |
+| PostgreSQL | `localhost:5432` | `postgres` / `Gulp1234!` |
+| OpenSearch | <http://localhost:9200> | none: security disabled |
+| Redis | `localhost:6379` | `default` / `Gulp1234!` |
+| SeaweedFS S3 API | <http://localhost:9000> | `admin` / `Gulp1234!` |
+| SeaweedFS filer UI | <http://localhost:9001> | |
+| Adminer (`dev`) | <http://localhost:8081> | server `postgres`, `postgres` / `Gulp1234!` |
+| Elasticvue (`dev`) | <http://localhost:8082> | |
+| Redis Insight (`dev`) | <http://localhost:5540> | |
+| OpenSearch Dashboards (`extra`) | <http://localhost:5601> | |
+| Prometheus (`metrics`) | <http://localhost:9090> | |
+| Grafana (`metrics`) | <http://localhost:3030> | |
+| FTP (`extra`) | `localhost:21`, passive ports 21000-21010 | `gulp` / `Gulp1234!` |
 
-To run the local backend and UI together:
+## Images
 
-```bash
-docker compose --profile gulp --profile ui up -d
-```
+Official release images use the release tag, for example
+`mentatis/gulp-core:v2.0.0` and `mentatis/gulp-ui:v2.0.0`; their OCI labels
+contain the version and the full source revision. Select them with
+`GULP_IMAGE` and `GULP_UI_IMAGE`.
 
-Add `--build` when UI source has changed.
-
-## Use a local backend image
-
-Build the backend image from this repository:
+To build the backend image from this repository:
 
 ```bash
 docker buildx build --progress=plain \
@@ -58,67 +65,11 @@ docker buildx build --progress=plain \
 GULP_IMAGE=gulp-core:local docker compose --profile gulp up -d
 ```
 
-Official release images use the semantic tag, for example
-`mentatis/gulp-core:v2.0.0` and `mentatis/gulp-ui:v2.0.0`. Their OCI labels
-contain the normalized version and full source revision.
-
-The backend image uses Debian 13 (Trixie). Rebuild local images after updating
-the Dockerfile, or pull a newly published image to pick up the new system
+The backend image uses Debian 13 (Trixie). Rebuild local images after the
+Dockerfile changes, or pull a newly published image, to get the new system
 libraries.
 
-## Compose profiles
+## Reset
 
-Without an explicit service target, OpenSearch, PostgreSQL, SeaweedFS, and Redis
-always start. Add profiles as needed:
-
-- `--profile gulp`: run the gULP backend
-- `--profile ui`: run the independent nginx `gulp-ui` container
-- `--profile dev`: also run adminer, elasticvue, redis-insight
-- `--profile metrics`: also run Prometheus, Grafana, Redis Insight, and Elasticvue
-- `--profile extra`: also run `opensearch-dashboards` to manage opensearch and `sftpd` to manage files in the `GULP_WORKING_DIR`
-
-You can provide your own Compose file for production topologies. The supplied
-Compose file disables the OpenSearch security plugin and is not a production
-security configuration.
-
-### Exposed services
-
-With the default [docker-compose.yml](../docker-compose.yml), services are
-exposed as follows. Extra profiles expose extra tools; check the compose file
-when changing profiles.
-
-- gULP API, with `--profile gulp`: [http://localhost:8080](http://localhost:8080)
-  - API reference: [http://localhost:8080/docs](http://localhost:8080/docs)
-- nginx-served gULP web UI, with `--profile ui`: [http://localhost:3000](http://localhost:3000)
-  - default gULP admin user: `admin/admin`
-- PostgreSQL: `localhost:5432`
-  - user/password: `postgres/Gulp1234!`
-- Adminer, with `--profile dev`: [http://localhost:8081](http://localhost:8081)
-  - server/user/password: `postgres/postgres/Gulp1234!`
-- OpenSearch: [http://localhost:9200](http://localhost:9200)
-  - user/password: `admin/Gulp1234!`
-- Elasticvue, with `--profile dev`: [http://localhost:8082](http://localhost:8082)
-- OpenSearch Dashboards, with `--profile extra`: [http://localhost:5601](http://localhost:5601)
-- Redis: `localhost:6379`
-  - user/password: `default/Gulp1234!`
-- Redis Insight, with `--profile dev`: [http://localhost:5540](http://localhost:5540)
-- SeaweedFS S3 API: [http://localhost:9000](http://localhost:9000)
-  - filer web UI: [http://localhost:9001](http://localhost:9001)
-  - user/password: `admin/Gulp1234!`
-  - used as S3-compatible storage for plugins that need it
-- Prometheus, with `--profile metrics`: [http://localhost:9090](http://localhost:9090)
-- Grafana, with `--profile metrics`: [http://localhost:3030](http://localhost:3030)
-- FTP, with `--profile extra`: `localhost:21`, passive ports `21000-21010`
-
-### Production TLS
-
-The local Compose topology intentionally keeps its HTTP defaults. For a public
-deployment, keep the backend private and terminate HTTPS/WSS at nginx, an
-ingress controller, or a managed load balancer. The
-[enterprise deployment guide](enterprise_deployment.md) includes a complete
-nginx example, optional mutual TLS, and native TLS configuration for
-PostgreSQL, OpenSearch, Redis, and S3.
-
-### Cleanup
-
-to cleanup `gulp`, `postgresql` and `opensearch` data volumes, use the provided [reset script](../reset_docker.sh).
+[reset_docker.sh](../reset_docker.sh) deletes the gULP, PostgreSQL and
+OpenSearch data volumes.

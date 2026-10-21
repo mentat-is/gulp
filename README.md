@@ -48,11 +48,16 @@ web UI provides the investigation workspace.
 
 ## quick start
 
-Choose a [tagged source installation](docs/installation.md#tagged-source-installation),
-[development installation](docs/installation.md#development-installation), or
-[Docker installation](docs/installation.md#docker-installation).
-Public deployments should follow the
-[enterprise nginx guide](docs/enterprise_deployment.md).
+Try gULP on your machine with Docker:
+
+```bash
+git clone https://github.com/mentat-is/gulp.git && cd gulp
+docker compose --profile gulp --profile ui up -d
+```
+
+Open <http://localhost:3000>, enter `http://localhost:8080` as the backend and
+log in as `admin` / `admin`. To install gULP on a server or set up a
+development environment, see the [installation guide](docs/installation.md).
 
 ## web UI
 
@@ -86,11 +91,12 @@ focused on the investigation.
 
 ## documentation
 
+- [Installation](docs/installation.md): start here
+  - [Server installation](docs/install_server.md)
+  - [Development installation](docs/install_dev.md)
+  - [Docker Compose reference](docs/install_docker.md)
+  - [Enterprise deployment behind nginx](docs/enterprise_deployment.md)
 - [Architecture](docs/architecture.md)
-- [Installation](docs/installation.md)
-- [Docker installation and services](docs/install_docker.md)
-- [Enterprise nginx deployment](docs/enterprise_deployment.md)
-- [Development installation](docs/install_dev.md)
 - [Web UI documentation](docs/webui.md)
 - [Plugins and mappings](docs/plugins_and_mapping.md)
 - [Integration API and raw ingestion](docs/integration.md)
@@ -100,14 +106,6 @@ focused on the investigation.
 - [Logging (Glug)](docs/logging.md)
 - [Observability](docs/observability.md)
 - [Troubleshooting](docs/troubleshooting.md)
-
-## backend configuration
-
-The following environment variables override common runtime configuration:
-
-- `GULP_BIND_TO_ADDR`, `GULP_BIND_TO_PORT`: set both to change the listen address (defaults: `0.0.0.0:8080`).
-- `GULP_WORKING_DIR`: defaults to `~/.config/gulp` and contains the generated `gulp_cfg.json`, optional `plugins/` and `mapping_files/`, local ingestion files, and temporary uploads.
-- `GULP_OPENSEARCH_URL`, `GULP_POSTGRES_URL`, `GULP_REDIS_URL`, `GULP_S3_URL`: override their corresponding configuration values.
 
 ## backend run examples
 

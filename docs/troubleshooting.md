@@ -20,15 +20,11 @@
 
 ## docker
 
-- **never** use docker as root (i.e. with `sudo), ensure your user has proper permissions to run docker commands.
--
+- on a development machine, do not run docker as root (i.e. with `sudo`): files it creates in the repository and in `$GULP_WORKING_DIR` end up owned by root. Add your user to the `docker` group instead, which gives it root-equivalent access to the host:
 
   ~~~
   sudo groupadd docker
   sudo usermod -aG docker $USER
-
-  # also, you may set proper permissions on the docker socket
-  sudo chmod 666 /var/run/docker.sock
 
   # then logout/login or restart your system
   ~~~
@@ -56,10 +52,6 @@
   ~~~
 
   simply go to vscode's `Ports` tab and remove the port forwarding for `8089`.
-
-- if you see gulp cannot connect to services (opensearch, postgresql, redis, ...) while running inside the main docker-compose network, doublecheck each service's URL in `gulp_cfg.json`: you should use container's name instead of i.e. `localhost`.
-
-Specifically, replace i.e. *redis://:Gulp1234!@localhost:6379/0* with *redis://:Gulp1234!@redis:6379/0*  in `redis_url`.
 
 ### devcontainer
 

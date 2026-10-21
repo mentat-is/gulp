@@ -1,3 +1,21 @@
+# Unreleased
+
+## Added
+
+- Added `docs/install_server.md`, a manual installation of a release on one
+  Linux server: a dedicated user, systemd services for the backend and the web
+  UI, and the Compose services with their own passwords, reachable only from
+  the host. `docs/installation.md` is now the single entry page for every
+  installation; the development, Docker and web UI pages are shorter (#172).
+
+## Fixed
+
+- The `gulp` service in `docker-compose.yml` reaches PostgreSQL, OpenSearch,
+  Redis and SeaweedFS by their Compose service names instead of the
+  `localhost` URLs of the default configuration (#172).
+- Removed the advice to make the Docker socket world-writable from
+  `docs/troubleshooting.md` (#172).
+
 # v2.0.0
 
 ## Breaking Changes and Migrations

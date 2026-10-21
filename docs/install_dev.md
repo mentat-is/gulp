@@ -1,169 +1,81 @@
-
-- [Development installation](#development-installation)
-  - [use the devcontainer](#use-the-devcontainer)
-  - [install manually](#install-manually)
-    - [1. install OS dependencies and prerequisites](#1-install-os-dependencies-and-prerequisites)
-    - [2. clone repositories](#2-clone-repositories)
-    - [3. create and enter virtualenv](#3-create-and-enter-virtualenv)
-    - [4. prepare directories and configuration](#4-prepare-directories-and-configuration)
-    - [5. install gulp](#5-install-gulp)
-    - [6. run](#6-run)
-    - [7. optional: installing extra plugins](#7-optional-installing-extra-plugins)
-  - [run the web UI](#run-the-web-ui)
-  - [troubleshoot](#troubleshoot)
-  - [extras](#extras)
-    - [coding style tips](#coding-style-tips)
-
 # Development installation
 
-## use the devcontainer
+Run the backend from a repository checkout, with the services in Docker on
+your machine. Use the devcontainer, or set things up by hand.
 
-> this is the recommended dev install method!
+Either way, start the services on the host first. The `dev` profile adds
+Adminer, Elasticvue and Redis Insight, to look inside them:
 
-gulp have its own [devcontainer](https://github.com/devcontainers) setup ready to use with i.e. *vscode*.
-
-1. install the [devcontainers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) if you do not have already.
-
-2. clone the repositories
-
-  ~~~bash
-  mkdir ./repos && cd ./repos
-  git clone https://github.com/mentat-is/gulp.git
-  git clone https://github.com/mentat-is/gulp-sdk.git
-  ~~~
-
-3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*.
-
-4. **on the host**, start the main [docker-compose](../docker-compose.yml) to start PostgreSQL, OpenSearch, Redis, and SeaweedFS.
-
-  ~~~bash
-  docker compose --profile dev up -d
-  ~~~
-
-5. go back in the container and develop as normal.
-
-  The dev container uses Debian 13 (Trixie). After changing its base image,
-  rebuild the container. If an existing virtual environment contains native
-  extensions built against the previous base, recreate `.venv` and rerun
-  `.devcontainer/devsetup.sh`.
-  The setup script also removes obsolete package metadata left in an existing
-  workspace volume before reinstalling the current editable distribution. It
-  recreates `.venv` if its Python executable resolves to the system interpreter
-  rather than the virtual environment. The pinned `idna` release also matches
-  the optional MCP development dependency set installed by that script.
-
-  > ensure to have .venv activated in the terminal (should be automatic when opening a new terminal in vscode, if not do the following):
-  > ~~~bash
-  > source ./.venv/bin/activate
-  > ~~~
-
-  you may also want to update/edit extensions installed in the container... just do it from vscode in the  `extensions -> dev container: gulp dev container` tab.
-
-## install manually
-
-> use this if you do not want to use the devcontainer ...
-
-### 1. install OS dependencies and prerequisites
-
-This depends on your OS, on EndeavourOS(arch):
-
-~~~bash
-# tested with python 3.13, 3.14, should work with 3.12 but not tested extensively
-# nodejs and pnpm are needed only for web UI development
-sudo pacman -S rust python=3.13 python-virtualenv nodejs pnpm docker docker-compose docker-buildx jq libpqxx git-lfs github-cli
-
-# setup github cli client
-# NOTE: the following is only for the development team to access private repositories
-# go to your github profile -> settings -> developer settings -> Personal access tokens
-# generate new Personal access tokens (classic)
-# select all options and generate it
-
-gh auth login
-# Where do you use GitHub? GitHub.com
-# What is your preferred protocol for Git operations on this host? HTTPS
-# Authenticate Git with your GitHub credentials? Yes
-# How would you like to authenticate GitHub CLI? Paste an authentication token 
-# <TOKEN_HERE>
-# now you can access private repositories as well
-~~~
-
-### 2. clone repositories
-
-~~~bash
-mkdir ./repos && cd ./repos
-git clone https://github.com/mentat-is/gulp.git
-git clone https://github.com/mentat-is/gulp-sdk.git
-~~~
-
-### 3. create and enter virtualenv
-
-~~~bash
-cd ./gulp
-# also ensure to start with a clean .venv
-rm -rf ./.venv
-virtualenv --python=/usr/bin/python3.13 ./.venv
-source ./.venv/bin/activate
-~~~
-
-### 4. prepare directories and configuration
-
-~~~bash
-# create configuration directory (ensure its empty)
-rm -rf ~/.config/gulp
-mkdir -p ~/.config/gulp
-
-# copy template configuration, edit it in case (pay attention to the debug options!)
-# if this is skipped, a copy of the template will be automatically created at first run
-cp ./src/gulp/gulp_cfg_template.json ~/.config/gulp/gulp_cfg.json
-~~~
-
-### 5. install gulp
-
-install all packages as editable
-
-~~~bash
-# install all packages as editable (-e)
-pip3 install -e . && pip3 install -e ../gulp-sdk
-~~~
-
-### 6. run
-
-> you may need to ensure proper docker cleanup first (i.e. previous installation) with [reset_docker](../reset_docker.sh)
-
-~~~bash
-# start required services (postgresql, opensearch, redis, SeaweedFS) in detached mode
-# if you find any problem, remove -d and check docker logs (and check our troubleshooting guide)
+```bash
+git clone https://github.com/mentat-is/gulp.git && cd gulp
 docker compose --profile dev up -d
+```
 
-# run gulp first time (will create collab database "gulp" on postgresql and the default index/operation "test_operation" on opensearch)
-GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 gulp
-~~~
+## Devcontainer
 
-### 7. optional: installing extra plugins
+The repository has a [devcontainer](https://containers.dev/) for VS Code.
 
-plugins are just files, so it is enough to copy/symlink extra plugins in `$GULP_WORKING_DIR/plugins` and `$GULP_WORKING_DIR/mapping_files`
+1. Install the
+   [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
+2. Clone [gulp-sdk](https://github.com/mentat-is/gulp-sdk) next to `gulp/`:
+   the container installs it in editable mode. The devcontainer also
+   bind-mounts the other folders listed under `mounts` in
+   [devcontainer.json](../.devcontainer/devcontainer.json); create the ones
+   you don't have as empty folders.
+3. Open [gulp.code-workspace](../gulp.code-workspace) and choose **Reopen in
+   Container**. The container is built the first time only, and creates
+   `.venv` with gULP installed in editable mode.
+4. In a terminal inside the container, run `gulp`.
 
-## run the web UI
+The container is based on Debian 13 (Trixie). When its base image changes,
+rebuild it; if `.venv` holds native extensions built for the old base, delete
+`.venv` and run `.devcontainer/devsetup.sh` again. The setup script also
+recreates a stale `.venv` and removes package metadata left by older versions.
 
-The React UI is included at `gulp-ui/`; follow the [web UI installation
-guide](webui/install.md) to run it.
+## By hand
 
-## troubleshoot
+Requirements: Python 3.12 or 3.13, Git, and Docker. For example, on Arch
+Linux `sudo pacman -S python git docker docker-compose`; on Debian or Ubuntu
+`sudo apt install python3-venv python3-dev build-essential git`, plus Docker.
 
-[troubleshoot](./troubleshooting.md)
+```bash
+cd gulp
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e .
+gulp
+```
 
-## extras
+The first run creates `~/.config/gulp/gulp_cfg.json` from
+[the template](../src/gulp/gulp_cfg_template.json), the collaboration
+database and the `test_operation` operation. The default user is `admin` /
+`admin`, and the API reference is at <http://localhost:8080/docs>. To start
+again from scratch, run `gulp --reset-collab`.
 
-### coding style tips
+To work on the SDK at the same time, clone
+[gulp-sdk](https://github.com/mentat-is/gulp-sdk) next to `gulp/` and run
+`pip install -e ../gulp-sdk`.
 
-- use `black`formatter with default options
-- use the following settings for `pylint`
+Extra plugins and mapping files are plain files: copy or link them into
+`~/.config/gulp/plugins` and `~/.config/gulp/mapping_files`.
 
-  vscode `settings.json`
+## Web UI
 
-  ~~~json
+Run the UI with live reload as described in the
+[web UI development guide](webui/install.md).
+
+## More
+
+- [Testing](testing.md)
+- [Troubleshooting](troubleshooting.md)
+
+### Coding style
+
+- Format with `black`, default options.
+- Use these `pylint` settings in VS Code's `settings.json`:
+
+  ```json
   {
-      "pylint.args": [
+    "pylint.args": [
       "--jobs=0",
       "--disable=useless-parent-delegation",
       "--disable=no-member",
@@ -178,7 +90,6 @@ guide](webui/install.md) to run it.
       "--disable=broad-exception-caught",
       "--disable=missing-function-docstring",
       "--disable=broad-except",
-      "--disable=no-name-in-module",
       "--disable=global-variable-not-assigned",
       "--disable=bare-except",
       "--disable=too-many-arguments",
@@ -193,4 +104,4 @@ guide](webui/install.md) to run it.
       "--disable=wrong-import-position"
     ]
   }
-~~~
+  ```
