@@ -1,0 +1,25 @@
+# gULP web UI, as installed by docs/install_server.md: serves the UI built
+# into the package with gulp-webui. Adapt the paths if yours differ. Copy to
+# /etc/systemd/system/, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gulp-ui
+[Unit]
+Description=gULP web UI
+Wants=network-online.target
+After=network-online.target gulp.service
+
+[Service]
+Type=simple
+User=gulp
+Group=gulp
+# gulp-webui needs pnpm, installed globally in /usr/local/bin
+Environment=PATH=/opt/gulp/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/gulp/venv/bin/gulp-webui --host 127.0.0.1 --port 3000
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

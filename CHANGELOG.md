@@ -1,5 +1,17 @@
 # Unreleased
 
+## Breaking Changes and Migrations
+
+- `docker-compose.yml` binds the services (OpenSearch, PostgreSQL, Redis,
+  SeaweedFS), the admin tools and the metrics to `GULP_SERVICES_BIND`,
+  `127.0.0.1` by default, instead of every network interface. Hosts that reach
+  them from another machine, such as additional gULP nodes, must set
+  `GULP_SERVICES_BIND` to a reachable address. The backend and the web UI
+  ports are unchanged (#172).
+- OpenSearch now gets unlimited `memlock` and 65536 open files through
+  `ulimits`; a Docker engine that refuses them (rootless) needs a local
+  override (#172).
+
 ## Added
 
 - Added `docs/install_server.md`, a manual installation of a release on one
@@ -7,6 +19,10 @@
   UI, and the Compose services with their own passwords, reachable only from
   the host. `docs/installation.md` is now the single entry page for every
   installation; the development, Docker and web UI pages are shorter (#172).
+- `docker-compose.yml` reads the OpenSearch heap from `OPENSEARCH_JAVA_OPTS`
+  (default `-Xms1g -Xmx1g`) and gives PostgreSQL 1 GB of shared memory.
+  Example systemd units for the backend and the web UI are in
+  `docs/examples/systemd/` (#172).
 
 ## Fixed
 
@@ -15,6 +31,8 @@
   `localhost` URLs of the default configuration (#172).
 - Removed the advice to make the Docker socket world-writable from
   `docs/troubleshooting.md` (#172).
+- PostgreSQL's `max_connections` now follows `POSTGRES_MAX_CONNECTIONS` from
+  `.env` (default `500`); the setting was defined but never applied (#172).
 
 # v2.0.0
 

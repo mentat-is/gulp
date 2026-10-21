@@ -6,8 +6,14 @@ started, see [Try it with Docker](installation.md#try-it-with-docker); for a
 server, see the [server installation](install_server.md).
 
 The supplied file is meant for local use: default passwords from
-[.env](../.env), every port on all network interfaces, and OpenSearch's
-security plugin disabled.
+[.env](../.env), and OpenSearch's security plugin disabled. The backend and
+the web UI listen on all network interfaces. The services, the admin tools and
+the metrics listen on `GULP_SERVICES_BIND`, `127.0.0.1` by default. Set it to
+an address other hosts can reach only on a trusted network, for example for
+more gULP nodes.
+
+Other settings read from `.env`, with their defaults: `OPENSEARCH_JAVA_OPTS`
+(`-Xms1g -Xmx1g`, the OpenSearch heap) and `POSTGRES_MAX_CONNECTIONS` (`500`).
 
 ## Profiles
 

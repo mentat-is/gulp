@@ -21,7 +21,9 @@ Run identical gULP instances against the same Redis, PostgreSQL, and OpenSearch
 endpoints. Put client traffic behind a load balancer. This increases API,
 websocket, raw-ingestion, and worker capacity, but all nodes still contend for
 the same storage services. The [enterprise deployment guide](enterprise_deployment.md)
-provides an nginx upstream for one or more private gULP instances.
+provides an nginx upstream for one or more private gULP instances. With the
+repository's Compose file, the services listen on `127.0.0.1` unless
+`GULP_SERVICES_BIND` names an address the other nodes can reach.
 
 The 10-user Sigma ZIP stress run completed successfully with two gULP nodes:
 all expected records, queries, hits, and notes passed without a service restart.

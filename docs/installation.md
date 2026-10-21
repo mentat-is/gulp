@@ -47,8 +47,9 @@ a few minutes. Then open <http://localhost:3000>, enter
 `admin`. The API reference is at <http://localhost:8080/docs>.
 
 > **For evaluation only.** Every service uses the default passwords in
-> [.env](../.env) and listens on all network interfaces, and OpenSearch runs
-> without authentication. To run gULP for real, follow the
+> [.env](../.env), OpenSearch runs without authentication, and the backend
+> and the web UI listen on all network interfaces (the services only on
+> `127.0.0.1`). To run gULP for real, follow the
 > [server installation](install_server.md).
 
 Stop everything with `docker compose --profile gulp --profile ui down`, and

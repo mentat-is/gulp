@@ -1,0 +1,32 @@
+# gULP backend, as installed by docs/install_server.md: adapt the paths if
+# yours differ. Copy to /etc/systemd/system/, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gulp
+[Unit]
+Description=gULP backend
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=gulp
+Group=gulp
+# connection URLs and passwords of the services
+EnvironmentFile=/etc/gulp/gulp.env
+Environment=PATH=/opt/gulp/venv/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/var/lib/gulp
+ExecStart=/opt/gulp/venv/bin/gulp
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=60
+# gulp exits when a service is not ready yet: try again
+Restart=always
+RestartSec=10
+LimitNOFILE=65535
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
