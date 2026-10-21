@@ -1,0 +1,19 @@
+# nginx in front of gULP, from the official image: see
+# docs/enterprise_deployment.md. Next to this file: gulp.conf, and certs/ with
+# fullchain.pem and privkey.pem. Start it with: docker compose up -d
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: gulp-nginx
+    restart: always
+    # the host's network: nginx reaches gULP on 127.0.0.1 and listens on the
+    # host's ports 80 and 443
+    network_mode: host
+    volumes:
+      - ./gulp.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    healthcheck:
+      test: ["CMD", "nginx", "-t", "-q"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

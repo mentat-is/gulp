@@ -18,7 +18,7 @@ gULP has three parts:
 | run gULP on a Linux server for your team | [Server installation](install_server.md) |
 | install a release on your workstation, outside Docker | [Install a release from source](#install-a-release-from-source) |
 | work on gULP's code | [Development installation](install_dev.md) |
-| publish gULP over HTTPS, or run several backends | the server installation, then the [enterprise deployment guide](enterprise_deployment.md) |
+| publish gULP over HTTPS, or run several backends | the server installation, then [nginx in Docker](enterprise_deployment.md#run-nginx-in-docker) |
 
 ## Requirements
 

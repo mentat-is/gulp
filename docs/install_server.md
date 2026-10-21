@@ -22,9 +22,9 @@ When you are done:
 | backend | `gulp.service`, on `127.0.0.1:8080` |
 | web UI | `gulp-ui.service`, on `127.0.0.1:3000` |
 
-Everything listens on `127.0.0.1` only. To reach gULP from other machines, put
-nginx in front of it as described in the
-[enterprise deployment guide](enterprise_deployment.md).
+Everything listens on `127.0.0.1` only. To reach gULP from other machines,
+put nginx in front of it: [Run nginx in Docker](enterprise_deployment.md#run-nginx-in-docker)
+takes five commands.
 
 ## In short
 
@@ -39,6 +39,7 @@ nginx in front of it as described in the
 6. Install the systemd units from
    [docs/examples/systemd](examples/systemd/) and start them.
 7. Log in through an SSH tunnel and change the admin password.
+8. To reach gULP from other machines, run nginx in Docker in front of it.
 
 ## 1. Prerequisites
 
@@ -226,10 +227,11 @@ away**, from the web UI's user management or with the `user_update` API.
 
 ## Next steps
 
-- **HTTPS and access from the network:** follow the
-  [enterprise deployment guide](enterprise_deployment.md). With nginx on the
-  same host, add `FORWARDED_ALLOW_IPS=127.0.0.1` to `/etc/gulp/gulp.env` and
-  restart the backend.
+- **HTTPS and access from the network:** run nginx in Docker in front of
+  gULP, as described in
+  [Run nginx in Docker](enterprise_deployment.md#run-nginx-in-docker). It
+  publishes the web UI and the API on one name, `https://<your name>` with the
+  backend address `https://<your name>/api`.
 - **Extra plugins and mapping files:** copy them into `/var/lib/gulp/plugins`
   and `/var/lib/gulp/mapping_files`, then run `sudo systemctl restart gulp`.
 - **Sizing and monitoring:** [scaling](scaling.md) and

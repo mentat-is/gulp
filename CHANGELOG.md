@@ -23,6 +23,12 @@
   (default `-Xms1g -Xmx1g`) and gives PostgreSQL 1 GB of shared memory.
   Example systemd units for the backend and the web UI are in
   `docs/examples/systemd/` (#172).
+- The nginx example (`docs/examples/nginx/gulp.conf`, moved from
+  `docs/examples/nginx.conf`) publishes gULP on one name: the web UI on `/`,
+  the API on `/api/`, its three WebSockets on `/api/ws*`; it also sets the
+  cache headers of the UI's static files and compresses JSON answers.
+  `docs/examples/nginx/docker-compose.yml` runs it with the official nginx
+  image, as `docs/enterprise_deployment.md` now recommends (#172).
 
 ## Fixed
 
