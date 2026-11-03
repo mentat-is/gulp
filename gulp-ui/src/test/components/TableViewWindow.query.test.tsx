@@ -8,7 +8,6 @@ import type { Source } from "@/entities/Source";
 import type { Query } from "@/entities/Query";
 import type { GulpDataset } from "@/class/Info";
 import type { Doc } from "@/entities/Doc";
-import { createEmptyQueryCacheState } from "@/entities/QueryCache";
 import { TableViewWindow } from "@/components/TableViewWindow";
 import type { QueryRawDocument } from "@/workers/DataWorker.types";
 
@@ -213,19 +212,6 @@ jest.mock("@/components/Table", () => ({
 	},
 }));
 
-jest.mock("@/ui/TableHeader", () => ({
-	TableHeader: ({
-		pagination,
-	}: {
-		pagination: {
-			onPageChange: (page: number) => void;
-			onPageSizeChange: (pageSize: number) => void;
-		};
-	}): null => {
-		mockTablePagination = pagination;
-		return null;
-	},
-}));
 
 jest.mock("@/ui/Input", () => ({ Input: (): null => null }));
 jest.mock("@/ui/Stack", () => ({ Stack: (): null => null }));

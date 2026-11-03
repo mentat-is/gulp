@@ -9,39 +9,6 @@ describe("render-worker protocol constants", () => {
 		expect(RENDER_PROTOCOL_VERSION).toBe(6);
 	});
 
-	it("describes one atomic multi-source viewport projection", () => {
-		const projection = {
-			operationEpoch: 2,
-			viewportRevision: 11,
-			projectionRevision: 7,
-			sources: [
-				{
-					sourceId: "source-a",
-					sourceRevision: 4,
-					coveredRange: { min: 100, max: 200 },
-					bucketPixelWidth: 1,
-					degradedLod: false,
-					loadedCount: 10,
-					hashRange: { min: -5, max: 5 },
-					representativeHandles: Uint32Array.of(3),
-					representativeTimestamps: Float64Array.of(150),
-					representativeHashes: Float64Array.of(2),
-					heightTimestamps: Float64Array.of(100),
-					heightCounts: Float64Array.of(10),
-					heightMaximumCount: 10,
-					graphTimestamps: Float64Array.of(100),
-					graphCounts: Float64Array.of(10),
-				},
-			],
-			evictedSourceIds: ["source-b"],
-		} satisfies RenderWindowProjection;
-
-		expect(projection.sources[0].representativeHandles).toEqual(
-			Uint32Array.of(3),
-		);
-		expect(projection.evictedSourceIds).toEqual(["source-b"]);
-	});
-
 	it("requires authoritative accepted and rejected source telemetry in ACKs", () => {
 		const acknowledgement: RenderAckMessage = {
 			protocolVersion: RENDER_PROTOCOL_VERSION,

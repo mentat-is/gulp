@@ -45,7 +45,7 @@ describe("AIAssistantWindow", () => {
 				onClose={jest.fn()}
 			/>,
 		));
-		expect(container.querySelector("h2")).toBeNull();
+		expect(container.querySelector("h2")?.textContent).toBe("AI Assistant Pro");
 		expect(
 			container.querySelector("[data-plugin-assistant]")?.getAttribute(
 				"data-plugin-assistant",

@@ -18,10 +18,11 @@ operations (like bulk ingestion) and high-level functionality (like querying ope
 # pylint: disable=too-many-lines
 
 import asyncio
+from dataclasses import dataclass
 import json
 import tempfile
 from importlib import resources as impresources
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import aiofiles
 import muty.dict

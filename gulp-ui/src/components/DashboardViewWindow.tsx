@@ -1138,7 +1138,7 @@ function DashboardFilterBanner({
 				<DashboardFilterEditor
 					filterState={draftFilterState}
 					setFilterState={setDraftFilterState}
-					fieldOptions={fieldOptions}
+					fieldKeys={fieldKeys}
 					container={container}
 					availableSources={availableSources}
 					inheritedSourceIds={inheritedSourceIds}

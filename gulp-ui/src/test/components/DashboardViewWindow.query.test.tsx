@@ -1,4 +1,5 @@
 import { act } from "react";
+import type { ReactElement, ReactNode, ButtonHTMLAttributes } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import type { App } from "@/entities/App";
@@ -60,6 +61,8 @@ function createApp(source: Source.Type): App.Type {
 let mockApp = createApp(createSource());
 let mockEventKeysCalls = 0;
 let mockAggregationCalls = 0;
+let mockSpawnedBanner: ReactElement | null = null;
+const mockSpawnedBanners: ReactElement[] = [];
 const mockInfo = {
 	event_keys: async (): Promise<Record<string, string>> => {
 		mockEventKeysCalls += 1;
@@ -96,7 +99,10 @@ const mockApplicationContext = {
 		return mockApp;
 	},
 	Info: mockInfo,
-	spawnBanner: (): void => undefined,
+	spawnBanner: (banner: ReactElement): void => {
+		mockSpawnedBanner = banner;
+		mockSpawnedBanners.push(banner);
+	},
 	banner: null,
 	currentDocument: document,
 };
@@ -256,6 +262,8 @@ describe("DashboardViewWindow query stability", () => {
 		mockApp = createApp(createSource());
 		mockEventKeysCalls = 0;
 		mockAggregationCalls = 0;
+		mockSpawnedBanner = null;
+		mockSpawnedBanners.length = 0;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -316,11 +324,13 @@ describe("DashboardViewWindow query stability", () => {
 
 		expect(
 			(
-				mockSpawnedBanner as ReactElement<{
-					fieldOptions: Record<string, string>;
+			mockSpawnedBanners.find(
+				(banner) => Array.isArray((banner.props as { fieldKeys?: unknown }).fieldKeys),
+			) as ReactElement<{
+					fieldKeys: string[];
 				}>
-			)?.props.fieldOptions,
-		).toEqual({ "event.code": "keyword" });
+			)?.props.fieldKeys,
+		).toEqual(["event.code"]);
 	});
 
 	it("provides tooltip context to the dashboard filter editor", async () => {
@@ -335,8 +345,13 @@ describe("DashboardViewWindow query stability", () => {
 		act(() => filterButton?.click());
 
 		act(() => {
-			root.render(mockSpawnedBanner);
+			root.render(
+				mockSpawnedBanners.find(
+					(banner) => Array.isArray((banner.props as { fieldKeys?: unknown }).fieldKeys),
+				) ?? null,
+			);
 		});
+		await flushRequests();
 
 		expect(
 			container.querySelector(

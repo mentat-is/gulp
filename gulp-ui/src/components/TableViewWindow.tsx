@@ -1368,46 +1368,152 @@ export function TableViewWindow({
 				)}
 			</div>
 
-			<TableHeader
-				allSelected={isAllSelected}
-				selectionLabel={t("tableView.selectAllVisible")}
-				onSelectionChange={handleSelectAll}
-				actionsDisabled={selectedRows.size === 0}
-				actions={[
-					{
-						id: "flagged",
-						icon: "Flag",
-						label: t("common.flag"),
-						onSelect: () => handleBulkAction("flagged"),
-					},
-					{
-						id: "notes",
-						icon: "StickyNote",
-						label: t("tableView.newNotes"),
-						onSelect: () => handleBulkAction("notes"),
-					},
-				]}
-				sorting={{
-					value: sortField,
-					options: sortableFields.map((field) => ({ value: field })),
-					direction: sortDirection,
-					onValueChange: handleSortFieldChange,
-					onDirectionToggle: toggleSortDirection,
-				}}
-				pagination={{
-					currentPage,
-					totalItems: totalHits,
-					pageSize,
-					pageSizeOptions: [20, 50, 100, 500, 1000],
-					disabled: loading,
-					onPageChange: setCurrentPage,
-					onPageSizeChange: (value) => {
-						setPageSize(value);
-						setCurrentPage(1);
-					},
-				}}
-				container={container}
-			/>
+			<div className={s.row2}>
+				<div className={s.row2Left}>
+					<Stack
+						gap={8}
+						ai="center"
+					>
+						<Checkbox
+							checked={isAllSelected}
+							onCheckedChange={(c) => handleSelectAll(!!c)}
+						/>
+						<span
+							className={cn(s.label, s.pointer)}
+							onClick={() => handleSelectAll(!isAllSelected)}
+						>
+							{t("tableView.selectAllVisible")}
+						</span>
+					</Stack>
+
+					<Popover.Root>
+						<Popover.Trigger asChild>
+							<Button
+								variant="secondary"
+								icon="ChevronDown"
+								disabled={selectedRows.size === 0}
+							>
+								{t("common.action")}
+							</Button>
+						</Popover.Trigger>
+						<Popover.Content
+							align="start"
+							sideOffset={4}
+							className={s.popoverContent}
+							container={container}
+						>
+							<div
+								className={s.menuItem}
+								onClick={() => handleBulkAction("flagged")}
+							>
+								<Icon
+									name="Flag"
+									size={14}
+								/>
+								<span>{t("common.flag")}</span>
+							</div>
+							<div
+								className={s.menuItem}
+								onClick={() => handleBulkAction("notes")}
+							>
+								<Icon
+									name="StickyNote"
+									size={14}
+								/>
+								<span>{t("tableView.newNotes")}</span>
+							</div>
+						</Popover.Content>
+					</Popover.Root>
+
+					<Stack
+						gap={8}
+						ai="center"
+					>
+						<Label value={t("tableView.sort")} />
+						<Select.Root
+							onValueChange={handleSortFieldChange}
+							value={sortField}
+						>
+							<Select.Trigger
+								data-no-icon
+								className={s.sortSelect}
+							>
+								<Select.Value />
+							</Select.Trigger>
+							<Select.Content container={container}>
+								{sortableFields.map((f) => (
+									<Select.Item
+										key={f}
+										value={f}
+									>
+										{f}
+									</Select.Item>
+								))}
+							</Select.Content>
+						</Select.Root>
+						<Button
+							variant="secondary"
+							icon={
+								sortDirection === "asc" ? "SortAsc"
+										: "SortDesc"
+							}
+							onClick={toggleSortDirection}
+							title={t("tableView.toggleSortDirection")}
+						/>
+					</Stack>
+				</div>
+
+				<div className={s.row2Right}>
+					<span className={s.label}>
+						{t("tableView.showingRange", {
+							from: totalHits > 0 ? pageSize * (currentPage - 1) + 1 : 0,
+							to: Math.min(pageSize * currentPage, totalHits),
+							total: totalHits,
+						})}
+					</span>
+
+					<Stack
+						gap={8}
+						ai="center"
+					>
+						<Select.Root
+							onValueChange={(val) => setPageSize(Number(val))}
+							value={pageSize.toString()}
+						>
+							<Select.Trigger className={s.pageSelect}>
+								<Select.Value placeholder="50" />
+							</Select.Trigger>
+							<Select.Content container={container}>
+								<Select.Item value="20">20</Select.Item>
+								<Select.Item value="50">50</Select.Item>
+								<Select.Item value="100">100</Select.Item>
+							</Select.Content>
+						</Select.Root>
+						<span className={s.label}>{t("tableView.perPage")}</span>
+					</Stack>
+
+					<span className={s.label}>
+						{t("tableView.pageOf", { page: currentPage, total: totalPages })}
+					</span>
+
+					<Stack gap={4}>
+						<Button
+							variant="secondary"
+							icon="ChevronLeft"
+							disabled={currentPage <= 1 || loading}
+							onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+							title={t("tableView.previousPage")}
+						/>
+						<Button
+							variant="secondary"
+							icon="ChevronRight"
+							disabled={currentPage >= totalPages || loading}
+							onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+							title={t("tableView.nextPage")}
+						/>
+					</Stack>
+				</div>
+			</div>
 
 			<div className={s.result}>
 				{selectedSources.length === 0 ? (
