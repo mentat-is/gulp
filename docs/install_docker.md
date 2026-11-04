@@ -48,12 +48,16 @@ Add `--build` when UI source or build arguments have changed.
 
 ## Use a local backend image
 
-Build the backend image from this repository:
+The production backend image uses Python 3.13 on Debian Bookworm. Build it from
+this repository with:
 
 ```bash
 docker buildx build --progress=plain --build-arg _VERSION="$(git describe --tags --always)" --rm -t gulp-core:local .
 GULP_IMAGE=gulp-core:local docker compose --profile gulp up -d
 ```
+
+Pass `_PYTHON_VERSION` as an additional build argument when validating another
+supported Python version.
 
 ## Compose profiles
 

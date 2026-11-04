@@ -1,51 +1,80 @@
 # v2.0.0
 
-<<<<<<< HEAD
-=======
-- replaced deep `query_raw_paginate` offsets with bounded PIT plus `search_after`
-  seeking while preserving the legacy offset contract; added stable Table View
-  pagination sessions, explicit PIT cleanup and expiry handling, and matching
-  SDK and CLI controls.
-- added a `query-external` Web UI extension slot with exact backend-plugin manifest association, controlled request/validation handoff, full fallback behavior, and state restoration across Preview and Ingest navigation.
-- added a bounded, source-local consecutive timestamp cache shared by every core and paid ingestion plugin, with isolated streams for multi-timestamp parsers; also removed repeated group extraction and invariant parser setup from Apache, IIS, and Zsh record loops while preserving timestamp offsets, validation, and document IDs.
-- changed CSV Pro, JSON Lines Pro, and XRY parallel parsing to feed one source-owned ingestion pipeline, preserving bounded prefetch while restoring adaptive sizing, ordered callbacks/statistics, complete final bulk acknowledgement, and one final refresh.
-- replaced file-size-based ingestion chunk tiers with exact-NDJSON adaptive sizing, validated every bulk against OpenSearch's advertised HTTP limit, and reused the serialized request body.
-- overlapped file parsing with one OpenSearch-only bulk task, including an explicit event-loop handoff before buffered parsing resumes, while preserving chunk order, bounded ownership, final refresh, cancellation, callbacks, and ingestion statistics; the server-only pipeline is enabled by default and can be disabled in `gulp_cfg`.
-- fixed non-final OpenSearch document failures missing from request statistics and prevented acknowledged chunks from being submitted again during exception finalization.
-- refactor ingestion bulks methods to avoid unusefull duplicate loop; made the full time-range filter mutually exclusive from its one-sided cases so out-of-range documents are skipped correctly.
-- changed Web UI file ingestion from per-chunk inside indexDB cache, and no backend cancellation when browser-local cache capture fails.
-- preserved `event.sequence` in Web UI EventStore pages and used it as the descending for equal ingestion timestamps across chunks, pages, cursors, and neighbor reads.
-- added a shared 4 MiB incremental text-file reader to `muty.file` and migrated ingestion plugins while preserving newline and multiline semantics; the 100,000-line benchmark reduced read time from 7.701 s to 0.183 s (97.63%).
-- normalized each main ingestion timestamp once in `GulpDocument`, added explicit format/timezone/invalid-value controls and pre-normalized values, and migrated built-in parsers without changing timestamp offsets or document IDs.
-- reused one empty `GulpMapping` fallback per plugin instance while preserving dynamic mapping selection, reducing parsing time in the 100,000-event benchmark by 31.20%.
-- documented the Prometheus endpoint, service, and two-target scrape prerequisites for the multi-instance integration launcher.
-- added a timeline empty-area context menu for cache-aware bulk refetch and bulk filter reset across every user-selected source, including sources hidden from the current Canvas view.
-- added a browser-local per-source query cache pool to `gulp-ui`, with IndexedDB provenance, startup reuse, source-local Undo/Redo, authority-safe rebase handling, and visible freshness warnings without backend, SDK, or CLI changes.
-- made initial `gulp-ui` cache reuse source-range aware: a fresh same-query cache can satisfy a covered timeframe without a false warning, while render projections report an exact frame-local event count separately from generation authority.
-- added negotiated query WebSocket flow control and independent UI normalization/persistence stages, preventing slow IndexedDB commits from accumulating an unbounded raw backlog; expected request cancellations are no longer logged as query execution errors.
-- added passive on-demand QueryWorker diagnostics, ACK-backed Canvas frame telemetry.
-- made RAM compatibility fallback explicit for persistence and render-worker failures, with a deduplicated localized decision banner, scalable retry, verified opt-in marker, and no automatic reload.
-- bounded accepted raw `docs_chunk` backlog to 128 MiB globally and 64 MiB per request, with synchronous overload rejection, request cancellation, isolated stream failure, and current/high-water diagnostics.
-- guaranteed a visible RenderWorker frame within 100 ms of continuous committed data traffic while retaining the normal 8 ms quiet-window batching.
-- prevented EventStore projection starvation by coalescing same-viewport refreshes, preserving active coherent building snapshots, and fencing terminal projections by generation, status, revision, and count.
-- reduced post-ingest timeline stalls by batching visible-source manifest fences, retaining revision-qualified EventStore projection pages in bounded worker LRU caches, and reusing complete horizontal-overscan projections during normal pans.
-- made uncached operation loads and Navigator event queries render every partial `query_raw` replacement chunk through bounded worker-local preview pages, immediately revealing sources hidden by their initial zero-event building summary while keeping the final IndexedDB pages densely packed; neither in-flight cache appends nor selected sources whose queries have not registered yet block the complete multi-source viewport.
-- preserved request-scoped Redis/WebSocket message ordering so large `docs_chunk` payloads cannot be overtaken by `query_done`, while retaining concurrency between independent requests.
->>>>>>> f4a76e34 (core/api: add support for deep pagination with PIT in query API)
-- refactored the repository agent guidance to clarify architecture, workflow, documentation, compatibility, plugin, and integration-testing requirements,optimized repository testing guidance for the standard integration-test workflow and documented virtual-environment test commands.
-- made the gULP application server HTTP-only for private deployment behind nginx or another TLS terminator; outbound PostgreSQL, OpenSearch, Redis, and S3 encryption now uses native secure URIs and trust settings.
-- replaced MinIO with SeaweedFS 4.29 while retaining the existing aiobotocore integration, object tags, multipart transfers, and S3 ports; removed the obsolete `s3_minio` and `s3_region` options.
-- made operation deletion remove all S3-compatible objects tagged with its operation ID when `delete_data` is enabled.
-- added note attachments with PostgreSQL metadata, S3-compatible binaries, REST, websocket updates, SDK, and CLI support.
-- removed redundant single/multi-instance test wrappers in favor of the consolidated multi-user scenario.
-- replaced the legacy plugin event manager and websocket-broker hooks with the unified `gulp.events` API. Core and namespaced custom events now share one main-process listener registry and a Redis worker bridge; pre/post-ingest events are skipped entirely for sources without matching listeners.
-- integrated the `ui` into the main gulp repo, no more separated repository: now the web UI is built and served by the gulp backend. this allows a very easy installation for basic usage: just install gulp from pypi and you're done!
-- completely new scheduler and task management system, with better observability and metrics, more robust and performant code: now supports up to 10 users (in a single instance) in a very irrealistic stress test with thousands of concurrent ingestion and queries, millions of generated notes, and hundreds of concurrent tasks (see `test_scripts/sigma_zip_big_harness.py` for details), this means that the realistic deployment will support many more users on a single instance, and more instances can be added to scale horizontally (as before, see the [scaling guide](./docs/scaling.md) for details)
-- moved `muty-python` inside the gulp repo, now it is a built-in shared utility library (see `src/muty/`), and the old `muty-python` repo is deprecated (you may remove it from your local clone or uninstall it if you installed it via pip, **then rebuilding the .venv is advised**)
-- removed duplicated sync/async implementations from `muty.file`
-- many bugfixes and improvements across the whole codebase, including better error handling, better documentation, code and configuration cleanup and more tests.
+Changes since `v1.7.605`.
 
-> IMPORTANT: existing users must run the migration script in `/migrate/v2.0.0` to upgrade the collab database to the new schema, and also update the configuration file with the new required fields (see `gulp_cfg_template.json` for details).
+## Deployment
+
+- migrated the production Docker image from Debian Bullseye to Bookworm and
+  made the configured Python version explicit in the Docker CI build.
+- integrated `gulp-ui` into the main repository and Python distribution; the
+  compiled UI now shares the core release version and runs through the
+  dedicated `gulp-webui` launcher.
+- made the gULP API server HTTP-only for deployment behind nginx or another
+  TLS terminator; PostgreSQL, OpenSearch, Redis, and S3 connections retain
+  native TLS configuration.
+- replaced MinIO with SeaweedFS 4.29 while preserving the existing
+  S3-compatible API, object tags, multipart transfers, and service ports.
+
+## Query, ingestion, and task execution
+
+- replaced deep `query_raw_paginate` offsets with bounded point-in-time (PIT)
+  and `search_after` seeking, including stable Table View sessions, explicit PIT
+  cleanup, and expiry handling.
+- changed `query_raw` to accept one OpenSearch DSL dictionary, removed the
+  unused `query_group` API, and added optional synchronous execution to
+  `ingest_raw`.
+- refreshed OpenSearch after raw ingestion only when the final request chunk is
+  received and fixed final refreshes at exact plugin chunk boundaries.
+- replaced task dispatch with a Redis-backed fair scheduler featuring bounded
+  concurrency, claim recovery, cancellation, multi-instance roles, and
+  observability validated by multi-user stress scenarios.
+- replaced the legacy plugin event manager and websocket broker hooks with the
+  unified `gulp.events` API and its Redis worker bridge.
+
+## Architecture, collaboration, and storage
+
+- moved `muty-python` into `src/muty` as a built-in shared utility library and
+  removed duplicated synchronous and asynchronous file helpers.
+- added note attachments with PostgreSQL metadata, S3-compatible binaries,
+  REST and websocket updates, SDK support, and CLI support.
+- made operation deletion remove all S3-compatible objects tagged with its
+  operation ID when `delete_data` is enabled.
+- added request and operation tracking to collaboration bulk deletes, ACL-aware
+  filtering, consistent permission failures, and stronger session expiry and
+  refresh handling.
+- added a note index for high-volume collaboration workloads and versioned the
+  v2.0.0 collaboration database migration.
+- preserved ECS array mappings when flattening documents, added
+  `allow_unmapped`, and corrected per-element array type conversion.
+
+## Web UI
+
+- moved Canvas rendering to a dedicated worker and added IndexedDB source-field
+  caching, managed query cancellation, and viewport-prioritized refetching.
+- added ingestion recovery, real-time paginated note updates, request-aware
+  bulk deletion, optional mapping selection, and improved plugin validation.
+- added configurable IANA time zones, filename/full-path source labels, stable
+  selected-frame queries and counts, and stronger detached-window state
+  synchronization.
+
+## Reliability and compatibility
+
+- hardened worker cancellation, Redis consumers, websocket routing, temporary
+  uploads, exports, plugin loading, S3 clients, database sessions, and shutdown
+  paths to prevent leaked tasks, files, connections, and metrics labels.
+- improved enrichment error propagation and ingestion chunk validation.
+- allowed stacked plugins to replace their default lower plugin with a
+  compatible implementation and restored the default PCAP mapping.
+- removed obsolete configuration and test wrappers, expanded lifecycle,
+  multi-instance, ACL, storage, plugin, websocket, and stress coverage, and
+  refreshed architecture, deployment, scaling, and testing documentation.
+
+> IMPORTANT: existing users must run the migration script in
+> `collab_migrate/v2.0.0` to upgrade the collaboration database, update their
+> configuration from `gulp_cfg_template.json`, rebuild the development
+> container, and restart Docker services for the SeaweedFS migration. Existing
+> source installations should also remove the old external `muty-python`
+> package and rebuild their virtual environment.
 
 # v1.7.601
 

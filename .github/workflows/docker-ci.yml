@@ -53,6 +53,7 @@ jobs:
           progress: plain
           build-args: |
             _VERSION=${{ steps.vars.outputs.version }}
+            _PYTHON_VERSION=${{ env.PYTHON_VERSION }}
           tags: |
             ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:latest
             ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.vars.outputs.version }}

@@ -1,3 +1,47 @@
+# v2.0.0
+
+Changes since the last published gULP tag, `v1.7.605`.
+
+## Repository Integration
+
+- Moved `gulp-ui` into the main gULP repository and production image, with a
+  shared release version, a dedicated `gulp-webui` launcher, and corrected
+  paid-plugin discovery paths.
+
+## Query, Timeline, and Rendering
+
+- Moved Canvas rendering to a dedicated RenderWorker with bounded queues,
+  acknowledgements, telemetry, cache invalidation, and a RAM compatibility
+  fallback.
+- Added managed query lifecycles with cancellation, viewport-prioritized
+  refetching, and an IndexedDB-backed source-field cache.
+- Added stable PIT-based Table View pagination and preserved deterministic
+  ordering for events that share an ingestion timestamp.
+- Applied selected frame ranges consistently to queries and source counts,
+  preserved in-progress date edits, and hid sources with no matching events.
+- Added configurable IANA time zones for timestamp presentation and corrected
+  pointer, graph, source-offset, rebase, and active-viewport calculations.
+- Added filename/full-path source labels and persisted table column visibility.
+
+## Ingestion and Collaboration
+
+- Added ingestion recovery polling, clearer in-progress source state, stronger
+  plugin detection and validation, and optional mapping selection and removal.
+- Added real-time note delta synchronization, paginated and filtered note
+  views, note-creation banners, and request-aware bulk deletion updates.
+- Improved user-session restoration and autosave behavior so active sessions
+  are not removed by unnecessary saves.
+
+## Detached Windows and User Experience
+
+- Strengthened detached-window synchronization for timeline targets, notes,
+  filters, AI history, and inter-window messages without redundant rerenders.
+- Added default session names and icons, corrected Dashboard query conditions,
+  made column menus safe without a maximum height, and expanded localized
+  labels for polling and file-size errors.
+- Added worker, cache, request-lifecycle, timestamp, detached-window, and
+  rendering regression coverage.
+
 # v1.7.400
 
 ## Performance and Engine Optimizations

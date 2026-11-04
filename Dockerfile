@@ -10,7 +10,7 @@ RUN pnpm install --frozen-lockfile
 COPY ./gulp-ui ./
 RUN BACKEND_VERSION="$(date +'%Y%m%d')+${_VERSION}" pnpm run build
 
-FROM python:${_PYTHON_VERSION}-bullseye
+FROM python:${_PYTHON_VERSION}-bookworm
 
 # Add build arguments
 ARG _VERSION
@@ -28,16 +28,17 @@ ENV GULP_BIND_TO_PORT=8080
 ENV GULP_BIND_TO_ADDR=0.0.0.0
 
 # install dependencies
-RUN apt-get -qq update
-RUN apt-get install -y -q \
-    libsystemd-dev \
-    inetutils-ping \
-    vim \
-    sed \
-    git \
-    curl \
-    rsyslog \
-    gosu
+RUN apt-get update \
+    && apt-get install -y \
+        libsystemd-dev \
+        inetutils-ping \
+        vim \
+        sed \
+        git \
+        curl \
+        rsyslog \
+        gosu \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /gulp
 
