@@ -13,10 +13,11 @@
 Docker Compose defines separate backend and nginx web UI services alongside
 the backend's required services. Use
 [docker-compose-docker-prod.yml](../docker-compose-docker-prod.yml) when all of
-them run in Docker. It has the same services, images, volumes, profiles, ports,
-and runtime settings as [docker-compose.yml](../docker-compose.yml); the only
-change is that gULP receives the four dependency URLs with Docker service
-names instead of the template's `localhost` addresses.
+them run in Docker. It keeps the same services, volumes, profiles, and ports
+as [docker-compose.yml](../docker-compose.yml). The production file passes
+gULP four dependency URLs with Docker service names instead of the template's
+`localhost` addresses, and uses the published UI image instead of a local
+build.
 
 ## Run the backend
 
@@ -41,8 +42,9 @@ later starts once the mount roots have the expected owner.
 
 The independent `ui` profile starts only the nginx web UI when the service is
 named explicitly; start the backend separately if it is not already running.
-nginx serves the compiled production build; pnpm development servers are not
-used in Docker.
+The production Compose file uses `mentatis/gulp-ui:latest` from Docker Hub,
+or the image set in `GULP_UI_IMAGE`. nginx serves its compiled production build;
+pnpm development servers are not used in Docker.
 
 ```bash
 docker compose -f docker-compose-docker-prod.yml --profile ui up -d gulp-ui
@@ -54,7 +56,11 @@ To run the backend and UI together:
 docker compose -f docker-compose-docker-prod.yml --profile gulp --profile ui up -d
 ```
 
-Add `--build` when UI source or build arguments have changed.
+The UI image is published by `.github/workflows/ui-docker-ci.yml` when a
+version tag is pushed. To fetch a newer `latest` image before starting the UI,
+run `docker compose -f docker-compose-docker-prod.yml --profile ui pull gulp-ui`.
+To build the UI from source instead, use the original `docker-compose.yml` with
+`--profile ui up -d --build gulp-ui`.
 From another computer, open `http://SERVER_IP:3000` and enter
 `http://SERVER_IP:8080` in the UI's **Server address** field. The
 `localhost:8080` placeholder in that field would refer to the browser's
@@ -114,9 +120,9 @@ always start. Add profiles as needed:
 - `--profile metrics`: also run Prometheus, Grafana, Redis Insight, and Elasticvue
 - `--profile extra`: also run OpenSearch Dashboards and the FTP server that exposes files in `GULP_WORKING_DIR`
 
-Both Compose files expose the same ports and use the same service settings.
-The Docker variant changes only gULP's dependency URLs; it does not add
-production security controls.
+Both Compose files expose the same ports. The Docker variant changes gULP's
+dependency URLs and uses the published UI image; it does not add production
+security controls.
 
 ### Exposed services
 

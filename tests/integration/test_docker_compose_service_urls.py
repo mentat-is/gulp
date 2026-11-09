@@ -33,8 +33,8 @@ def _render_compose(repository: Path, filename: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_docker_compose_only_adds_backend_service_urls() -> None:
-    """The Docker variant changes only gULP's dependency addresses."""
+def test_docker_compose_uses_service_urls_and_published_ui_image() -> None:
+    """The Docker variant changes only dependency addresses and the UI image."""
     repository = Path(__file__).resolve().parents[2]
     original = _render_compose(repository, "docker-compose.yml")
     docker = _render_compose(repository, "docker-compose-docker-prod.yml")
@@ -65,6 +65,10 @@ def test_docker_compose_only_adds_backend_service_urls() -> None:
     assert s3.username == services["seaweedfs"]["environment"]["AWS_ACCESS_KEY_ID"]
     assert s3.password == services["seaweedfs"]["environment"]["AWS_SECRET_ACCESS_KEY"]
 
+    ui = services["gulp-ui"]
+    assert ui["image"] == "mentatis/gulp-ui:latest"
+    assert "build" not in ui
+
     unchanged = deepcopy(docker)
     for key in (
         "GULP_POSTGRES_URL",
@@ -73,4 +77,5 @@ def test_docker_compose_only_adds_backend_service_urls() -> None:
         "GULP_S3_URL",
     ):
         unchanged["services"]["gulp"]["environment"].pop(key)
+    unchanged["services"]["gulp-ui"] = deepcopy(original["services"]["gulp-ui"])
     assert unchanged == original

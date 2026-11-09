@@ -140,11 +140,7 @@ services:
 
   gulp-ui:
     profiles: [ "ui" ]
-    build:
-      context: ./gulp-ui
-      args:
-        _VERSION: ${GULP_UI_VERSION:-local}
-    image: ${GULP_UI_IMAGE:-gulp-ui:local}
+    image: ${GULP_UI_IMAGE:-mentatis/gulp-ui:latest}
     container_name: gulp-ui
     restart: on-failure
     ports:
