@@ -168,6 +168,6 @@ the named data volumes and gULP working directory:
 docker compose -f docker-compose-docker-prod.yml --profile gulp --profile ui down
 ```
 
-The [reset script](../reset_docker.sh) uses the default Compose file and
-deletes volumes and the first-run marker; it is not a routine stop command for
-this deployment.
+The [reset script](../reset_docker.sh) uses the default Compose file and stops
+both the `gulp` and `ui` profiles. It also deletes volumes and the first-run
+marker, so use the `down` command above when preserving data.

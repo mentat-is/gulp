@@ -35,7 +35,13 @@
 
 - if you want to be able to run the docker CLI command as a non-root user, add your user to the `docker` user group, re-login, and restart `docker.service` [check here](https://wiki.archlinux.org/title/Users_and_groups#Group_management)
 
-- if you get any issue starting gulp, try to reset gulp's docker volumes with [this](../reset_docker.sh) script.
+- if Docker reports a missing Compose network, stop the stack with
+  `docker compose -f docker-compose-docker-prod.yml --profile gulp --profile ui down`
+  and recreate its containers with
+  `docker compose -f docker-compose-docker-prod.yml --profile gulp --profile ui up -d --force-recreate`.
+  These commands preserve named volumes. The [reset script](../reset_docker.sh)
+  also stops the UI, but deletes gULP's Docker volumes and first-run marker;
+  use it only when discarding those data is intended.
 
 - the Docker entrypoint normally gives the runtime user ownership of the bind-mounted working directory and cache directories before starting gULP. If this fails (for example, on a read-only mount or storage that forbids ownership changes), make the host directory writable by the runtime user's UID/GID and restart the container.
 

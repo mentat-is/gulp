@@ -4,6 +4,8 @@ Changes since `v1.7.605`.
 
 ## Deployment
 
+- fixed `reset_docker.sh` to stop the `ui` profile together with the backend
+  before removing their Compose network.
 - removed PyPI publication and its bundled web UI launcher; Docker and source
   development remain the supported installation paths.
 - added a standalone Docker Compose file matching the existing services and
