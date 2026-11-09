@@ -158,7 +158,6 @@ dependencies = [
 
 [project.scripts]
 gulp = "gulp.__main__:main"
-gulp-webui = "gulp.webui_cli:main"
 
 [tool.setuptools]
 include-package-data = true

@@ -4,14 +4,18 @@ Changes since `v1.7.605`.
 
 ## Deployment
 
+- removed PyPI publication and its bundled web UI launcher; Docker and source
+  development remain the supported installation paths.
+- added a standalone Docker Compose file matching the existing services and
+  reading credentials from `.env`, with container-name URLs for gULP; aligned
+  installation guidance with its ports, profiles, and stop command.
 - prepared root-owned Docker bind mounts for the `gulp` runtime user before
   dropping privileges, allowing clean Compose installs to create their working
   directories without manual ownership changes.
 - migrated the production Docker image from Debian Bullseye to Bookworm and
   made the configured Python version explicit in the Docker CI build.
-- integrated `gulp-ui` into the main repository and Python distribution; the
-  compiled UI now shares the core release version and runs through the
-  dedicated `gulp-webui` launcher.
+- integrated `gulp-ui` into the main repository; the separate nginx UI image
+  serves its compiled production build.
 - made the gULP API server HTTP-only for deployment behind nginx or another
   TLS terminator; PostgreSQL, OpenSearch, Redis, and S3 connections retain
   native TLS configuration.

@@ -1,0 +1,223 @@
+# uses environment variables in .env file
+services:
+  os01:
+    restart: always
+    # image: opensearchproject/opensearch:2
+    image: opensearchproject/opensearch:3.3.2
+    environment:
+      discovery.type: single-node
+      #discovery.seed_hosts: "os01,os02,os03"
+      #cluster.initial_master_nodes: "os01,os02,os03"
+      cluster.name: "opensearch"
+      network.host: "0.0.0.0"
+      node.name: "os01"
+      #index.codec: "zstd_no_dict"
+      bootstrap.memory_lock: true
+      # OPENSEARCH_JAVA_OPTS: "-Xms2G -Xmx2G"
+      OPENSEARCH_USERNAME: ${OPENSEARCH_USER}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
+
+      #######################################################################
+      # WARNING: disabling the security plugin also means that not only SSL but ***also basic auth is disabled/skipped***.
+      # this may be fine for local development, or if you are using a reverse proxy which provides authentication.
+      #######################################################################
+      DISABLE_SECURITY_PLUGIN: true
+      plugins.security.ssl.http.enabled: false
+      http.cors.enabled: true
+      http.cors.allow-origin: "*"
+      http.cors.allow-headers: "*"
+      # fix for field expansion error - increases the maximum number of fields that can be queried with wildcards
+      # indices.query.bool.max_clause_count: 8192
+
+    #ulimits:
+    #  memlock:
+    #    soft: -1
+    #    hard: -1
+    ports:
+      - 9200:9200
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/usr/share/opensearch/config/certs
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.29
+    restart: always
+    ports:
+      - 9000:9000      # S3 API
+      - 9001:8888      # Filer web UI
+    environment:
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY}
+    depends_on:
+      - os01
+    volumes:
+      - seaweedfs_data:/data
+
+    command: server -dir=/data -s3 -s3.port=9000 -s3.iam=false -s3.port.iceberg=0
+  
+  postgres:
+    # using an image having pg_cron preinstalled
+    # TODO: use the official postgres image and install pg_cron
+    image: cleisonfmelo/postgres-pg-cron
+    #command: postgres -c 'max_connections=${POSTGRES_MAX_CONNECTIONS}'
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/pgconf/certs
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      #- POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS}
+
+  redis:
+    image: redis:latest
+    restart: always
+    ports:
+      - 6379:6379
+    volumes:
+      - redis_data:/data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/etc/certs
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command: [ "redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}" ]
+
+  ftpserver:
+    profiles: [ "extra" ]
+    image: delfer/alpine-ftp-server:latest
+    container_name: ftpserver
+    depends_on:
+      - os01
+    restart: unless-stopped
+    ports:
+      - 21:21
+      - 21000-21010:21000-21010
+    environment:
+      - USERS=${SFTPD_USER}|${SFTPD_PASSWORD}|/home/gulp/.config/gulp|1000
+      # - TLS_CERT=/home/gulp/.config/gulp/certs/sftpd.pem # server cert + CA
+      # - TLS_KEY=/home/gulp/.config/gulp/certs/sftpd.key # passwordless key
+    volumes:
+      - ${GULP_WORKING_DIR:-~/.config/gulp}:/home/gulp/.config/gulp # gulp_cfg.json and extra plugins goes here
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/home/gulp/.config/gulp/certs
+
+
+  gulp:
+    profiles: [ "gulp" ]
+    image: ${GULP_IMAGE:-mentatis/gulp-core:latest}
+    container_name: gulp
+    # Entrypoint needs root to start rsyslogd and prepare bind mounts before dropping to GULP_RUNTIME_USER.
+    user: "0:0"
+    environment:
+      - GULP_POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - GULP_OPENSEARCH_URL=http://${OPENSEARCH_USER}:${OPENSEARCH_PASSWORD}@os01:9200
+      - GULP_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - GULP_S3_URL=http://${SEAWEEDFS_ACCESS_KEY}:${SEAWEEDFS_SECRET_KEY}@seaweedfs:9000
+      - GULP_RUNTIME_USER=${GULP_RUNTIME_USER:-gulp}
+      - GULP_BIND_TO_PORT=${GULP_BIND_TO_PORT:-8080}
+      - GULP_BIND_TO_ADDR=${GULP_BIND_TO_ADDR:-0.0.0.0}
+    volumes:
+      - ${GULP_WORKING_DIR:-~/.config/gulp}:/home/gulp/.config/gulp # gulp_cfg.json, certs, extra mappings and extra plugins goes here
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/.local:/home/gulp/.local # to persist user data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/.cache:/home/gulp/.cache # to persist user cache
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/.pip_cache:/home/gulp/.cache/pip # to persist pip cache
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/.site_packages:/home/gulp/.local/lib/python${PYTHON_VERSION}/site-packages # to persist installed pip packages
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/home/gulp/.config/gulp/certs
+    depends_on:
+      - postgres
+      - os01
+      - redis
+    ports:
+      - ${GULP_BIND_TO_PORT:-8080}:${GULP_BIND_TO_PORT:-8080}
+
+    # sleeping up to 30 seconds to wait for other services to be ready
+    # (seems depends is not enough)
+    command: /bin/sh -c "sleep 30 && python3 -m gulp ${EXTRA_ARGS:-}"
+
+    # allow restart
+    restart: unless-stopped
+
+  gulp-ui:
+    profiles: [ "ui" ]
+    build:
+      context: ./gulp-ui
+      args:
+        _VERSION: ${GULP_UI_VERSION:-local}
+    image: ${GULP_UI_IMAGE:-gulp-ui:local}
+    container_name: gulp-ui
+    restart: on-failure
+    ports:
+      - 3000:80
+
+  ########################################
+  # monitoring
+  ########################################
+  redis-insight:
+    profiles: [ "dev", "metrics" ]
+    image: redislabs/redisinsight:latest
+    ports:
+      - 5540:5540
+    depends_on:
+      - redis
+
+  elasticvue:
+    profiles: [ "dev", "metrics" ]
+    image: cars10/elasticvue:latest
+    ports:
+      - 8082:8080
+    depends_on:
+      - os01
+
+  opensearch-dashboards:
+    profiles: [ "extra" ]
+    image: opensearchproject/opensearch-dashboards:latest
+    container_name: opensearch-dashboards
+    ports:
+      - 5601:5601
+    environment:
+      OPENSEARCH_HOSTS: '["http://os01:9200"]'
+    depends_on:
+      - os01
+
+  adminer:
+    profiles: [ "dev", "metrics" ]
+    image: adminer
+    depends_on:
+      - postgres
+    ports:
+      - 8081:8080
+
+  grafana:
+    profiles: [ "metrics" ]
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - 3030:3000
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  prometheus:
+    profiles: [ "metrics" ]
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus_alerts.yml:/etc/prometheus/rules/gulp_alerts.yml:ro
+      - prometheus_data:/prometheus
+      
+volumes:
+  postgres_data:
+  opensearch_data:
+  redis_data:
+  seaweedfs_data:
+  prometheus_data:
+  grafana_data:

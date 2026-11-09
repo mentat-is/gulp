@@ -11,24 +11,7 @@ to a running gULP backend from the login page.
 - pnpm `10.8.1`
 - A reachable gULP backend server
 
-The published Python package already contains the compiled UI. Node.js and
-pnpm are only needed to serve that bundle separately or to develop the UI.
-
-## Run the UI from the Python package
-
-Install and start the backend, then run the packaged UI launcher in another
-terminal:
-
-```bash
-gulp
-gulp-webui
-```
-
-Open [http://localhost:3000](http://localhost:3000). `gulp-webui` serves the
-compiled bundle included under `gulp/webui`; it does not rebuild the UI. It
-uses the pinned `serve` package through pnpm, which may download that package
-on first use. Use `--host` and `--port` to change the default
-`0.0.0.0:3000` listener.
+For a containerized UI, follow the [Docker installation guide](../install_docker.md).
 
 ## Install Dependencies
 
