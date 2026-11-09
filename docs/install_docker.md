@@ -27,6 +27,11 @@ The API is at [http://localhost:8080](http://localhost:8080), and its reference
 is at [http://localhost:8080/docs](http://localhost:8080/docs).
 Set `GULP_WORKING_DIR` before the command to store the generated configuration,
 plugins, and mappings outside the default `~/.config/gulp`.
+The container starts as root to prepare the bind-mounted working directory and
+its cache mounts for the `gulp` runtime user, then drops privileges before
+starting the backend. This also handles directories Docker created as root on
+the host during a fresh install. The ownership check skips recursive work on
+later starts once the mount roots have the expected owner.
 
 ## Run the web UI
 

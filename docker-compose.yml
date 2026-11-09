@@ -107,7 +107,7 @@ services:
     profiles: [ "gulp" ]
     image: ${GULP_IMAGE:-mentatis/gulp-core:latest}
     container_name: gulp
-    # Entrypoint needs root to start rsyslogd; it then drops to GULP_RUNTIME_USER.
+    # Entrypoint needs root to start rsyslogd and prepare bind mounts before dropping to GULP_RUNTIME_USER.
     user: "0:0"
     environment:
       # - GULP_POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gulp}

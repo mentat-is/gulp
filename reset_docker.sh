@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 echo "[.] cleaning up opensearch and postgresql containers"
 docker compose --profile gulp down
+docker compose --profile gulp-ui down
 docker compose --profile dev down --volumes
 docker volume rm --force gulp_opensearch_data
 docker volume rm --force gulp_postgres_data

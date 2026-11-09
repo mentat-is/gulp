@@ -37,7 +37,7 @@
 
 - if you get any issue starting gulp, try to reset gulp's docker volumes with [this](../reset_docker.sh) script.
 
-- if you have permission issues (i.e. you see from the log that gulp fails creating the required folders under `$GULP_WORKING_DIR`), ensure that the user running the container has proper permissions on the host folders (i.e. `chown -R $USER:$USER $GULP_WORKING_DIR`)
+- the Docker entrypoint normally gives the runtime user ownership of the bind-mounted working directory and cache directories before starting gULP. If this fails (for example, on a read-only mount or storage that forbids ownership changes), make the host directory writable by the runtime user's UID/GID and restart the container.
 
 - beware of vscode `Forwarded Ports`: sometimes, you try to start a container that binds to a port already forwarded by vscode, causing conflicts.
 

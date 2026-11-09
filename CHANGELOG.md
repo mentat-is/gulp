@@ -4,6 +4,9 @@ Changes since `v1.7.605`.
 
 ## Deployment
 
+- prepared root-owned Docker bind mounts for the `gulp` runtime user before
+  dropping privileges, allowing clean Compose installs to create their working
+  directories without manual ownership changes.
 - migrated the production Docker image from Debian Bullseye to Bookworm and
   made the configured Python version explicit in the Docker CI build.
 - integrated `gulp-ui` into the main repository and Python distribution; the
