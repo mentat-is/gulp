@@ -57,6 +57,14 @@ The `server` script serves `build/` through the `serve` package. For production,
 use a dedicated static server such as nginx; the supplied Docker UI image does
 this.
 
+The UI uses browser history routes such as `/operations/<operation_id>`. When
+serving the production build, configure the web server to return `index.html`
+for routes that do not match a file so that direct links and page refreshes
+reach React Router. The supplied Docker image includes this nginx configuration;
+requests for missing files under `/static/` still return 404. If an external
+reverse proxy serves the build itself, apply the same fallback there. The
+backend API is a separate service and should not be routed to the UI fallback.
+
 ## Current Scripts
 
 - `pnpm start`: run the development server.
