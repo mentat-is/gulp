@@ -1,3 +1,12 @@
+# v2.0.1
+
+Changes since `v2.0.0`.
+
+## Fix
+
+- configured the UI nginx image to serve React history routes on direct visits
+  and refreshes while keeping missing compiled assets as 404 responses.
+
 # v2.0.0
 
 Changes since `v1.7.605`.
@@ -58,8 +67,7 @@ Changes since `v1.7.605`.
 
 ## Web UI
 
-- configured the UI nginx image to serve React history routes on direct visits
-  and refreshes while keeping missing compiled assets as 404 responses.
+
 - moved Canvas rendering to a dedicated worker and added IndexedDB source-field
   caching, managed query cancellation, and viewport-prioritized refetching.
 - added ingestion recovery, real-time paginated note updates, request-aware
