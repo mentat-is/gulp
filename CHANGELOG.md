@@ -4,6 +4,10 @@ Changes since `v2.0.0`.
 
 ## Fix
 
+- fixed `ai_assistant.py` to prefer DB configuration and fall back to the
+  configuration file only when the DB row is absent, reading named DB parameter
+  defaults and rejecting missing values and placeholders before LLM requests.
+
 - configured the UI nginx image to serve React history routes on direct visits
   and refreshes while keeping missing compiled assets as 404 responses.
 

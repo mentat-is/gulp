@@ -8,19 +8,14 @@ log event dictionaries and streams back an AI-generated analysis to clients
 through an internal Redis broker.
 
 Configuration:
-Requires the following configuration in the shared_object table:
-"ai_configuration": {
-    // The default model to use.
-    "default_model": "your_default_model_here",
-    // LLM api base url
-    "api_base_url": "https://openrouter.ai/api/v1",
-    // Insert your OpenRouter API key here.
-    "openrouter_key": "sk-or-your-openrouter-api-key",
-}
+Reads the shared object 'ai_configuration' first, resolving parameters by
+'name' and 'default_value' from its 'configuration' list. If no DB row exists,
+reads the flat 'ai_configuration' section of the gULP configuration file.
+See docs/plugins/ai_assistant.md for the complete format.
 
 Behavior:
 - Registers POST /get_ai_hint during post_init when running in the main process.
-- Reads configuration from a shared object with id 'ai_configuration':
+- Reads configuration from the DB, falling back to the file only if absent:
     - 'openrouter_key' (required): API key used in the Authorization header.
     - 'default_model' (required): model identifier to send in the API payload.
 - Validates read permission for the requested operation before accepting work.
@@ -60,6 +55,7 @@ and send data via body:
 """
 
 import asyncio
+from copy import deepcopy
 import aiohttp
 from fastapi import Body, Depends, Query
 import json
@@ -78,6 +74,7 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import GulpRedisBroker
+from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.plugins.extension.__shared_object import Plugin as SharedObjectPlugin
 
@@ -85,11 +82,35 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 _CONFIG_OBJECT_ID = "ai_configuration"
-_CONFIG_OBJECT_TYPE = "plugin_configuration"
 _DEFAULT_CONFIGURATION = {
-    "default_model": "your_default_model_here",
-    "api_base_url": "https://openrouter.ai/api/v1",
-    "openrouter_key": "sk-or-your-openrouter-api-key",
+    "plugin": "ai_assistant",
+    "default": True,
+    "configuration": [
+        {
+            "name": "default_model",
+            "type": "str",
+            "location": "query",
+            "required": True,
+            "is_secret": False,
+            "default_value": None,
+        },
+        {
+            "name": "api_base_url",
+            "type": "str",
+            "location": "query",
+            "required": True,
+            "is_secret": False,
+            "default_value": "https://openrouter.ai/api/v1",
+        },
+        {
+            "name": "openrouter_key",
+            "type": "str",
+            "location": "query",
+            "required": True,
+            "is_secret": True,
+            "default_value": None,
+        },
+    ],
 }
 
 
@@ -98,7 +119,7 @@ class Plugin(GulpPluginBase):
     _api_key: str = None
     _model: str = None
     _api_base_url: str = None
-    _configuration: dict = dict(_DEFAULT_CONFIGURATION)
+    _configuration: dict = deepcopy(_DEFAULT_CONFIGURATION)
 
     _PROMPT = """# Role and Goal
     You are a security analyst. Your task is to analyze a set of log events provided in a JSON array. The logs come from different systems (like firewalls, web servers, and Windows endpoints).
@@ -163,7 +184,7 @@ class Plugin(GulpPluginBase):
 
     @override
     async def post_init(self, *kwargs):
-        await self._refresh_configuration_from_db(create_if_missing=True)
+        await self._refresh_configuration_from_db()
 
         if self.is_running_in_main_process():
             GulpServer.get_instance().add_api_route(
@@ -191,60 +212,68 @@ class Plugin(GulpPluginBase):
         else:
             MutyLogger.get_instance().debug("initialized in worker process")
 
-    async def _refresh_configuration_from_db(
-        self, create_if_missing: bool = False
-    ) -> bool:
-        """Refresh AI configuration from the shared-object DB row."""
+    async def _refresh_configuration_from_db(self) -> bool:
+        """Use the DB configuration, or file settings if the row is absent."""
         async with GulpCollab.get_instance().session() as sess:
             shared_obj = await SharedObjectPlugin.GulpSharedObject.get_by_id(
                 sess, _CONFIG_OBJECT_ID, throw_if_not_found=False
             )
 
             if not shared_obj:
-                if create_if_missing:
-                    shared_obj = (
-                        await SharedObjectPlugin.GulpSharedObject.create_internal(
-                            sess=sess,
-                            user_id="admin",
-                            obj_id=_CONFIG_OBJECT_ID,
-                            name="AI configuration",
-                            obj=dict(_DEFAULT_CONFIGURATION),
-                            obj_type=_CONFIG_OBJECT_TYPE,
-                            private=True,
-                            on_conflict="do_nothing",
-                        )
-                    )
-                else:
-                    MutyLogger.get_instance().warning(
-                        "AI configuration shared object '%s' not found",
-                        _CONFIG_OBJECT_ID,
-                    )
-                    return self._set_configuration(dict(_DEFAULT_CONFIGURATION))
+                return self._set_configuration(self._configuration_from_file())
 
             db_configuration = (
                 shared_obj.obj if isinstance(shared_obj.obj, dict) else {}
             )
-            new_configuration = dict(_DEFAULT_CONFIGURATION)
-            new_configuration.update(db_configuration)
-            return self._set_configuration(new_configuration)
+            return self._set_configuration(db_configuration)
+
+    def _configuration_from_file(self) -> dict:
+        """Convert the flat file section into named parameters without DB writes."""
+        configuration = deepcopy(_DEFAULT_CONFIGURATION)
+        file_configuration = GulpConfig.get_instance().get("ai_configuration", {})
+        if not isinstance(file_configuration, dict):
+            raise ValueError(
+                "'ai_configuration' in the configuration file must be an object"
+            )
+        for parameter in configuration["configuration"]:
+            name = parameter["name"]
+            if name in file_configuration:
+                parameter["default_value"] = file_configuration[name]
+        return configuration
 
     def _set_configuration(self, configuration: dict) -> bool:
-        """Set the in-memory AI configuration and return True if it changed."""
+        """Read named parameter defaults and return True if configuration changed."""
+        parameters = configuration.get("configuration", [])
+        if not isinstance(parameters, list) or any(
+            not isinstance(param, dict) or not isinstance(param.get("name"), str)
+            for param in parameters
+        ):
+            raise ValueError(
+                "'ai_configuration/configuration' must be a list of named parameters"
+            )
+        values = {param["name"]: param.get("default_value") for param in parameters}
         changed = configuration != self._configuration
         self._configuration = configuration
-        self._api_key = configuration.get("openrouter_key")
-        self._model = configuration.get("default_model")
-        self._api_base_url = configuration.get(
-            "api_base_url", "https://openrouter.ai/api/v1"
-        )
+        self._api_key = values.get("openrouter_key")
+        self._model = values.get("default_model")
+        self._api_base_url = values.get("api_base_url")
         return changed
 
     def _validate_configuration(self) -> None:
-        """Validate the DB-backed AI configuration before calling the LLM API."""
-        if not self._api_key:
-            raise Exception("'ai_configuration/openrouter_key' missing!")
-        if not self._model:
-            raise Exception("'ai_configuration/default_model' missing!")
+        """Validate the selected AI configuration before calling the LLM API."""
+        for name, value in (
+            ("openrouter_key", self._api_key),
+            ("default_model", self._model),
+            ("api_base_url", self._api_base_url),
+        ):
+            if (
+                not isinstance(value, str)
+                or not value.strip()
+                or value in ("sk-or-your-openrouter-api-key", "your_default_model_here")
+            ):
+                raise ValueError(
+                    f"'ai_configuration/{name}' must have a non-empty default_value"
+                )
 
     async def get_ai_hint_handler(
         self,
@@ -277,7 +306,7 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
                 )
                 user_id = s.user_id
 
-            await self._refresh_configuration_from_db(create_if_missing=True)
+            await self._refresh_configuration_from_db()
             self._validate_configuration()
 
             final_prompt = self._PROMPT.replace(

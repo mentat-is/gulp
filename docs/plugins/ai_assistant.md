@@ -72,8 +72,11 @@ You must provide your analysis in Markdown using this exact structure:
 
 ### Configuration:
 
-The plugin reads its LLM configuration from a `GulpSharedObject` row, not from
-`gulp_cfg.json`.
+The plugin first looks for a `GulpSharedObject` configuration in the DB. When
+the row exists it is authoritative: missing or invalid DB values fail validation
+without consulting the file. When the row is absent, the plugin reads the flat
+`ai_configuration` section in `gulp_cfg.json`. It never creates a DB
+configuration automatically.
 
 - shared object ID: `ai_configuration`
 - shared object type: `plugin_configuration`
@@ -81,15 +84,61 @@ The plugin reads its LLM configuration from a `GulpSharedObject` row, not from
 
 ```json
 {
-  "default_model": "your_default_model_here",
-  "api_base_url": "https://openrouter.ai/api/v1",
-  "openrouter_key": "sk-or-your-openrouter-api-key"
+  "plugin": "ai_assistant",
+  "default": true,
+  "configuration": [
+    {
+      "name": "default_model",
+      "type": "str",
+      "location": "query",
+      "required": true,
+      "is_secret": false,
+      "default_value": "your-model-id"
+    },
+    {
+      "name": "api_base_url",
+      "type": "str",
+      "location": "query",
+      "required": true,
+      "is_secret": false,
+      "default_value": "https://openrouter.ai/api/v1"
+    },
+    {
+      "name": "openrouter_key",
+      "type": "str",
+      "location": "query",
+      "required": true,
+      "is_secret": true,
+      "default_value": "<your-openrouter-api-key>"
+    }
+  ]
 }
 ```
 
-At startup the plugin creates this shared object with the base configuration if
-it does not already exist. Update the configuration through the existing
-shared-object API; the plugin refreshes it before each assistant request.
+The plugin resolves DB parameters by `name` and reads their `default_value`
+from the `configuration` list; top-level LLM settings in DB objects are not
+read. The `plugin` and `default` fields are metadata, not
+selectors for a different DB row.
+
+The file fallback retains its original format:
+
+```json
+{
+  "ai_configuration": {
+    "default_model": "your-model-id",
+    "api_base_url": "https://openrouter.ai/api/v1",
+    "openrouter_key": "<your-openrouter-api-key>"
+  }
+}
+```
+
+The file's `api_base_url` may be omitted to use the OpenRouter base URL.
+Update DB settings through the existing shared-object API; the plugin checks
+for a DB row at startup and before each assistant request. File settings are
+read through `GulpConfig`, using the application's loaded configuration.
+If neither source provides the required values, requests fail configuration
+validation. Missing values and the old model/key placeholders are rejected
+before calling the LLM API.
 
 ### Exposed API:
 
