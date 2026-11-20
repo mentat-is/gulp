@@ -4,7 +4,7 @@ import { Banner as UIBanner } from "@/ui/Banner";
 import { Select } from "@/ui/Select";
 import { Switch } from "@/ui/Switch";
 import { Icon } from "@/ui/Icon";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 import s from "./styles/QueryExternalBanner.module.css";
 import { Label } from "@/ui/Label";
 import { Input } from "@/ui/Input";
@@ -18,6 +18,7 @@ import { Textarea } from "@/ui/Textarea";
 import { toast } from "sonner";
 import { AdvancedPluginParams } from "@/components/AdvancedPluginParams";
 import { Locale } from "@/locales";
+import { CustomParameters } from "@/components/CustomParameters";
 
 export namespace QueryExternal {
 	export const PluginSelection = ({
@@ -63,110 +64,22 @@ export namespace QueryExternal {
 		selectedOption,
 		params,
 		setParams,
+		onValidityChange,
 	}: {
 		selectedOption: GulpDataset.PluginList.Interface | null;
-		params: Record<string, any>;
-		setParams: React.Dispatch<React.SetStateAction<Record<string, any>>>;
+		params: CustomParameters.ValueMap;
+		setParams: Dispatch<SetStateAction<CustomParameters.ValueMap>>;
+		onValidityChange?: (isValid: boolean) => void;
 	}) => {
-		const { t } = Locale.use();
-		const typesMap = useMemo(
-			() => ({
-				list: t("queryExternal.listPlaceholder"),
-				int: t("queryExternal.numberPlaceholder"),
-				str: t("queryExternal.stringPlaceholder"),
-				bool: "",
-				dict: "",
-			}),
-			[t],
-		);
-
-		const handleInputChange =
-			(name: string) => (event: ChangeEvent<HTMLInputElement>) => {
-				setParams((prev) => ({ ...prev, [name]: event.target.value }));
-			};
-
-		const handleCheckChange = (name: string) => (bool: boolean) =>
-			setParams((prev) => ({ ...prev, [name]: bool }));
-
-		const handleCheckboxChange = (name: string, value: string) =>
-			setParams((prev) => ({ ...prev, [name]: value }));
-
 		if (!selectedOption) return null;
 
 		return (
-			<Stack
-				dir="column"
-				className={s.wrapper}
-				ai="stretch"
-				gap={16}
-			>
-				{selectedOption.custom_parameters.map((custom) =>
-					custom.values ? (
-						<Stack
-							dir="column"
-							gap={6}
-							ai="flex-start"
-							data-input
-						>
-							<Label value={custom.name} />
-							<Select.Root
-								onValueChange={(value) =>
-									handleCheckboxChange(custom.name, value)
-								}
-							>
-								<Select.Trigger
-									value={params[custom.name]}
-									data-no-icon
-								>
-									{params[custom.name]}
-								</Select.Trigger>
-								<Select.Content>
-									{custom.values!.map((value) => (
-										<Select.Item
-											key={value}
-											value={value}
-										>
-											{value}
-										</Select.Item>
-									))}
-								</Select.Content>
-							</Select.Root>
-							<span className={s.description}>{custom.desc}</span>
-						</Stack>
-					) : custom.type === "bool" ? (
-						<Stack
-							dir="column"
-							gap={6}
-							ai="flex-start"
-							data-input
-						>
-							<Label value={custom.name} />
-							<Switch
-								checked={params[custom.name]}
-								onCheckedChange={handleCheckChange(custom.name)}
-							/>
-							<span className={s.description}>{custom.desc}</span>
-						</Stack>
-					) : (
-						<Stack
-							dir="column"
-							gap={8}
-							ai="stretch"
-						>
-							<Input
-								onChange={handleInputChange(custom.name)}
-								variant="highlighted"
-								label={custom.name}
-								className={cn(custom.required && s.required)}
-								placeholder={typesMap[custom.type]}
-								icon="CircleDashed"
-								value={params[custom.name]}
-							/>
-							<span className={s.description}>{custom.desc}</span>
-						</Stack>
-					),
-				)}
-			</Stack>
+			<CustomParameters.Editor
+				plugin={selectedOption}
+				customParameters={params}
+				setCustomParameters={setParams}
+				onValidityChange={onValidityChange}
+			/>
 		);
 	};
 

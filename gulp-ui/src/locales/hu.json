@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "A bővítménykonfiguráció sikeresen frissítve",
     "home.pluginConfigurations.updateFailed": "A bővítménykonfiguráció frissítése sikertelen",
     "home.pluginConfigurations.readOnlyValue": "Ez az érték nem szerkeszthető biztonságosan",
+    "home.pluginConfigurations.default": "Alapértelmezett",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

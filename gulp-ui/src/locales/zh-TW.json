@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "外掛設定已成功更新",
     "home.pluginConfigurations.updateFailed": "更新外掛設定失敗",
     "home.pluginConfigurations.readOnlyValue": "無法安全地編輯此值",
+    "home.pluginConfigurations.default": "預設",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

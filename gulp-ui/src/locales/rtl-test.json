@@ -58,6 +58,7 @@
     "home.pluginConfigurations.updated": "تم تحديث تكوين المكوّن الإضافي بنجاح",
     "home.pluginConfigurations.updateFailed": "فشل تحديث تكوين المكوّن الإضافي",
     "home.pluginConfigurations.readOnlyValue": "لا يمكن تحرير هذه القيمة بأمان",
+    "home.pluginConfigurations.default": "افتراضي",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

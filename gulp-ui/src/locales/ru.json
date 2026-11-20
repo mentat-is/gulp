@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "Конфигурация плагина успешно обновлена",
     "home.pluginConfigurations.updateFailed": "Не удалось обновить конфигурацию плагина",
     "home.pluginConfigurations.readOnlyValue": "Это значение нельзя безопасно редактировать",
+    "home.pluginConfigurations.default": "По умолчанию",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

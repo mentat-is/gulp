@@ -1,10 +1,96 @@
 import type { MinMax } from "@/class/Info";
+import type { CustomParameters } from "@/components/CustomParameters";
 import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import { Doc } from "@/entities/Doc";
 import type { Note } from "@/entities/Note";
 import { Source } from "@/entities/Source";
 import type { NotesSyncChange } from "@/store/DataStore";
+
+/**
+ * Recognizes stored custom parameter lists and prepares their control definitions.
+ * @param configuration JSON configuration list stored in a shared object.
+ * @returns Typed definitions, or null when the original JSON renderer is needed.
+ */
+export function getPluginConfigurationParameters(
+	configuration: CustomParameters.JsonValue | undefined,
+): CustomParameters.Interface[] | null {
+	if (!Array.isArray(configuration) || configuration.length === 0) return null;
+	const supportedTypes = new Set<string>(["str", "int", "float", "bool", "dict", "list"]);
+	const names = new Set<string>();
+	const parameters: CustomParameters.Interface[] = [];
+	for (const entry of configuration) {
+		if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
+		const { name, type, values } = entry;
+		if (
+			typeof name !== "string" || name.length === 0 || names.has(name) ||
+			typeof type !== "string" || !supportedTypes.has(type)
+		) return null;
+		if (values != null && (!Array.isArray(values) || !values.every(
+			(option): option is CustomParameters.JsonPrimitive =>
+				option === null || typeof option !== "object",
+		))) return null;
+		names.add(name);
+		parameters.push({
+			name,
+			type: type as CustomParameters.Type,
+			required: entry.required === true,
+			is_secret: entry.is_secret === true,
+			desc: typeof entry.desc === "string" ? entry.desc : undefined,
+			...(Object.prototype.hasOwnProperty.call(entry, "value") ? { value: entry.value } : {}),
+			default_value: entry.default_value,
+			example: entry.example,
+			values: values ?? undefined,
+		});
+	}
+	return parameters;
+}
+
+/**
+ * Resolves stored parameter values while preserving explicitly configured nulls.
+ * @param parameters Typed definitions read from a saved configuration.
+ * @returns Values indexed by parameter name for the shared editor.
+ */
+export function getPluginConfigurationParameterValues(
+	parameters: readonly CustomParameters.Interface[],
+): CustomParameters.ValueMap {
+	return Object.fromEntries(parameters.map((parameter) => [
+		parameter.name,
+		Object.prototype.hasOwnProperty.call(parameter, "value")
+			? parameter.value ?? null
+			: parameter.default_value ?? null,
+	]));
+}
+
+/**
+ * Replaces changed parameter values without rewriting their stored definitions.
+ * @param configuration Original shared-object JSON, including any other fields.
+ * @param values Edited values indexed by parameter name.
+ * @returns Configuration retaining the original value fields, order, and metadata.
+ */
+export function updatePluginConfigurationParameterValues(
+	configuration: CustomParameters.ValueMap,
+	values: CustomParameters.ValueMap,
+): CustomParameters.ValueMap {
+	const parameters = getPluginConfigurationParameters(configuration.configuration);
+	if (!parameters || !Array.isArray(configuration.configuration)) return configuration;
+	const currentValues = getPluginConfigurationParameterValues(parameters);
+	return {
+		...configuration,
+		configuration: configuration.configuration.map((entry, index) => {
+			const { name } = parameters[index];
+			if (
+				!Object.prototype.hasOwnProperty.call(values, name) ||
+				JSON.stringify(values[name]) === JSON.stringify(currentValues[name])
+			) return entry;
+			// Recognition above guarantees that every entry is a parameter object.
+			const parameter = entry as CustomParameters.ValueMap;
+			const valueField = Object.prototype.hasOwnProperty.call(parameter, "value")
+				? "value" : "default_value";
+			return { ...parameter, [valueField]: values[name] };
+		}),
+	};
+}
 
 export type PersistedDetachedWindowKind = "notes" | "table" | "dashboard";
 

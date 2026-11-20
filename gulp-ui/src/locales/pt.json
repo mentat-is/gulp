@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "A configuração do plugin foi atualizada com sucesso",
     "home.pluginConfigurations.updateFailed": "Falha ao atualizar a configuração do plugin",
     "home.pluginConfigurations.readOnlyValue": "Este valor não pode ser editado com segurança",
+    "home.pluginConfigurations.default": "Padrão",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "Konfigurace pluginu byla úspěšně aktualizována",
     "home.pluginConfigurations.updateFailed": "Nepodařilo se aktualizovat konfiguraci pluginu",
     "home.pluginConfigurations.readOnlyValue": "Tuto hodnotu nelze bezpečně upravit",
+    "home.pluginConfigurations.default": "Výchozí",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

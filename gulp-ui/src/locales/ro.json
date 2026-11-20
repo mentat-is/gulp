@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "Configurarea pluginului a fost actualizată cu succes",
     "home.pluginConfigurations.updateFailed": "Nu s-a putut actualiza configurarea pluginului",
     "home.pluginConfigurations.readOnlyValue": "Această valoare nu poate fi editată în siguranță",
+    "home.pluginConfigurations.default": "Implicită",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "प्लगइन कॉन्फ़िगरेशन सफलतापूर्वक अपडेट किया गया",
     "home.pluginConfigurations.updateFailed": "प्लगइन कॉन्फ़िगरेशन अपडेट करने में विफल",
     "home.pluginConfigurations.readOnlyValue": "इस मान को सुरक्षित रूप से संपादित नहीं किया जा सकता",
+    "home.pluginConfigurations.default": "डिफ़ॉल्ट",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

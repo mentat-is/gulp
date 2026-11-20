@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "Konfiguracja wtyczki została pomyślnie zaktualizowana",
     "home.pluginConfigurations.updateFailed": "Nie udało się zaktualizować konfiguracji wtyczki",
     "home.pluginConfigurations.readOnlyValue": "Tej wartości nie można bezpiecznie edytować",
+    "home.pluginConfigurations.default": "Domyślna",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

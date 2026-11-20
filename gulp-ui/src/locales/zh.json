@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "插件配置已成功更新",
     "home.pluginConfigurations.updateFailed": "更新插件配置失败",
     "home.pluginConfigurations.readOnlyValue": "无法安全地编辑此值",
+    "home.pluginConfigurations.default": "默认",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }

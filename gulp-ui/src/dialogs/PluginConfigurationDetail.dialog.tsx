@@ -2,6 +2,7 @@ import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Application } from "@/context/Application.context";
 import { GulpDataset } from "@/class/Info";
+import { CustomParameters } from "@/components/CustomParameters";
 import { Glyph } from "@/entities/Glyph";
 import { Badge } from "@/ui/Badge";
 import { Banner as UIBanner } from "@/ui/Banner";
@@ -15,6 +16,11 @@ import { Stack } from "@/ui/Stack";
 import { Switch } from "@/ui/Switch";
 import { Textarea } from "@/ui/Textarea";
 import { Locale } from "@/locales";
+import {
+	getPluginConfigurationParameters,
+	getPluginConfigurationParameterValues,
+	updatePluginConfigurationParameterValues,
+} from "@/utils";
 import detailStyles from "./styles/DisplayOperationDetailDialog.module.css";
 import s from "./styles/PluginConfigurationDetailDialog.module.css";
 
@@ -353,20 +359,68 @@ function ReadOnlyJsonValue({ label, value }: ReadOnlyJsonValue.Props) {
 }
 
 /**
- * Renders the root configuration object without adding a duplicate title.
+ * Renders configuration parameter values without plugin/default summary controls.
  *
  * @param props - Root configuration object to display.
- * @returns A list of read-only configuration fields.
+ * @returns Typed read-only controls or the custom JSON tree, including an empty state.
  */
 function ReadOnlyConfiguration({ value }: { value: JsonObject }) {
+	const { t } = Locale.use();
+	const { plugin, default: defaultValue, configuration, ...otherFields } = value;
+	const typedParameters = useMemo(
+		() => getPluginConfigurationParameters(configuration),
+		[configuration],
+	);
+	const parameters = Array.isArray(configuration)
+		? configuration
+		: configuration === undefined || configuration === null
+			? []
+			: [configuration];
+
 	return (
 		<div className={s.editorChildrenRoot}>
-			{Object.entries(value).map(([key, entry]) => (
+			{/* Plugin/default summary and intermediate heading are intentionally hidden.
+			<div className={detailStyles.detailsList}>
 				<ReadOnlyJsonValue
-					key={key}
-					label={key}
-					value={entry}
+					label={t("upload.plugin")}
+					value={plugin ?? null}
 				/>
+				<div className={detailStyles.detailItem}>
+					<span className={detailStyles.detailLabel}>
+						{t("home.pluginConfigurations.default")}:
+					</span>
+					<Switch
+						checked={defaultValue === true}
+						disabled
+						aria-label={t("home.pluginConfigurations.default")}
+					/>
+				</div>
+			</div>
+			<div className={detailStyles.sectionTitle}>{t("common.parameters")}</div>
+			*/}
+			{typedParameters ? (
+				<CustomParameters.Editor
+					parameters={typedParameters}
+					customParameters={{}}
+					readOnly
+				/>
+			) : parameters.length > 0 ? (
+				parameters.map((parameter, index) => (
+					<ReadOnlyJsonValue
+						key={index}
+						label={
+							isJsonObject(parameter) && typeof parameter.name === "string"
+								? parameter.name
+								: getPathSegmentLabel(index)
+						}
+						value={parameter}
+					/>
+				))
+			) : (
+				<span className={detailStyles.noData}>{t("common.noRecords")}</span>
+			)}
+			{Object.entries(otherFields).map(([key, entry]) => (
+				<ReadOnlyJsonValue key={key} label={key} value={entry} />
 			))}
 		</div>
 	);
@@ -539,10 +593,10 @@ namespace PluginConfigurationObjectBanner {
 }
 
 /**
- * Banner used to edit the value-only JSON configuration object.
+ * Banner used to edit typed parameter values or a custom JSON configuration.
  *
  * @param props - Shared object payload, save callback, and banner props.
- * @returns A banner containing the locked recursive JSON editor.
+ * @returns A Configuration banner showing parameter editors while retaining hidden metadata.
  */
 function PluginConfigurationObjectBanner({
 	configuration,
@@ -551,16 +605,33 @@ function PluginConfigurationObjectBanner({
 }: PluginConfigurationObjectBanner.Props) {
 	const { Info, destroyBanner } = Application.use();
 	const { t } = Locale.use();
-	const initialConfiguration = asJsonObject(configuration.obj);
+	const initialConfiguration = useMemo(
+		() => asJsonObject(configuration.obj),
+		[configuration.obj],
+	);
+	const parameters = useMemo(
+		() => getPluginConfigurationParameters(initialConfiguration.configuration),
+		[initialConfiguration],
+	);
 	const [loading, setLoading] = useState<boolean>(false);
 	const [editedConfiguration, setEditedConfiguration] =
 		useState<JsonObject>(initialConfiguration);
+	const [parameterValues, setParameterValues] = useState<CustomParameters.ValueMap>(
+		() => getPluginConfigurationParameterValues(parameters ?? []),
+	);
+	const [parametersValid, setParametersValid] = useState<boolean>(true);
+	const configurationToSave = useMemo(
+		() => parameters
+			? updatePluginConfigurationParameterValues(editedConfiguration, parameterValues)
+			: editedConfiguration,
+		[editedConfiguration, parameterValues, parameters],
+	);
 
 	const hasChanges = useMemo(
 		() =>
-			stringifyJsonValue(editedConfiguration) !==
+			stringifyJsonValue(configurationToSave) !==
 			stringifyJsonValue(initialConfiguration),
-		[editedConfiguration, initialConfiguration],
+		[configurationToSave, initialConfiguration],
 	);
 
 	/**
@@ -576,16 +647,17 @@ function PluginConfigurationObjectBanner({
 	}, []);
 
 	/**
-	 * Persists the edited configuration object through the shared object update API.
+	 * Persists changed, valid configuration values through the shared object update API.
 	 *
 	 * @returns A promise that settles after the update callback completes.
 	 */
 	const handleSave = async () => {
+		if (!hasChanges || !parametersValid) return;
 		setLoading(true);
 		try {
 			const updated = await Info.shared_object_update(
 				configuration.obj_id ?? configuration.id ?? "",
-				{ obj: editedConfiguration },
+				{ obj: configurationToSave },
 			);
 			if (updated) {
 				toast.success(t("home.pluginConfigurations.updated"), {
@@ -605,29 +677,64 @@ function PluginConfigurationObjectBanner({
 		}
 	};
 
+	/**
+	 * Renders the save action with the configuration's dirty and validation state.
+	 * @returns The configuration save button.
+	 */
 	const Done = () => (
 		<Button
 			variant="glass"
 			icon="Check"
 			loading={loading}
-			disabled={!hasChanges}
+			disabled={!hasChanges || !parametersValid}
+			aria-disabled={!hasChanges || !parametersValid}
 			onClick={handleSave}
 		/>
 	);
 
 	return (
 		<UIBanner
-			title={`${t("common.edit")} ${t("common.configuration")}`}
+			title={t("common.configuration")}
 			done={<Done />}
 			{...props}
 		>
 			<div className={s.bannerEditor}>
-				<LockedJsonEditor
-					label={t("common.configuration")}
-					value={editedConfiguration}
-					path={[]}
-					onValueChange={handleValueChange}
-				/>
+				{/* Plugin/default controls and intermediate heading are intentionally hidden.
+				{Object.entries(editedConfiguration)
+					.filter(([key]) => key === "plugin" || key === "default")
+					.map(([key, entry]) => (
+						<LockedJsonEditor
+							key={key}
+							label={key}
+							value={entry}
+							path={[key]}
+							onValueChange={handleValueChange}
+						/>
+					))}
+				<div className={detailStyles.sectionTitle}>{t("common.parameters")}</div>
+				*/}
+				<div className={s.editorChildrenRoot}>
+					{Object.entries(editedConfiguration)
+						.filter(([key]) => key !== "plugin" && key !== "default" &&
+							(!parameters || key !== "configuration"))
+						.map(([key, entry]) => (
+							<LockedJsonEditor
+								key={key}
+								label={key}
+								value={entry}
+								path={[key]}
+								onValueChange={handleValueChange}
+							/>
+						))}
+					{parameters && (
+						<CustomParameters.Editor
+							parameters={parameters}
+							customParameters={parameterValues}
+							setCustomParameters={setParameterValues}
+							onValidityChange={setParametersValid}
+						/>
+					)}
+				</div>
 			</div>
 		</UIBanner>
 	);
@@ -844,6 +951,7 @@ export function DisplayPluginConfigurationDetailDialog({
 						<Button
 							icon="PenLine"
 							variant="secondary"
+							title={t("common.edit")}
 							onClick={handleEditConfiguration}
 						/>
 					</Stack>

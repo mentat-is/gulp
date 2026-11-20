@@ -852,6 +852,7 @@
     "home.pluginConfigurations.updated": "תצורת התוסף עודכנה בהצלחה",
     "home.pluginConfigurations.updateFailed": "עדכון תצורת התוסף נכשל",
     "home.pluginConfigurations.readOnlyValue": "לא ניתן לערוך ערך זה בבטחה",
+    "home.pluginConfigurations.default": "ברירת מחדל",
     "hint.scrollCanvas": "to scroll the canvas up or down"
   }
 }
