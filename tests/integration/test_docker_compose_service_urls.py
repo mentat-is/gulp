@@ -34,7 +34,7 @@ def _render_compose(repository: Path, filename: str) -> dict:
 
 
 def test_docker_compose_uses_service_urls_and_published_ui_image() -> None:
-    """The Docker variant changes only dependency addresses and the UI image."""
+    """The Docker variant sets service URLs, UI image and stable host identity."""
     repository = Path(__file__).resolve().parents[2]
     original = _render_compose(repository, "docker-compose.yml")
     docker = _render_compose(repository, "docker-compose-docker-prod.yml")
@@ -69,7 +69,23 @@ def test_docker_compose_uses_service_urls_and_published_ui_image() -> None:
     assert ui["image"] == "mentatis/gulp-ui:latest"
     assert "build" not in ui
 
+    host_identity = [
+        mount
+        for mount in services["gulp"]["volumes"]
+        if mount["target"] == "/run/gulp/host-machine-id"
+    ]
+    assert host_identity == [
+        {
+            "type": "bind",
+            "source": "/etc/machine-id",
+            "target": "/run/gulp/host-machine-id",
+            "read_only": True,
+            "bind": {"create_host_path": False},
+        }
+    ]
+
     unchanged = deepcopy(docker)
+    unchanged["services"]["gulp"]["volumes"].remove(host_identity[0])
     for key in (
         "GULP_POSTGRES_URL",
         "GULP_OPENSEARCH_URL",
