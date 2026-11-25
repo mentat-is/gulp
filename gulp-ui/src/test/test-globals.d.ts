@@ -6,6 +6,10 @@ interface JestMock<TResult, TArguments extends unknown[]> {
 
 /** Minimal method-spy surface used by lifecycle tests. */
 interface JestSpy {
+	/** Replaces a method with a callback reading the current test fixture state. */
+	mockImplementation(implementation: (...args: unknown[]) => unknown): JestSpy;
+	/** Restores the original method after an integration boundary spy. */
+	mockRestore(): void;
 	/** Resolves asynchronous calls with the supplied value. */
 	mockResolvedValue(value: unknown): JestSpy;
 	/** Returns the supplied value from subsequent calls. */

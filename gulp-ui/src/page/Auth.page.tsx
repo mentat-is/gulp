@@ -1,3 +1,4 @@
+import { Extension } from "@/context/Extension.context";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button as UIButton } from "@/ui/Button";
@@ -22,6 +23,7 @@ export namespace Auth {
 		export interface Props {}
 	}
 
+	/** Renders standard authentication methods and locally or remotely loaded login slots. */
 	export function Page(_: Auth.Page.Props) {
 		const navigate = useNavigate();
 		const [searchParams] = useSearchParams();
@@ -325,6 +327,7 @@ export namespace Auth {
 					}
 				/>
 				<LoginMethods />
+				<Extension.Components type={Extension.Slot.Login} />
 
 				<NextButton />
 			</Stack>
@@ -335,6 +338,7 @@ export namespace Auth {
 		export interface Props extends UIBanner.Props {}
 	}
 
+	/** Renders the authentication banner with the same custom login slots as the login page. */
 	export function Banner({ className, ...props }: Banner.Props) {
 		const { Info, app } = Application.use();
 		const { t } = Locale.use();
@@ -561,6 +565,7 @@ export namespace Auth {
 						}
 					/>
 					<LoginMethods />
+					<Extension.Components type={Extension.Slot.Login} />
 				</Stack>
 			</UIBanner>
 		);

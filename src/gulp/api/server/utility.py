@@ -13,6 +13,7 @@ the Gulp platform through plugin discovery and mapping management.
 
 """
 
+import asyncio
 import base64
 import json
 import os
@@ -21,7 +22,7 @@ from typing import Annotated, Literal
 import muty.file
 import orjson
 import psutil
-from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -41,6 +42,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
+from gulp.api.ui_plugins import get_ui_plugin_asset
 from gulp.api.redis_api import GulpRedis
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
@@ -882,51 +884,52 @@ async def plugin_list_handler(
     tags=["plugin"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1734609216840,
-                        "req_id": "8494de7b-e722-437a-a1c7-80341a0f3b27",
-                        "data": {
-                            "status": "success",
-                            "timestamp_msec": 1748263060378,
-                            "req_id": "test_req",
-                            "data": [
-                                {
-                                    "display_name": "Test UI Plugin",
-                                    "plugin": "some_gulp_plugin",
-                                    "extension": True,
-                                    "version": "1.0.0",
-                                    "desc": "A plugin for testing UI components",
-                                }
-                            ],
-                        },
-                    }
-                }
-            }
-        }
-    },
-    summary="list available UI plugins.",
+    summary="List installed runtime UI packages (no authentication required).",
+    responses={200: {"content": {"application/json": {"example": {
+        "status": "success",
+        "data": [{
+            "id": "example", "filename": "Example.tsx", "display_name": "Example",
+            "plugin": "example", "extension": True, "version": "1.0.0", "type": ["login"],
+            "requires_ui_api": {"major": 1, "minor": 0}, "build_hash": "a" * 64,
+            "assets": ["plugin.js"],
+            "entry_url": "/ui_plugin_asset/example/" + "a" * 64 + "/plugin.js",
+        }],
+    }}}}},
 )
 async def ui_plugin_list_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
-    ServerUtils.dump_params(locals())
+    """List runtime UI packages anonymously, including on the login page."""
     try:
-        async with GulpCollab.get_instance().session() as sess:
-            l = await GulpPluginBase.list_ui_plugins()
-
-            # turn to model_dump
-            ll: list[dict] = []
-            for p in l:
-                d: dict = p.model_dump(exclude_none=True)
-                ll.append(d)
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=ll))
+        plugins = await GulpPluginBase.list_ui_plugins()
+        return JSONResponse(
+            JSendResponse.success(
+                req_id=req_id,
+                data=[plugin.model_dump(exclude_none=True) for plugin in plugins],
+            ),
+            headers={"Cache-Control": "no-cache"},
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
+
+@router.get("/ui_plugin_asset/{plugin_id}/{build_hash}/{asset_name}", tags=["plugin"])
+async def ui_plugin_asset_handler(
+    plugin_id: str, build_hash: str, asset_name: str,
+) -> FileResponse:
+    """Serve declared compiled UI assets without requiring an authenticated user."""
+    try:
+        path = await asyncio.to_thread(get_ui_plugin_asset, plugin_id, build_hash, asset_name)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail="UI plugin asset not found") from error
+    return FileResponse(
+        path,
+        media_type="text/javascript" if asset_name == "plugin.js" else "text/css",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get(

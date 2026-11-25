@@ -1,0 +1,7 @@
+{
+  "display_name": "Local fixture",
+  "plugin": "local",
+  "extension": true,
+  "version": "1.0.0",
+  "type": ["login"]
+}

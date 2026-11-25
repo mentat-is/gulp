@@ -106,9 +106,14 @@ Along side the specific ones we also provide some generic "base" plugins which c
 
 ### ui plugins
 
-this is a `special` type of plugin which resides in `PLUGIN_DIR/ui` and allows the UI to have customized layouts for particular needs.
-
-> UI plugin use is documented in the [web UI plugin guide](webui/plugins.md). They are listed through the `ui_plugin_list` API but are not used by the backend itself.
+UI plugins add React components to application slots. Custom source plugins in
+`gulp-ui/src/plugins` are discovered by the frontend independently of the backend.
+Precompiled runtime plugins are enabled by JSON manifests in `PLUGIN_DIR/ui`;
+the backend lists these through `/ui_plugin_list` and serves their declared
+assets anonymously, including before login. The backend does not execute the
+JavaScript. Build and deploy these packages using
+[Runtime UI plugins](ui_plugin_runtime.md); source development is described in
+the [web UI plugin guide](webui/plugins.md).
 
 # architecture
 

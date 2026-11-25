@@ -1,7 +1,8 @@
 # Plugins
 
-gULP UI supports UI plugins loaded from `src/plugins` and registered by the
-backend through `/ui_plugin_list`.
+gULP UI supports custom source plugins compiled from `src/plugins` and runtime
+bundles discovered through `/ui_plugin_list`. Local plugins do not have to be
+listed by the backend.
 
 ## Saved Backend Plugin Configurations
 
@@ -34,18 +35,18 @@ saving through the shared-object API.
 
 ## Runtime Model
 
-The frontend loads plugin metadata from the backend. For each returned plugin, it
-imports:
+Local source/companion JSON pairs are discovered directly from `src/plugins`.
+Runtime packages keep their JSON manifests and precompiled assets together under
+the backend's `plugins/ui` directory and are imported from its public asset URLs.
+A local plugin takes precedence when both sources declare the same filename.
+Both work before login; failures in backend discovery do not block local plugins.
 
-```ts
-import(`@/plugins/${plugin.filename}`);
-```
-
-The imported file must provide a default export React component. The metadata
-JSON identifies where the component can be mounted.
+See [Runtime UI plugins](../ui_plugin_runtime.md) for the public API contract,
+package layout, translation ownership, deployment and testing.
 
 Supported UI slots include:
 
+- `login`: adds custom UI to the login page and authentication banner.
 - `operation-menu`: renders an entry in the operation menu Plugins section.
 - `send-data`: renders as a Send IOC destination from the event detail view.
 - `event-actions`: renders in the event action area.
@@ -90,7 +91,9 @@ export default function MyPlugin() {
 }
 ```
 
-The metadata file must describe the plugin:
+The companion metadata file describes its mounting slots. Its filename determines
+the source to import; `filename` and `path` fields are optional for local plugins.
+No matching server-side JSON or `/ui_plugin_list` entry is required:
 
 ```json
 {

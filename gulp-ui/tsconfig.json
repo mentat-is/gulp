@@ -21,6 +21,7 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
+      "@gulp/ui-plugin-sdk/v1": ["./src/plugin-api/v1"],
       "@/*": [
         "./src/*"
       ]

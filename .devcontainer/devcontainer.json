@@ -65,6 +65,8 @@
     // map the config for development (references the gulp-paid-plugins above for the extra plugins and mapping files)
     "source=${localEnv:HOME}/.config/gulp,target=/home/vscode/.config/gulp,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-paid-plugins/src/gulp-paid-plugins/plugins,target=/home/vscode/.config/gulp/plugins,type=bind,consistency=cached",
+    // Restore the working-dir UI manifests and bundles over the paid source subtree.
+    "source=${localEnv:HOME}/.config/gulp/plugins/ui,target=/home/vscode/.config/gulp/plugins/ui,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files,target=/home/vscode/.config/gulp/mapping_files,type=bind,consistency=cached"
   ],
   "remoteEnv": {
@@ -76,6 +78,8 @@
     "QT_X11_NO_MITSHM": "1",
     "CODEX_HOME": "/home/vscode/.codex"
   },
+  // Bind sources must exist on the host before Docker creates the container.
+  "initializeCommand": ["mkdir", "-p", "${localEnv:HOME}/.config/gulp/plugins/ui"],
   "postCreateCommand": "chmod +x .devcontainer/devsetup.sh && .devcontainer/devsetup.sh",
   "postStartCommand": "sudo mkdir -p /run/rsyslog && (pgrep -x rsyslogd >/dev/null || sudo rsyslogd)"
 }

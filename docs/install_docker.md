@@ -30,8 +30,8 @@ docker compose -f docker-compose-docker-prod.yml --profile gulp up -d
 
 On the Docker host, the API is at [http://localhost:8080](http://localhost:8080)
 and its reference is at [http://localhost:8080/docs](http://localhost:8080/docs).
-Set `GULP_WORKING_DIR` before the command to store the generated configuration,
-plugins, and mappings outside the default `~/.config/gulp`.
+Set `GULP_WORKING_DIR` before the command to store the application working
+directory outside the default `~/.config/gulp`.
 The container starts as root to prepare the bind-mounted working directory and
 its cache mounts for the `gulp` runtime user, then drops privileges before
 starting the backend. This also handles directories Docker created as root on
@@ -91,8 +91,8 @@ stop it with `docker compose --profile gulp --profile ui down` (without `-v`),
 then start the Docker variant. The project name, volumes, and `.env` values
 stay the same.
 
-This file retains the original published ports and disabled OpenSearch security
-plugin. Before exposing it outside a trusted network, configure a firewall and
+This file retains the original published ports and disabled OpenSearch security.
+Before exposing it outside a trusted network, configure a firewall and
 HTTPS/WSS reverse proxy as described in the
 [enterprise deployment guide](enterprise_deployment.md).
 
@@ -141,7 +141,7 @@ profiles.
 - Adminer, with `--profile dev`: [http://localhost:8081](http://localhost:8081)
   - server/user/password: `postgres/postgres/Gulp1234!`
 - OpenSearch: [http://localhost:9200](http://localhost:9200)
-  - the security plugin is disabled, so authentication is not enforced
+  - security is disabled, so authentication is not enforced
 - Elasticvue, with `--profile dev`: [http://localhost:8082](http://localhost:8082)
 - OpenSearch Dashboards, with `--profile extra`: [http://localhost:5601](http://localhost:5601)
 - Redis: `localhost:6379`
@@ -150,7 +150,7 @@ profiles.
 - SeaweedFS S3 API: [http://localhost:9000](http://localhost:9000)
   - filer web UI: [http://localhost:9001](http://localhost:9001)
   - S3 access key and secret are read from `.env` (`admin`/`Gulp1234!` by default)
-  - used as S3-compatible storage for plugins that need it
+  - used as S3-compatible object storage
 - Prometheus, with `--profile metrics`: [http://localhost:9090](http://localhost:9090)
 - Grafana, with `--profile metrics`: [http://localhost:3030](http://localhost:3030)
 - FTP, with `--profile extra`: `localhost:21`, passive ports `21000-21010`

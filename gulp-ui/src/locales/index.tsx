@@ -31,6 +31,7 @@ import {
   isLanguage,
   Language,
   LocaleDir,
+  LocaleTables,
   localeByCode,
   localeList,
   resolveMessage,
@@ -124,5 +125,12 @@ export namespace Locale {
     return <Locale.Context.Provider value={value}>{children}</Locale.Context.Provider>;
   }
 
-  export const use = () => useContext(Locale.Context);
+  /** Reads the host locale, optionally resolving strings in a plugin-owned scope. */
+  export const use = (scope?: LocaleTables): ContextValue => {
+    const locale = useContext(Locale.Context);
+    return scope ? {
+      ...locale,
+      t: (key, vars) => formatMessage(resolveMessage(locale.language, key, scope), vars),
+    } : locale;
+  };
 }

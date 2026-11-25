@@ -30,7 +30,6 @@ const t = (key) => table[key] ?? en.strings[key] ?? key;
 const keys = (locale) => Object.keys(locale.strings ?? {}).sort();
 
 assert.equal(t("settings.title"), "Settings");
-assert.equal(t("plugins.story.addOrConnect"), "Add or connect to story");
 assert.equal(t("missing.key"), "missing.key");
 for (const [code, locale] of Object.entries(locales)) {
   assert.equal(typeof locale.metadata?.["@label"], "string", `${code} is missing metadata.@label`);

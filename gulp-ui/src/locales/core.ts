@@ -8,7 +8,8 @@ export interface LocaleDefinition {
   dir: LocaleDir;
 }
 
-type LocaleTable = Record<string, string>;
+export type LocaleTable = Record<string, string>;
+export type LocaleTables = Record<Language, LocaleTable>;
 type LocaleFile = {
   metadata?: Record<string, string>;
   strings?: LocaleTable;
@@ -108,8 +109,10 @@ export function isLanguage(value: unknown): value is Language {
   return typeof value === "string" && value in tables;
 }
 
-export function resolveMessage(language: Language, key: string): string {
-  return tables[language]?.[key] ?? tables[defaultLanguage][key] ?? key;
+/** Resolves optional owner-scoped dictionaries before applying the core fallback. */
+export function resolveMessage(language: Language, key: string, scope?: LocaleTables): string {
+  return scope?.[language]?.[key] ?? scope?.[defaultLanguage]?.[key]
+    ?? tables[language]?.[key] ?? tables[defaultLanguage][key] ?? key;
 }
 
 export function formatMessage(message: string, vars?: Record<string, string | number>) {
@@ -121,6 +124,7 @@ export function setActiveLanguage(language: Language) {
   activeLanguage = isLanguage(language) ? language : defaultLanguage;
 }
 
-export function translate(key: string, vars?: Record<string, string | number>): string {
-  return formatMessage(resolveMessage(activeLanguage, key), vars);
+/** Translates a key in the active language, optionally using one plugin's dictionaries. */
+export function translate(key: string, vars?: Record<string, string | number>, scope?: LocaleTables): string {
+  return formatMessage(resolveMessage(activeLanguage, key, scope), vars);
 }

@@ -60,6 +60,7 @@ from gulp.api.ws_api import (
     GulpRedisBroker,
 )
 from gulp.config import GulpConfig
+from gulp.api.ui_plugins import GulpUiPluginMetadata
 from gulp.events import (
     GulpChunkPrePostIngestEventData,
     GulpCoreEvent,
@@ -221,86 +222,6 @@ class GulpPluginEntry(BaseModel):
         Optional[str],
         Field(
             description="HTML frame to be rendered in the UI, i.e. for custom plugin panel."
-        ),
-    ] = None
-
-
-class GulpUiPluginMetadata(BaseModel):
-    """
-    metadata for an UI (ts/tsx) plugin served by the backend
-
-    an UI plugin metadata is a companion JSON file with the same name of the ts/tsx plugin + ".json" extension (i.e. my_ui_plugin.tsx.json) in the `$PLUGINS/ui` directory.
-
-    format of the json file is the following
-
-    ```json
-    {
-            // plugin display name
-            "display_name": "Test UI Plugin",
-            // description
-            "desc": "A plugin for testing UI components",
-            // plugin version
-            "version": "1.0.0",
-            // the related gulp plugin
-            "plugin": "some_gulp_plugin.py",
-            // true if the related gulp plugin is an extension
-            "extension": true
-            // filename and path of the TSX plugin to be served will be added by list_ui_plugin API
-            // "filename": "test_ui_plugin.tsx",
-            // "path": "src/gulp/plugins/ui/test_ui_plugin.tsx"
-            //
-            // other fields may be added as well, they are not used by the engine but may be useful for the UI
-    }
-    ```
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={
-            "examples": [
-                {
-                    "display_name": "My UI Plugin",
-                    "plugin": "gulp_plugin.py",
-                    "extension": True,
-                    "version": "1.0.0",
-                    "desc": "A description of my UI plugin.",
-                }
-            ]
-        },
-    )
-
-    display_name: Annotated[
-        str,
-        Field(
-            description="The plugin display name.",
-        ),
-    ]
-    plugin: Annotated[
-        str,
-        Field(
-            description="The related Gulp plugin.",
-        ),
-    ]
-    extension: Annotated[
-        bool,
-        Field(
-            description="True if the related Gulp plugin is an extension.",
-        ),
-    ] = True
-
-    version: Annotated[
-        Optional[str],
-        Field(
-            None,
-            description="The plugin version.",
-        ),
-    ] = None
-
-    desc: Annotated[
-        Optional[str],
-        Field(
-            None,
-            description="A description of the plugin.",
         ),
     ] = None
 
@@ -3591,72 +3512,7 @@ class GulpPluginBase(ABC):
 
     @staticmethod
     async def list_ui_plugins() -> list[GulpUiPluginMetadata]:
-        """
-        List available UI plugins.
+        """List installed JSON manifests whose compiled UI assets are available."""
+        from gulp.api.ui_plugins import list_ui_plugins
 
-        Args:
-        Returns:
-            list[GulpUiPluginMetadata]: The list of available UI plugins.
-        """
-
-        async def _list_ui_internal(
-            l: list[GulpUiPluginMetadata],
-            path: str,
-        ) -> None:
-            """
-            append found plugins to l list.
-            """
-            MutyLogger.get_instance().debug("listing UI plugins in %s ..." % (path))
-            files: list[str] = await muty.file.list_directory_async(path)
-            for f in files:
-                # skip non ts/js files
-                f_lower: str = f.lower()
-                if (
-                    not f_lower.endswith(".ts")
-                    and not f_lower.endswith(".js")
-                    and not f_lower.endswith(".tsx")
-                ):
-                    continue
-
-                # we have the plugin path, now build the corresponding metadata file (json) path
-                metadata_file = os.path.join(path, f + ".json")
-                if not await muty.file.exists(metadata_file):
-                    MutyLogger.get_instance().warning(
-                        "plugin metadata file %s not found, skipping plugin %s"
-                        % (metadata_file, f)
-                    )
-                    continue
-
-                metadata: bytes = await muty.file.read_file(metadata_file)
-                js: dict = json5.loads(metadata)
-                try:
-                    mtd: GulpUiPluginMetadata = GulpUiPluginMetadata.model_validate(js)
-
-                    # add path and filename
-                    mtd.path = os.path.abspath(os.path.expanduser(f))
-                    mtd.filename = os.path.basename(f)
-                    l.append(mtd)
-                except ValidationError as ve:
-                    MutyLogger.get_instance().exception(ve)
-                    MutyLogger.get_instance().warning(
-                        "plugin metadata file %s is not valid, skipping plugin %s:\n%s"
-                        % (metadata_file, f, js)
-                    )
-                    continue
-
-                # got entry
-
-        l: list[GulpUiPluginMetadata] = []
-
-        # list extra folder first, if any
-        p = GulpConfig.get_instance().path_plugins_extra()
-        if p:
-            await _list_ui_internal(l, os.path.join(p, "ui"))
-            MutyLogger.get_instance().debug(
-                "found %d UI plugins in extra path=%s" % (len(l), p)
-            )
-
-        # list default path
-        default_path = GulpConfig.get_instance().path_plugins_default()
-        await _list_ui_internal(l, os.path.join(default_path, "ui"))
-        return l
+        return await asyncio.to_thread(list_ui_plugins)

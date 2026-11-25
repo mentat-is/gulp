@@ -1,3 +1,4 @@
+import canvasStyles from "@/app/body/styles/Canvas.module.css";
 import type { MinMax } from "@/class/Info";
 import type { CustomParameters } from "@/components/CustomParameters";
 import type { App } from "@/entities/App";
@@ -688,3 +689,32 @@ export function removePersistedDetachedWindow(
 		coordinatorId,
 	);
 }
+
+/** Shared canvas exports/navigation used by plugins and existing UI modules. */
+export const Canvas = {
+	/** Returns the export surface and overlays, or null when no timeline is mounted. */
+	snapshot(): { canvas: HTMLCanvasElement; overlays: Element[] } | null {
+		const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
+		if (!canvas) return null;
+		return { canvas, overlays: Array.from(canvas.parentElement?.querySelectorAll("[aria-exportable]") ?? []) };
+	},
+	/** Captures PNG output and restores the canvas cursor state afterward. */
+	png(): string | null {
+		const surface = Canvas.snapshot();
+		if (!surface) return null;
+		const hadClass = surface.canvas.classList.contains(canvasStyles.no_cursor);
+		surface.canvas.classList.add(canvasStyles.no_cursor);
+		try {
+			return surface.canvas.toDataURL("image/png");
+		} finally {
+			if (!hadClass) surface.canvas.classList.remove(canvasStyles.no_cursor);
+		}
+	},
+	/** Delegates event focus to the timeline currently owned by this document. */
+	focus(timestamp: number, onLeft = false, sourceId?: Source.Id): void {
+		const focus = (window as Window & {
+			focusCanvasOnEvent?: (timestamp: number, onLeft: boolean, sourceId?: Source.Id) => void;
+		}).focusCanvasOnEvent;
+		focus?.(timestamp, onLeft, sourceId);
+	},
+};

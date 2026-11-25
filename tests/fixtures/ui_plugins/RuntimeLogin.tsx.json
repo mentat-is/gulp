@@ -1,0 +1,8 @@
+{
+  "id": "runtime-login-fixture",
+  "display_name": "Runtime login fixture",
+  "plugin": "runtime-login-fixture",
+  "extension": true,
+  "version": "1.0.0",
+  "type": ["login"]
+}

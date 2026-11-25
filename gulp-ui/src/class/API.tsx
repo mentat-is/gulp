@@ -362,7 +362,7 @@ function createFallbackResponse<T>(
  * @param arg3 Options or callback from the overloaded API signature.
  * @returns The unwrapped response data or a raw ResponseHandler.
  */
-const api: Api = async function <T>(
+export const api: Api = async function <T>(
 	_path: string,
 	arg2?: any,
 	arg3?: any,

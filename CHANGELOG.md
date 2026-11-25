@@ -1,3 +1,23 @@
+# v2.0.2
+
+Changes since `v2.0.1`.
+
+## Web UI
+
+- Consolidated plugin loading, canvas helpers and scoped localization into the
+  existing UI modules, keeping only the shared `v1.ts` contract. Compatible UI
+  releases continue using previously compiled plugin bundles unchanged.
+
+- Added anonymous runtime UI bundle delivery and a versioned host API, with
+  login slots, scoped/transitive translations and independent local custom plugin
+  discovery. Manifest and compiled asset packages stay together under `plugins/ui`,
+  allowing runtime UI features with the same public Docker image.
+
+- Simplified configuration details and the edit banner to show a single
+  Configuration heading and parameter list, with plugin/default controls and the
+  intermediate Parameters heading hidden; preserved safe JSON rendering and the
+  single configuration edit action.
+
 # v2.0.1
 
 Changes since `v2.0.0`.
